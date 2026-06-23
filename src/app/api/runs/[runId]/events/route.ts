@@ -1,6 +1,6 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // SSE 长连接需要更长的超时时间
+export const maxDuration = 1800; // 30 分钟，SSE 长连接需要更长的超时时间
 
 import { prisma } from "@/server/db/client";
 import { toAgentEventDTO, toRunDTO } from "@/server/runs/run-service";
