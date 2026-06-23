@@ -8,25 +8,47 @@ import { Sidebar } from "@/components/Sidebar";
 
 const PROMPT_TEMPLATES = [
   {
-    title: "为什么你们应该选择麦当",
-    prompt:
-      "sayso种子用户，口述时长13h+，安利5+好友使用sayso，对语音办公场景有深入理解。",
+    title: "48 小时 Cloud Agent Platform 大作战",
+    prompt: `git clone https://github.com/maidangzhu/cloud-agent-platform
+
+请深入分析这个项目，重点关注：
+
+1. **架构设计**：我们如何构建一个 Cloud-based Agent Platform？为什么选择这样的技术栈？
+   - 前端：Next.js 16 + React 19 + TanStack Query（状态管理）
+   - 后端：Vercel Sandbox（代码执行环境）+ Prisma 7（数据层）
+   - Agent：Pi Agent Core（工具调用框架）
+
+2. **关键技术决策**：
+   - 为什么用 SSE 而不是 WebSocket？
+   - 如何处理沙箱的生命周期管理？
+   - 多轮对话的状态如何持久化？
+
+3. **工程实践**：
+   - openspec/ 目录下的设计文档和任务拆解
+   - 从 Stage 0 到 Stage 6 的迭代演进
+   - 类型安全、错误处理、日志策略
+
+4. **挑战与解决方案**：
+   - Demo-repo 阻塞根目录问题
+   - SSE 连接和状态同步
+   - Prisma 7 兼容性修复
+
+请用面试官能理解的方式，展示我们的思考过程、技术选型理由、以及从 0 到 1 的完整实现路径。`,
   },
   {
-    title: "麦当最近在干什么？",
-    prompt:
-      "执行npx maidang，看看他最近写的文章，他的猫猫叫什么，最近做了什么项目",
-  },
-  {
-    title: "通知麦当已被录用",
-    prompt: "执行 npx maidang contact -m 'You are hired'",
-  },
-  {
-    title: "48 小时 Cloud Sandbox Agent 大作战",
-    prompt:
-      "git clone https://github.com/maidangzhu/cloud-agent-platform 过一下整个项目，尤其是docs和openspecs部分",
+    title: "认识麦当 - AI 可读的数字名片",
+    prompt: `执行 npx maidang，看看他最近写的文章、做过什么项目、技术栈是什么。
+
+这是一个给 AI 看的自我介绍名片，包含：
+- 最近的技术文章和思考
+- 参与过的项目和角色
+- 技术能力和兴趣方向
+- 联系方式
+
+请帮我整理成易读的格式，展示麦当的技术背景和项目经验。`,
   },
 ];
+
 
 export default function HomePage() {
   const router = useRouter();
