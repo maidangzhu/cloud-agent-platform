@@ -1,5 +1,4 @@
 import { Sandbox as VercelSdkSandbox } from "@vercel/sandbox";
-import { DEMO_REPO_FILES, DEMO_REPO_SEED_MARKER } from "./demo-repo";
 import { resolveVercelCredentials } from "./vercel-credentials";
 import { VercelSandbox } from "./vercel-sandbox";
 
@@ -13,8 +12,6 @@ export interface GetOrCreateOptions {
 
 export interface GetOrCreateResult {
   sandbox: VercelSandbox;
-  /** 本次是否新建并 seed 了 demo-repo（true=新建，false=复用已存在沙箱）。 */
-  seeded: boolean;
 }
 
 /** 由 sessionId 生成 project 内唯一、字符受限的命名沙箱名。 */
@@ -23,8 +20,8 @@ export function sandboxNameFor(sessionId: string): string {
 }
 
 /**
- * 按 sessionId getOrCreate 命名沙箱（① 文件延续）：活着则复用、回收则重建。
- * 新建（未 seed）时把 demo-repo seed 进 workspace；复用时跳过。
+ * 按 sessionId getOrCreate 命名沙箱：活着则复用、回收则重建。
+ * 沙箱初始化为空目录，用户可自由使用。
  */
 export async function getOrCreateSandbox(
   opts: GetOrCreateOptions,
@@ -46,30 +43,5 @@ export async function getOrCreateSandbox(
   });
 
   const sandbox = new VercelSandbox(sdk, { provider: "vercel", sandboxName: name });
-  const seeded = await ensureSeeded(sandbox);
-  return { sandbox, seeded };
-}
-
-/**
- * 幂等 seed：标记文件存在则跳过（复用场景）；否则写入 demo-repo 全部文件 + 标记。
- * 返回是否实际执行了 seed。
- */
-async function ensureSeeded(sandbox: VercelSandbox): Promise<boolean> {
-  let alreadySeeded = false;
-  try {
-    await sandbox.readFile(DEMO_REPO_SEED_MARKER);
-    alreadySeeded = true;
-  } catch {
-    alreadySeeded = false;
-  }
-  if (alreadySeeded) return false;
-
-  await sandbox.writeFilesBatch([
-    ...Object.entries(DEMO_REPO_FILES).map(([path, content]) => ({
-      path,
-      content,
-    })),
-    { path: DEMO_REPO_SEED_MARKER, content: "seeded\n" },
-  ]);
-  return true;
+  return { sandbox };
 }

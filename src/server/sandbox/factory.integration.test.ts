@@ -16,26 +16,24 @@ describe.skipIf(!creds)("VercelSandbox + factory 集成（真沙箱）", () => {
     if (sandbox) await sandbox.stop();
   });
 
-  it("getOrCreate 新建并 seed demo-repo", async () => {
+  it("getOrCreate 创建空沙箱", async () => {
     const r = await getOrCreateSandbox({ sessionId });
     sandbox = r.sandbox;
-    expect(r.seeded).toBe(true);
-    const store = await sandbox.readFile("src/store.ts");
-    expect(store).toContain("FIXME");
-  });
-
-  it("readdir 列出 workspace 根（含文件与目录类型）", async () => {
+    // 沙箱应该是空的（没有 demo-repo seed）
     const entries = await sandbox.readdir(".");
-    const names = entries.map((e) => e.name);
-    expect(names).toContain("README.md");
-    expect(names).toContain("src");
-    expect(entries.find((e) => e.name === "src")?.type).toBe("dir");
-    expect(entries.find((e) => e.name === "README.md")?.type).toBe("file");
+    expect(entries.length).toBe(0);
   });
 
   it("writeFile + readFile 往返（自动建父目录）", async () => {
     await sandbox.writeFile("notes/out.txt", "hello-sandbox");
     expect(await sandbox.readFile("notes/out.txt")).toBe("hello-sandbox");
+  });
+
+  it("readdir 列出 workspace 根（含文件与目录类型）", async () => {
+    const entries = await sandbox.readdir(".");
+    const names = entries.map((e) => e.name);
+    expect(names).toContain("notes");
+    expect(entries.find((e) => e.name === "notes")?.type).toBe("dir");
   });
 
   it("path-guard 拒绝越权读/写", async () => {
@@ -44,19 +42,18 @@ describe.skipIf(!creds)("VercelSandbox + factory 集成（真沙箱）", () => {
   });
 
   it("exec 运行命令并返回结果", async () => {
-    const r = await sandbox.exec("echo hi && ls src");
+    const r = await sandbox.exec("echo hi && ls notes");
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("hi");
-    expect(r.stdout).toContain("index.ts");
+    expect(r.stdout).toContain("out.txt");
   });
 
   it("readFile 不存在的文件抛错", async () => {
     await expect(sandbox.readFile("nope.txt")).rejects.toThrow(/not found/i);
   });
 
-  it("同 sessionId 复用沙箱：seeded=false 且文件延续", async () => {
+  it("同 sessionId 复用沙箱：文件延续", async () => {
     const r2 = await getOrCreateSandbox({ sessionId });
-    expect(r2.seeded).toBe(false);
     // 第一次写入的文件在复用的沙箱里仍可见（① 文件延续）
     expect(await r2.sandbox.readFile("notes/out.txt")).toBe("hello-sandbox");
   });

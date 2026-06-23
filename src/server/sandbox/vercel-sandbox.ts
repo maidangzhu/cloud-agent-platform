@@ -61,7 +61,6 @@ export class VercelSandbox implements Sandbox {
 
   /**
    * 批量写文件（一次 mkdir -p 父目录 + 一次 writeFiles）。
-   * 非接口方法，供 factory 高效 seed demo-repo。
    */
   async writeFilesBatch(
     files: { path: string; content: string }[],

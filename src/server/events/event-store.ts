@@ -13,6 +13,7 @@ export async function appendEvent(
 ) {
   await prisma.agentEvent.create({
     data: {
+      id: crypto.randomUUID(),
       runId,
       seq,
       type,
@@ -33,8 +34,10 @@ export async function persistToolCallStart(
   name: string,
   args: unknown,
 ): Promise<string> {
-  const tc = await prisma.toolCall.create({
+  const id = crypto.randomUUID();
+  await prisma.toolCall.create({
     data: {
+      id,
       runId,
       eventSeq,
       name,
@@ -42,7 +45,7 @@ export async function persistToolCallStart(
       status: "running",
     },
   });
-  return tc.id;
+  return id;
 }
 
 export async function completeToolCall(id: string, result: unknown) {
@@ -77,7 +80,14 @@ export async function persistArtifact(
   kind: string,
   opts: { title?: string; path?: string; content?: string } = {},
 ) {
-  await prisma.artifact.create({ data: { runId, kind, ...opts } });
+  await prisma.artifact.create({
+    data: {
+      id: crypto.randomUUID(),
+      runId,
+      kind,
+      ...opts,
+    },
+  });
 }
 
 // ── Message ───────────────────────────────────────────────────────────────────
@@ -88,5 +98,13 @@ export async function appendMessage(
   content: string,
   runId?: string,
 ) {
-  await prisma.message.create({ data: { sessionId, role, content, runId } });
+  await prisma.message.create({
+    data: {
+      id: crypto.randomUUID(),
+      sessionId,
+      role,
+      content,
+      runId,
+    },
+  });
 }

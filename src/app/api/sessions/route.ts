@@ -50,11 +50,14 @@ export async function POST(req: Request) {
       ? prompt.trim().slice(0, 100)
       : "New session";
 
+  const now = new Date();
   const session = await prisma.session.create({
     data: {
+      id: crypto.randomUUID(),
       title: sessionTitle,
       inviteCodeHash: hashCode(inviteCode),
       status: "active",
+      updatedAt: now,
     },
   });
 

@@ -99,24 +99,28 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
     const result = await getOrCreateSandbox({ sessionId });
     sandbox = result.sandbox;
     const state = sandbox.getState();
+    const now = new Date();
     await prisma.workspace.upsert({
       where: { sessionId },
       create: {
+        id: crypto.randomUUID(),
         sessionId,
         provider: "vercel",
         status: "ready",
         sandboxName: state.sandboxName,
         sandboxState: state as object,
         workingDir: sandbox.workingDir,
+        updatedAt: now,
       },
       update: {
         status: "ready",
         sandboxName: state.sandboxName,
         sandboxState: state as object,
         workingDir: sandbox.workingDir,
+        updatedAt: now,
       },
     });
-    await appendEvent(runId, seq.next(), result.seeded ? "workspace_ready" : "workspace_resumed");
+    await appendEvent(runId, seq.next(), "workspace_ready");
   } catch (err) {
     const msg = String(err);
     await appendEvent(runId, seq.next(), "run_failed", { content: msg });

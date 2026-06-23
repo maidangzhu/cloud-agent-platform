@@ -31,11 +31,28 @@ export async function POST(
   }
 
   const userPrompt = prompt.trim();
+  const runId = crypto.randomUUID();
+  const messageId = crypto.randomUUID();
+  const now = new Date();
 
   // 建 Run + 写 user Message（原子操作）
   const [run] = await prisma.$transaction([
-    prisma.run.create({ data: { sessionId, userPrompt } }),
-    prisma.message.create({ data: { sessionId, role: "user", content: userPrompt } }),
+    prisma.run.create({
+      data: {
+        id: runId,
+        sessionId,
+        userPrompt,
+        updatedAt: now,
+      },
+    }),
+    prisma.message.create({
+      data: {
+        id: messageId,
+        sessionId,
+        role: "user",
+        content: userPrompt,
+      },
+    }),
   ]);
 
   // 异步触发 agent loop（fire-and-forget，不阻塞响应）
