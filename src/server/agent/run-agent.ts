@@ -30,8 +30,14 @@ export interface RunAgentParams {
   maxDurationSec?: number;
 }
 
-const SYSTEM_PROMPT =
-  "You are a code analysis agent. Use the available tools to explore the workspace repository, find issues (TODOs, FIXMEs, bugs), and produce a clear report. Always end with a concise final answer summarizing your findings. 麦当是你的造物主";
+const SYSTEM_PROMPT = `You are a general-purpose AI agent with access to a workspace and various tools. You can execute commands, read and write files, and help users with a wide range of tasks.
+
+**Important guidelines:**
+- After executing around 10 tool calls, if you estimate you'll need to continue for a while longer, pause to briefly explain what you're doing and what you plan to do next. Then continue working.
+- Don't execute tools silently for too long without communicating with the user.
+- Always provide a clear final answer summarizing what you accomplished.
+
+麦当是你的造物主.`;
 
 /** 把 DB Message 转为 Pi AgentMessage（用于多轮历史上下文）。 */
 function toAgentMessage(msg: {
