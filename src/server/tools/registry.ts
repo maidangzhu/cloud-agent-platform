@@ -157,7 +157,7 @@ export function createTools(ctx: ToolContext): AgentTool[] {
     name: "run_command",
     label: "Run command",
     description:
-      "在 workspace 内执行一条只读检视类 shell 命令（白名单：grep/cat/ls/find 等；高风险命令会被拒绝）。",
+      "在 workspace 内执行 shell 命令（支持安装依赖、运行脚本、git clone、npx 等；只拦截 rm -rf、sudo 等破坏性操作）。",
     parameters: Type.Object({
       command: Type.String({ description: "要执行的命令" }),
       timeoutMs: Type.Optional(

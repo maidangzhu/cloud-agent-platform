@@ -1,6 +1,5 @@
-// RunTimeline — 一次 Run 的执行过程（工具调用 + 模型步骤）
+// RunTimeline — 一次 Run 的执行过程（平铺显示所有事件）
 "use client";
-import { useState } from "react";
 import type { AgentEventDTO } from "@/lib/api-contract";
 import { ToolCallCard } from "./ToolCallCard";
 
@@ -11,46 +10,72 @@ export function RunTimeline({
   events: AgentEventDTO[];
   isRunning: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-
-  const toolStarts = events.filter(e => e.type === "tool_call_started");
-  const toolCount = toolStarts.length;
-  if (toolCount === 0 && !isRunning) return null;
+  if (events.length === 0 && !isRunning) return null;
 
   // 配对工具调用（started → completed/failed）
-  const toolPairs: Array<{ start: AgentEventDTO; end?: AgentEventDTO }> = toolStarts.map(s => {
+  const toolStarts = events.filter((e) => e.type === "tool_call_started");
+  const toolPairs: Array<{ start: AgentEventDTO; end?: AgentEventDTO }> = toolStarts.map((s) => {
     const end = events.find(
-      e =>
-        (e.type === "tool_call_completed" || e.type === "tool_call_failed") &&
-        e.seq > s.seq,
+      (e) =>
+        (e.type === "tool_call_completed" || e.type === "tool_call_failed") && e.seq > s.seq
     );
     return { start: s, end };
   });
 
-  const modelSteps = events.filter(e => e.type === "model_step");
-
   return (
-    <div className="my-2">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-      >
-        <span className={`inline-block w-2 h-2 rounded-full ${isRunning ? "bg-amber-400 animate-pulse" : "bg-zinc-600"}`} />
-        <span>
-          {isRunning ? "运行中…" : `${toolCount} 次工具调用`}
-        </span>
-        {toolCount > 0 && <span>{open ? "▲" : "▼"}</span>}
-      </button>
+    <div className="space-y-3 my-3">
+      {/* 平铺显示所有事件 */}
+      {events.map((event) => {
+        // 工具调用
+        if (event.type === "tool_call_started") {
+          const pair = toolPairs.find((p) => p.start.seq === event.seq);
+          return <ToolCallCard key={event.seq} startEvent={event} endEvent={pair?.end} />;
+        }
 
-      {open && (
-        <div className="mt-2 space-y-2 pl-4 border-l border-zinc-800">
-          {toolPairs.map(({ start, end }) => (
-            <ToolCallCard key={start.seq} startEvent={start} endEvent={end} />
-          ))}
-          {modelSteps.map(e => (
-            <div key={e.seq} className="text-sm text-zinc-400 italic py-1">
-              {e.content}
+        // model_step（AI 回复）
+        if (event.type === "model_step") {
+          return (
+            <div
+              key={event.seq}
+              className="rounded-2xl rounded-bl-sm bg-zinc-900 border border-zinc-800 px-4 py-2.5 text-sm text-zinc-100 whitespace-pre-wrap"
+            >
+              {event.content}
             </div>
+          );
+        }
+
+        // 状态事件（workspace_provisioning、agent_started 等）
+        if (
+          event.type === "workspace_provisioning" ||
+          event.type === "workspace_ready" ||
+          event.type === "agent_started"
+        ) {
+          const statusLabels: Record<string, string> = {
+            workspace_provisioning: "🔧 正在准备工作环境…",
+            workspace_ready: "✅ 工作环境就绪",
+            agent_started: "🤖 Agent 开始工作",
+          };
+          return (
+            <div key={event.seq} className="text-xs text-zinc-500 italic">
+              {statusLabels[event.type]}
+            </div>
+          );
+        }
+
+        // 其他事件跳过渲染（run_created、tool_call_completed 已在 ToolCallCard 中处理）
+        return null;
+      })}
+
+      {/* 运行中指示器 */}
+      {isRunning && (
+        <div className="flex gap-1 pl-1">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce"
+              style={{ animationDelay: `${i * 0.15}s` }}
+              aria-hidden="true"
+            />
           ))}
         </div>
       )}

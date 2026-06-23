@@ -123,6 +123,7 @@ export interface RunDTO {
   completedAt?: string;
   error?: string;
   createdAt: string;
+  events?: AgentEventDTO[]; // 可选：从 DB 加载时包含
 }
 
 export interface AgentEventDTO {

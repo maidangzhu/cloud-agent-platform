@@ -81,8 +81,13 @@ export async function GET(
           }
 
           setTimeout(poll, POLL_MS);
-        } catch {
-          controller.close();
+        } catch (err) {
+          // 只在未关闭时才关闭 controller
+          try {
+            controller.close();
+          } catch {
+            // controller 已经关闭，忽略
+          }
         }
       };
 

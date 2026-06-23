@@ -1,5 +1,5 @@
 import { prisma } from "@/server/db/client";
-import { toMessageDTO, toRunDTO, toSessionDTO } from "@/server/runs/run-service";
+import { toMessageDTO, toRunDTO, toSessionDTO, toAgentEventDTO } from "@/server/runs/run-service";
 import { ApiCode, apiJson, fail, ok } from "@/lib/api-contract";
 import type { SessionDetailData } from "@/lib/api-contract";
 
@@ -23,6 +23,7 @@ export async function GET(
     prisma.run.findMany({
       where: { sessionId: id },
       orderBy: { createdAt: "asc" },
+      include: { events: { orderBy: { seq: "asc" } } }, // 加载 events
     }),
   ]);
 
@@ -30,7 +31,10 @@ export async function GET(
     ok<SessionDetailData>({
       session: toSessionDTO(session),
       messages: messages.map(toMessageDTO),
-      runs: runs.map(toRunDTO),
+      runs: runs.map((run) => ({
+        ...toRunDTO(run),
+        events: run.events.map(toAgentEventDTO), // 包含 events
+      })),
     }),
   );
 }

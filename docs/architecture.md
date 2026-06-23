@@ -208,7 +208,61 @@ sequenceDiagram
   end
 ```
 
-## 9. 上下文管理
+## 9. 前端状态管理与实时同步
+
+> 详见 [ADR-0004](./adr/0004-frontend-state-management-and-realtime-sync.md)
+
+### 双源数据协调
+
+前端状态来自两个数据源：
+
+1. **SSE 事件流**（`/api/runs/:runId/events`）—— 实时推送执行过程事件
+2. **DB 快照**（`/api/sessions/:sessionId`）—— 持久化的会话、消息、runs 数据
+
+**核心原则**：DB 是唯一事实来源（Single Source of Truth），SSE 是实时视图增强（Live View Enhancement）。
+
+### 场景化数据源切换
+
+| 场景 | 初始数据源 | SSE 连接 | 降级策略 |
+|------|-----------|----------|---------|
+| **S1: 发送新消息** | 乐观渲染 | 立刻连接 `runId` | SSE 失败 → 每 5s 轮询 session |
+| **S2: 刷新（run 进行中）** | GET session（DB） | 检测到 `running` → 重连 SSE | 同上 |
+| **S3: 刷新（run 已完成）** | GET session（DB） | 无需连接 | N/A |
+| **S4: 打开历史 session** | GET session（DB） | 全部完成 → 无需连接 | N/A |
+
+### 弹性降级
+
+- SSE 连接失败/断开：自动重连 3 次（间隔 2s/5s/10s）
+- 3 次失败后降级到轮询（每 5s GET session）
+- 浏览器休眠恢复：`visibilitychange` 事件触发重连
+- 心跳检测：30s 无消息自动重连
+
+### 分层架构
+
+```
+┌─────────────────────────────────────────┐
+│     UI Layer (React Components)          │
+└──────────────┬──────────────────────────┘
+               │ useSessionState(sessionId)
+┌──────────────▼──────────────────────────┐
+│      State Management Layer              │
+│  - 合并 DB + SSE 数据                    │
+│  - 处理乐观更新                          │
+│  - 管理 activeRunId                      │
+│  - 降级策略（SSE → Poll → Error）        │
+└──────┬───────────────┬──────────────────┘
+       │               │
+┌──────▼─────┐   ┌────▼─────────────────┐
+│ DB Layer   │   │ SSE Layer            │
+│ (React     │   │ - 自动重连           │
+│  Query)    │   │ - 心跳检测           │
+│            │   │ - 错误处理           │
+└────────────┘   └──────────────────────┘
+```
+
+**边缘情况处理**：多标签页同步（BroadcastChannel）、快速连发消息防护、POST 成功但 SSE 失败、Run 超时/取消、SSE snapshot 不全等 10+ 边缘情况，详见 ADR-0004。
+
+## 10. 上下文管理
 
 四层上下文策略（P0 实现前两层，其余写入演进）：
 

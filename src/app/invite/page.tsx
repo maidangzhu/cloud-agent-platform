@@ -1,6 +1,9 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function InvitePage() {
   const router = useRouter();
@@ -10,24 +13,23 @@ export default function InvitePage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setError(""); setLoading(true);
+    setError("");
+    setLoading(true);
     try {
       const vRes = await fetch("/api/invite", {
-        method: "POST", headers: { "content-type": "application/json" },
+        method: "POST",
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ code }),
       });
       const v = await vRes.json();
-      if (v.code !== 0) { setError(v.message); return; }
+      if (v.code !== 0) {
+        setError(v.message);
+        return;
+      }
 
-      const sRes = await fetch("/api/sessions", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ inviteCode: code }),
-      });
-      const s = await sRes.json();
-      if (s.code !== 0) { setError(s.message); return; }
-
-      localStorage.setItem("sessionId", s.data.session.id);
-      router.push(`/chat/${s.data.session.id}`);
+      // 存储邀请码，跳转到主页
+      localStorage.setItem("inviteCode", code);
+      router.push("/");
     } catch {
       setError("网络错误，请重试");
     } finally {
@@ -38,20 +40,33 @@ export default function InvitePage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-950">
       <form onSubmit={submit} className="flex flex-col gap-4 w-80">
-        <h1 className="text-xl font-semibold text-white text-center">Cloud Agent Platform</h1>
+        <h1 className="text-xl font-semibold text-white text-center">
+          Cloud Agent Platform
+        </h1>
         <p className="text-zinc-400 text-sm text-center">请输入邀请码以继续</p>
-        <input
-          value={code} onChange={e => setCode(e.target.value)}
-          placeholder="邀请码"
-          className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-white placeholder:text-zinc-500 outline-none focus:border-zinc-400"
-        />
-        {error && <p className="text-red-400 text-sm">{error}</p>}
-        <button
-          type="submit" disabled={loading || !code.trim()}
-          className="rounded-lg bg-white px-4 py-2.5 text-zinc-900 font-medium disabled:opacity-40 hover:bg-zinc-100 transition-colors"
-        >
+
+        <div className="space-y-2">
+          <Label htmlFor="invite-code">邀请码</Label>
+          <Input
+            id="invite-code"
+            name="inviteCode"
+            autoComplete="off"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="输入邀请码…"
+            aria-describedby={error ? "invite-error" : undefined}
+          />
+        </div>
+
+        {error && (
+          <p id="invite-error" className="text-red-400 text-sm" role="alert">
+            {error}
+          </p>
+        )}
+
+        <Button type="submit" disabled={loading || !code.trim()}>
           {loading ? "验证中…" : "进入"}
-        </button>
+        </Button>
       </form>
     </div>
   );

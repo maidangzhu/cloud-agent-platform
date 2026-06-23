@@ -2,10 +2,14 @@
 "use client";
 import { useState } from "react";
 import type { AgentEventDTO } from "@/lib/api-contract";
+import { Button } from "./ui/button";
 
 const TOOL_ICONS: Record<string, string> = {
-  read_file: "📄", write_file: "✏️", list_files: "📁",
-  search_text: "🔍", run_command: "⚡",
+  read_file: "📄",
+  write_file: "✏️",
+  list_files: "📁",
+  search_text: "🔍",
+  run_command: "⚡",
 };
 
 export function ToolCallCard({
@@ -25,25 +29,26 @@ export function ToolCallCard({
   const result = endEvent?.payload?.result;
   const errMsg = endEvent?.payload?.error;
 
-  const statusColor = pending
-    ? "text-zinc-400"
-    : failed
-      ? "text-red-400"
-      : "text-emerald-400";
+  const statusColor = pending ? "text-zinc-400" : failed ? "text-red-400" : "text-emerald-400";
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900 text-sm overflow-hidden">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800 transition-colors"
+      <Button
+        variant="ghost"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label={`工具 ${tool}${pending ? "运行中" : failed ? "失败" : "完成"}${open ? "，已展开" : "，点击展开详情"}`}
+        className="w-full justify-start h-auto px-3 py-2 hover:bg-zinc-800 focus-visible:ring-offset-0"
       >
-        <span>{icon}</span>
+        <span aria-hidden="true">{icon}</span>
         <span className="font-mono text-zinc-200">{tool}</span>
         <span className={`ml-auto text-xs ${statusColor}`}>
           {pending ? "running…" : failed ? "failed" : "done"}
         </span>
-        <span className="text-zinc-500">{open ? "▲" : "▼"}</span>
-      </button>
+        <span className="text-zinc-500 ml-2" aria-hidden="true">
+          {open ? "▲" : "▼"}
+        </span>
+      </Button>
       {open && (
         <div className="border-t border-zinc-800 px-3 py-2 space-y-2">
           {args !== undefined && (
@@ -65,7 +70,9 @@ export function ToolCallCard({
             </div>
           )}
           {errMsg && (
-            <p className="text-xs text-red-400">{errMsg}</p>
+            <p className="text-xs text-red-400" role="alert">
+              {errMsg}
+            </p>
           )}
         </div>
       )}

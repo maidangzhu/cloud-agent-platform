@@ -1,48 +1,53 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { useRunEvents } from "@/hooks/useRunEvents";
+import { useSessionState } from "@/hooks/useSessionState";
 import { RunTimeline } from "@/components/RunTimeline";
-import type { SessionDetailData, RunDTO } from "@/lib/api-contract";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Sidebar } from "@/components/Sidebar";
 
 function RunTurn({
   userContent,
   runId,
   assistantContent,
+  liveEvents,
   isActiveRun,
 }: {
   userContent: string;
   runId: string;
   assistantContent?: string;
+  liveEvents?: any[];
   isActiveRun: boolean;
 }) {
-  const { events, done } = useRunEvents(isActiveRun ? runId : null);
-  const isRunning = isActiveRun && !done;
-  const lastStep = events.filter(e => e.type === "model_step").at(-1)?.content ?? "";
-  const reply = assistantContent || lastStep;
+  const isRunning = isActiveRun;
+  const events = liveEvents || [];
+
+  console.log(`[RunTurn] runId=${runId}, isActiveRun=${isActiveRun}, events 数量=${events.length}`);
+  if (events.length > 0) {
+    console.log(`[RunTurn] events 类型:`, events.map(e => e.type));
+  }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 mb-8">
+      {/* 用户消息 */}
       <div className="flex justify-end">
         <div className="max-w-[70%] rounded-2xl rounded-br-sm bg-zinc-700 px-4 py-2.5 text-sm text-white">
           {userContent}
         </div>
       </div>
+
+      {/* 事件流：平铺显示工具调用、model_step、状态等 */}
       <RunTimeline events={events} isRunning={isRunning} />
-      {reply && (
+
+      {/* 如果 run 已完成且有 DB 中的 assistant 消息，显示它（兜底） */}
+      {!isRunning && assistantContent && events.length === 0 && (
         <div className="flex justify-start">
           <div className="max-w-[80%] rounded-2xl rounded-bl-sm bg-zinc-900 border border-zinc-800 px-4 py-2.5 text-sm text-zinc-100 whitespace-pre-wrap">
-            {reply}
+            {assistantContent}
           </div>
-        </div>
-      )}
-      {isRunning && !reply && (
-        <div className="flex gap-1 pl-1">
-          {[0, 1, 2].map(i => (
-            <span key={i} className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce"
-              style={{ animationDelay: `${i * 0.15}s` }} />
-          ))}
         </div>
       )}
     </div>
@@ -53,141 +58,197 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
   const router = useRouter();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [activeRunId, setActiveRunId] = useState<string | null>(null);
-  // 乐观渲染：按 Enter 立刻显示，不等 refetch
-  const [pendingTurn, setPendingTurn] = useState<{ prompt: string; runId: string } | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { params.then(p => setSessionId(p.sessionId)); }, [params]);
-
-  const { data, refetch } = useQuery<{ code: number; data: SessionDetailData }>({
-    queryKey: ["session", sessionId],
-    queryFn: () => fetch(`/api/sessions/${sessionId}`).then(r => r.json()),
-    enabled: !!sessionId,
-    refetchInterval: false, // 不轮询，只在 SSE done 时手动 refetch 一次
-  });
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [data?.data.runs.length, pendingTurn]);
+    params.then((p) => setSessionId(p.sessionId));
+  }, [params]);
 
-  // SSE done → 刷新 session 一次，拿 assistant 消息，清掉乐观轮
-  const { done: sseDone } = useRunEvents(activeRunId);
+  // 使用新的 useSessionState hook
+  const {
+    session,
+    messages,
+    runs,
+    activeRunId,
+    sseConnected,
+    pendingMessage,
+    liveEvents,
+    sendMessage,
+    isLoading,
+  } = useSessionState(sessionId || "");
+
+  // 调试：打印 liveEvents 和 activeRunId
   useEffect(() => {
-    if (sseDone) {
-      refetch().then(() => {
-        setActiveRunId(null);
-        setPendingTurn(null);
-      });
+    console.log(`[ChatPage] liveEvents 数量:`, liveEvents.length);
+    console.log(`[ChatPage] activeRunId:`, activeRunId);
+    console.log(`[ChatPage] pendingMessage:`, pendingMessage);
+    if (liveEvents.length > 0) {
+      console.log(`[ChatPage] liveEvents 详情:`, liveEvents);
     }
-  }, [sseDone, refetch]);
+  }, [liveEvents, activeRunId, pendingMessage]);
 
   if (!sessionId) return null;
 
-  const runs: RunDTO[] = data?.data.runs ?? [];
-  const msgs = data?.data.messages ?? [];
+  // 骨架屏：数据加载中
+  if (isLoading) {
+    return (
+      <div className="flex h-screen bg-zinc-950 text-white">
+        <Sidebar />
+        <div className="flex-1 flex flex-col">
+          <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-5 w-24" />
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-4 py-6">
+            <div className="mx-auto max-w-3xl space-y-8">
+              {/* 骨架屏：对话轮次 */}
+              {[1, 2].map((i) => (
+                <div key={i} className="space-y-3">
+                  {/* 用户消息 */}
+                  <div className="flex justify-end">
+                    <Skeleton className="h-10 w-64 rounded-2xl" />
+                  </div>
+                  {/* 工具调用 */}
+                  <div className="space-y-2">
+                    <Skeleton className="h-8 w-32" />
+                    <Skeleton className="h-20 w-full rounded-lg" />
+                  </div>
+                  {/* AI 回复 */}
+                  <div className="flex justify-start">
+                    <Skeleton className="h-32 w-full max-w-[80%] rounded-2xl" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="border-t border-zinc-800 px-4 py-4">
+            <div className="mx-auto max-w-3xl">
+              <Skeleton className="h-44 w-full rounded-lg" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
-    if (!input.trim() || submitting || activeRunId) return;
+    if (!input.trim() || activeRunId) return;
     const prompt = input.trim();
     setInput("");
-    // 立刻显示用户消息（乐观渲染）
-    setPendingTurn({ prompt, runId: `pending-${Date.now()}` });
-    setSubmitting(true);
-    try {
-      const res = await fetch(`/api/sessions/${sessionId}/runs`, {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
-      const r = await res.json();
-      if (r.code === 0) {
-        setPendingTurn({ prompt, runId: r.data.run.id });
-        setActiveRunId(r.data.run.id);
-      } else {
-        setPendingTurn(null);
-      }
-    } catch {
-      setPendingTurn(null);
-    } finally {
-      setSubmitting(false);
-    }
+    await sendMessage(prompt);
   }
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-950 text-white">
-      <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-        <span className="text-sm font-medium text-zinc-300">Cloud Agent Platform</span>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-zinc-500 font-mono">{sessionId?.slice(0, 8)}…</span>
-          <button onClick={() => { localStorage.removeItem("sessionId"); router.push("/invite"); }}
-            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
-            新会话
-          </button>
+    <div className="flex h-screen bg-zinc-950 text-white">
+      <Sidebar />
+      <div className="flex-1 flex flex-col">
+        <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+          <span className="text-sm font-medium text-zinc-300">{session?.title || "Chat"}</span>
+          <div className="flex items-center gap-3">
+            {/* 连接状态指示器 */}
+            {activeRunId && (
+              <div className="flex items-center gap-1.5 text-xs" role="status" aria-live="polite">
+                {sseConnected ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-green-500" aria-hidden="true"></span>
+                    <span className="text-zinc-400">实时连接</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-yellow-500" aria-hidden="true"></span>
+                    <span className="text-zinc-400">轮询中</span>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="mx-auto max-w-3xl space-y-8">
-          {runs.length === 0 && !pendingTurn && (
-            <div className="text-center text-zinc-500 text-sm pt-20">
-              <p className="text-4xl mb-4">🤖</p>
+        <div className="mx-auto max-w-3xl flex flex-col-reverse">
+          {/* 空状态提示（最底部） */}
+          {runs.length === 0 && !pendingMessage && (
+            <div className="text-center text-zinc-500 text-sm pb-20">
+              <p className="text-4xl mb-4" aria-hidden="true">
+                🤖
+              </p>
               <p>输入任务，让 Agent 开始工作</p>
             </div>
           )}
 
-          {/* 已完成的轮次（来自 DB） */}
-          {runs
-            .filter(run => run.id !== pendingTurn?.runId)
-            .map(run => (
-              <RunTurn
-                key={run.id}
-                runId={run.id}
-                userContent={msgs.find(m => m.role === "user" && m.runId === run.id)?.content ?? run.userPrompt}
-                assistantContent={msgs.find(m => m.role === "assistant" && m.runId === run.id)?.content}
-                isActiveRun={false}
-              />
-            ))}
-
-          {/* 乐观渲染的当前轮次 */}
-          {pendingTurn && (
+          {/* 乐观渲染的当前轮次（最新，显示在最下面） */}
+          {pendingMessage && (
             <RunTurn
-              key={pendingTurn.runId}
-              runId={pendingTurn.runId}
-              userContent={pendingTurn.prompt}
+              key={pendingMessage.runId}
+              runId={pendingMessage.runId}
+              userContent={pendingMessage.prompt}
               assistantContent={undefined}
-              isActiveRun={activeRunId === pendingTurn.runId}
+              liveEvents={
+                // 从 mergedRuns 中找到对应的 run，取其 liveEvents
+                runs.find((r) => r.id === pendingMessage.runId)?.liveEvents || liveEvents
+              }
+              isActiveRun={activeRunId === pendingMessage.runId}
             />
           )}
 
-          <div ref={bottomRef} />
+          {/* 已完成的轮次（来自 DB，倒序渲染） */}
+          {runs
+            .filter((run) => run.id !== pendingMessage?.runId)
+            .slice()
+            .reverse() // 倒序：最新的在前面（视觉上在下面）
+            .map((run) => {
+              const userMsg = messages.find((m) => m.role === "user" && m.runId === run.id);
+              const assistantMsg = messages.find(
+                (m) => m.role === "assistant" && m.runId === run.id
+              );
+
+              return (
+                <RunTurn
+                  key={run.id}
+                  runId={run.id}
+                  userContent={userMsg?.content ?? run.userPrompt}
+                  assistantContent={assistantMsg?.content}
+                  liveEvents={(run as any).liveEvents}
+                  isActiveRun={run.id === activeRunId}
+                />
+              );
+            })}
         </div>
       </div>
 
       <div className="border-t border-zinc-800 px-4 py-4">
-        <form onSubmit={send} className="mx-auto max-w-3xl flex gap-3">
-          <textarea
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault(); send(e as any);
-              }
-            }}
-            placeholder="输入任务…（Shift+Enter 换行）"
-            rows={1}
-            disabled={submitting || !!activeRunId}
-            className="flex-1 resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-zinc-500 disabled:opacity-40 transition-colors"
-          />
-          <button
-            type="submit"
-            disabled={submitting || !!activeRunId || !input.trim()}
-            className="rounded-xl bg-white px-5 py-2.5 text-sm font-medium text-zinc-900 disabled:opacity-40 hover:bg-zinc-100 transition-colors"
-          >
-            {submitting || activeRunId ? "运行中" : "发送"}
-          </button>
+        <form onSubmit={send} className="mx-auto max-w-3xl">
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Label htmlFor="prompt-input" className="sr-only">
+                任务输入
+              </Label>
+              <Textarea
+                id="prompt-input"
+                name="prompt"
+                autoComplete="off"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    send(e as any);
+                  }
+                }}
+                placeholder="输入任务…（Shift+Enter 换行）"
+                rows={1}
+                disabled={isLoading || !!activeRunId}
+                className="min-h-[44px]"
+              />
+            </div>
+            <Button type="submit" disabled={isLoading || !!activeRunId || !input.trim()}>
+              {activeRunId ? "运行中" : "发送"}
+            </Button>
+          </div>
         </form>
+      </div>
       </div>
     </div>
   );

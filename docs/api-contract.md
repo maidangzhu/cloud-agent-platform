@@ -105,8 +105,45 @@ data: <JSON>
 
 前端据 `event` 分发渲染；`seq` 用于去重与排序（与 DB 事实源一致）。
 
-## 7. 测试约定
+## 7. 前端状态管理与接口使用策略
+
+> 详见 [ADR-0004](./adr/0004-frontend-state-management-and-realtime-sync.md)
+
+前端状态来自两个数据源：
+
+1. **SSE 事件流**（`/api/runs/:runId/events`）—— 实时推送执行过程事件
+2. **DB 快照**（`/api/sessions/:sessionId`）—— 持久化的会话、消息、runs 数据
+
+### 场景化接口调用
+
+| 场景 | 调用顺序 | 说明 |
+|------|---------|------|
+| **发送新消息** | `POST /sessions/:id/runs` → 立刻建立 SSE `/runs/:runId/events` | 不等 POST 响应就开始监听 SSE |
+| **刷新（run 进行中）** | `GET /sessions/:id` → 检测到 `running` → 重连 SSE | SSE 首条 `snapshot` 补齐历史 |
+| **刷新（run 已完成）** | 仅 `GET /sessions/:id` | 无需 SSE |
+| **SSE 连接失败** | 降级到轮询：每 5s `GET /sessions/:id` | React Query `refetchInterval` 条件化 |
+
+### 关键实现要点
+
+1. **主流程不 refetch**：SSE `done` 后**不再调用** `GET /sessions/:id`，SSE 已推送完整数据（含最终 assistant 消息），直接清除 `activeRunId`。
+2. **DB First 原则**：首屏始终先 `GET /sessions/:id` 拿初始状态，SSE 作为增量更新。
+3. **条件化轮询**：`useQuery` 的 `refetchInterval` 根据 `sseConnected` 动态切换（连接时 `false`，断开时 `5000`）。
+4. **自动重连**：SSE 断开时重连 3 次，失败后才降级轮询。
+5. **心跳检测**：30s 无 SSE 消息（包括 `ping`）触发重连。
+
+### 错误处理
+
+| 错误场景 | 前端行为 |
+|---------|---------|
+| `POST /runs` 返回 4xx/5xx | 显示错误提示，清除乐观渲染 |
+| SSE 连接失败（3 次重试后） | 显示"实时连接失败，正在轮询更新" |
+| `GET /sessions/:id` 返回 404 | 跳转到邀请码页或首页 |
+| SSE 推送 `run_timeout` | 显示"任务超时" + 重试按钮 |
+| SSE 推送 `run_cancelled` | 显示"已取消" |
+
+## 8. 测试约定
 
 - **服务端**（阶段 4 route tests）：断言响应 `code` / HTTP status / `data` 形状符合本规范；错误路径返回正确 `code`。
-- **前端**（阶段 5）：mock 接口时按本规范造数据；渲染逻辑只依赖 DTO 字段，不依赖裸 DB 结构。
+- **前端**（阶段 5/6.0）：mock 接口时按本规范造数据；渲染逻辑只依赖 DTO 字段，不依赖裸 DB 结构。
 - 信封 helper（`ok`/`fail`）有独立单元测试，保证结构稳定。
+- **状态管理测试**（阶段 6.0）：覆盖场景 S1-S4 与边缘情况 E1-E10（见 ADR-0004）。

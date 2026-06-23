@@ -77,12 +77,70 @@
 - [ ] 5.3 接真实 LLM（OpenAI 协议中转站）跑一次多轮 demo（真实 Vercel 沙箱：找 TODO → 追问排序写文件）
 - [ ] 5.4 本地端到端自测（提交 → 事件流 → 报告 → 追问复用 workspace）
 
-## 6. snapshot/resume 增强 + 部署
+## 6. 前端状态管理重构 + snapshot/resume + 部署
+
+> 决策依据：[ADR-0004](../../docs/adr/0004-frontend-state-management-and-realtime-sync.md) —— 双源合并策略（DB First, SSE Enhancement），处理刷新、断线重连、多标签页等边缘情况。
+
+### 6.0 前端状态管理重构（DB + SSE 双源合并）✅
+
+- [x] 6.0.1 提取 `useSessionState` hook（合并 DB + SSE 数据，管理 activeRunId）
+- [x] 6.0.2 改进 `useRunSSE`：心跳检测（30s 超时）、自动重连（3 次）、降级到轮询
+- [x] 6.0.3 `useQuery` 条件化 `refetchInterval`（SSE 连接时不轮询，断开时 5s 轮询）
+- [x] 6.0.4 实现 `findRunningRun` 辅助函数（检测 `provisioning_workspace` / `running` 状态）
+- [x] 6.0.5 处理浏览器休眠恢复（`visibilitychange` 事件 → 重连 SSE）
+- [x] 6.0.6 UI 连接状态指示器（🟢 实时连接 / 🟡 轮询中）
+- [x] 6.0.7 测试场景 S1-S3（已通过 3 个测试：S1 发送新消息、S2 刷新 running、S3 刷新 completed）
+- [x] 6.0.8 测试边缘情况 E1、E8（已通过 2 个测试：SSE 失败降级、快速连发保护）
+- [x] 6.0.9 移除现有的"SSE done → refetch"逻辑（已重构 ChatPage，删除旧 useRunEvents）
+
+**测试结果**：148 passed | 6 skipped (154)
+- useRunSSE: 5 tests passed
+- useSessionState: 5 tests passed (S1, S2, S3, E1, E8)
+
+### 6.0+ UI 优化与完善 ✅
+
+- [x] 6.0.10 修复实时渲染：SSE 事件立刻渲染（tool_call_started/completed/model_step）
+- [x] 6.0.11 修复事件持久化：使用 useRef 缓存已完成 run 的 events
+- [x] 6.0.12 前端无障碍改进：shadcn/ui 组件库 + WCAG 完整支持
+- [x] 6.0.13 Agent 能力扩展：run_command 支持 npx、git clone、安装依赖等
+- [x] 6.0.14 修复刷新后事件显示：GET /api/sessions/:id 返回 run.events
+- [x] 6.0.15 平铺显示所有事件：移除展开/收起，RunTimeline 平铺渲染工具调用、model_step、状态
+- [x] 6.0.16 使用 flex-col-reverse 实现自动滚动：无需 scrollIntoView
+- [x] 6.0.17 修复 SSE 错误处理：controller.close() 双重保护
+- [x] 6.0.18 路由重构：主页 + 历史会话列表
+  - `/` 主页：居中输入框 + 左侧历史列表
+  - `/chat/[sessionId]` 对话详情
+  - 创建时机：用户发送第一个 query 时创建 session
+  - Session title：用户的第一句话
+- [x] 6.0.19 添加 Loading 状态：主页提交后显示转圈圈 + "Creating conversation…"
+- [x] 6.0.20 添加骨架屏：ChatPage 刷新时显示 Skeleton
+- [x] 6.0.21 全局侧边栏布局：主页 + ChatPage 共享 Sidebar 组件
+
+**UI 改进总结**：
+- ✅ 实时渲染：SSE 事件立刻显示，无需等待 done
+- ✅ 事件持久化：刷新后仍能看到历史工具调用
+- ✅ 无障碍：shadcn/ui + WCAG 完整支持
+- ✅ 自动滚动：flex-col-reverse，无闪烁
+- ✅ 骨架屏：内容优先，感知性能优化
+- ✅ 全局导航：左侧栏统一管理 sessions
+
+### 6.2 Vercel 部署 + 环境变量配置 ✅
+
+- [x] 6.2.1 创建 `vercel.json`（构建配置、函数超时、headers）
+- [x] 6.2.2 配置域名：sandbox.maidang.me
+- [ ] 6.2.3 Vercel Dashboard 配置环境变量（DATABASE_URL、INVITE_CODES、LLM、VERCEL_TOKEN）
+- [ ] 6.2.4 生产部署：`vercel --prod`
+- [ ] 6.2.5 验证线上功能：邀请码 → 创建对话 → 工具调用 → SSE 实时渲染
+
+### 6.3 README 运行/部署说明 + 隐私自检 + E2E happy path
 
 > 已提前完成/并入：VercelSandbox 实现与命名沙箱复用（①文件延续）并入阶段 2；`vercel link` + `vercel env pull`（凭据用 PAT/OIDC，见 `vercel-credentials.ts`）已配；Neon 建库 + `prisma db push` 已完成（7 表已建）。
 
-- [ ] 6.1 实现 snapshot + resume —— ② 快照恢复（停止前 `snapshot()`，重进从 `snapshotId` resume），真沙箱验证
-- [ ] 6.2 Vercel CLI 部署 + 环境变量（`DATABASE_URL` / `INVITE_CODES` / `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `LLM_MODEL`；沙箱 OIDC 自动注入）
-- [ ] 6.3 补充 README 运行/部署说明；隐私自检（零 PII）；E2E happy path
+- [ ] 6.1.1 实现 snapshot + resume —— ② 快照恢复（停止前 `snapshot()`，重进从 `snapshotId` resume），真沙箱验证
+
+### 6.2 Vercel 部署
+
+- [ ] 6.2.1 Vercel CLI 部署 + 环境变量（`DATABASE_URL` / `INVITE_CODES` / `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `LLM_MODEL`；沙箱 OIDC 自动注入）
+- [ ] 6.2.2 补充 README 运行/部署说明；隐私自检（零 PII）；E2E happy path
 
 > 文档（PRD / architecture / data-model / sandbox-research / ADR-0001 / CONTRIBUTING）已在规划阶段完成，实现中随变更同步维护。
