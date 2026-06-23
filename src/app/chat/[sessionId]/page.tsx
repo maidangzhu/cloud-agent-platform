@@ -171,7 +171,9 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => {
-              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(e as any); }
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault(); send(e as any);
+              }
             }}
             placeholder="输入任务…（Shift+Enter 换行）"
             rows={1}
