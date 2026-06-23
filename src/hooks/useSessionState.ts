@@ -3,7 +3,7 @@
 import { useMemo, useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRunSSE } from "./useRunSSE";
-import type { SessionDetailData, RunDTO } from "@/lib/api-contract";
+import type { SessionDetailData, RunDTO, AgentEventDTO } from "@/lib/api-contract";
 
 export interface UseSessionStateResult {
   // DB 数据
@@ -15,6 +15,7 @@ export interface UseSessionStateResult {
   activeRunId: string | null;
   sseConnected: boolean;
   pendingMessage: { prompt: string; runId: string } | null;
+  liveEvents: AgentEventDTO[]; // SSE 实时事件流
 
   // 操作
   sendMessage: (prompt: string) => Promise<void>;

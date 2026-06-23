@@ -124,6 +124,7 @@ export interface RunDTO {
   error?: string;
   createdAt: string;
   events?: AgentEventDTO[]; // 可选：从 DB 加载时包含
+  liveEvents?: AgentEventDTO[]; // 可选：前端合并 SSE 实时事件
 }
 
 export interface AgentEventDTO {

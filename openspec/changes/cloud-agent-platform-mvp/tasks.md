@@ -117,6 +117,7 @@
 - [x] 6.0.21 全局侧边栏布局：主页 + ChatPage 共享 Sidebar 组件
 
 **UI 改进总结**：
+
 - ✅ 实时渲染：SSE 事件立刻显示，无需等待 done
 - ✅ 事件持久化：刷新后仍能看到历史工具调用
 - ✅ 无障碍：shadcn/ui + WCAG 完整支持
@@ -144,3 +145,4 @@
 - [ ] 6.2.2 补充 README 运行/部署说明；隐私自检（零 PII）；E2E happy path
 
 > 文档（PRD / architecture / data-model / sandbox-research / ADR-0001 / CONTRIBUTING）已在规划阶段完成，实现中随变更同步维护。
+
