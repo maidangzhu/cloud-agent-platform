@@ -1,6 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useSessionState } from "@/hooks/useSessionState";
 import { RunTimeline } from "@/components/RunTimeline";
 import { Button } from "@/components/ui/button";
@@ -8,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sidebar } from "@/components/Sidebar";
+import type { AgentEventDTO } from "@/lib/api-contract";
 
 function RunTurn({
   userContent,
@@ -19,7 +19,7 @@ function RunTurn({
   userContent: string;
   runId: string;
   assistantContent?: string;
-  liveEvents?: any[];
+  liveEvents?: AgentEventDTO[];
   isActiveRun: boolean;
 }) {
   const isRunning = isActiveRun;
@@ -55,7 +55,6 @@ function RunTurn({
 }
 
 export default function ChatPage({ params }: { params: Promise<{ sessionId: string }> }) {
-  const router = useRouter();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
 
@@ -210,7 +209,7 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
                   runId={run.id}
                   userContent={userMsg?.content ?? run.userPrompt}
                   assistantContent={assistantMsg?.content}
-                  liveEvents={(run as any).liveEvents}
+                  liveEvents={run.liveEvents}
                   isActiveRun={run.id === activeRunId}
                 />
               );
@@ -234,7 +233,7 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                     e.preventDefault();
-                    send(e as any);
+                    e.currentTarget.form?.requestSubmit();
                   }
                 }}
                 placeholder="输入任务…（Shift+Enter 换行）"
@@ -243,8 +242,20 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
                 className="min-h-[44px]"
               />
             </div>
-            <Button type="submit" disabled={isLoading || !!activeRunId || !input.trim()}>
-              {activeRunId ? "运行中" : "发送"}
+            <Button
+              type="submit"
+              disabled={isLoading || !!activeRunId || !input.trim()}
+              className="min-w-16"
+              aria-label={activeRunId ? "Agent 正在运行" : "发送"}
+            >
+              {activeRunId ? (
+                <span
+                  className="h-4 w-4 rounded-full border-2 border-zinc-500 border-t-zinc-950 animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                "发送"
+              )}
             </Button>
           </div>
         </form>
