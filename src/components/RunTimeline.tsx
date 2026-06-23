@@ -48,16 +48,28 @@ export function RunTimeline({
         if (
           event.type === "workspace_provisioning" ||
           event.type === "workspace_ready" ||
-          event.type === "agent_started"
+          event.type === "agent_started" ||
+          event.type === "run_failed" ||
+          event.type === "run_completed"
         ) {
           const statusLabels: Record<string, string> = {
             workspace_provisioning: "🔧 正在准备工作环境…",
             workspace_ready: "✅ 工作环境就绪",
             agent_started: "🤖 Agent 开始工作",
+            run_completed: "✅ 运行完成",
+            run_failed: "❌ 运行失败",
           };
+
+          const isError = event.type === "run_failed";
+
           return (
-            <div key={event.seq} className="text-xs text-zinc-500 italic">
-              {statusLabels[event.type]}
+            <div key={event.seq} className={isError ? "text-sm text-red-400" : "text-xs text-zinc-500 italic"}>
+              <div>{statusLabels[event.type]}</div>
+              {isError && event.content && (
+                <div className="mt-2 p-3 bg-red-950/30 border border-red-900/50 rounded text-xs font-mono whitespace-pre-wrap">
+                  {event.content}
+                </div>
+              )}
             </div>
           );
         }
