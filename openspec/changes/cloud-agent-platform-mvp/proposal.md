@@ -11,7 +11,7 @@
 - 新增 **Run 编排与状态机**：创建 run、状态流转、心跳、取消、中断恢复。
 - 新增 **沙箱隔离层**：统一 `Sandbox` 接口 + 唯一 VercelSandbox 实现（Firecracker microVM），path guard 限制在 workspace 内；命名沙箱复用 + snapshot/resume 会话内持久。
 - 新增 **工具系统**：`list_files / read_file / search_text / write_file / run_command`，统一 schema 校验、超时、输出截断、命令白名单。
-- 新增 **Agent runtime 集成**：基于 Pi（`@earendil-works/pi-agent-core` + `pi-ai`），`beforeToolCall` 做 policy guard，`subscribe` 做事件同步；无 key 时回退 faux provider。
+- 新增 **Agent runtime 集成**：基于 Pi（`@earendil-works/pi-agent-core` + `pi-ai`），`beforeToolCall` 做 policy guard，`subscribe` 做事件同步；连真实 LLM 中转站（`OPENAI_API_KEY` 必须配置）。
 - 新增 **事件持久化**：AgentEvent / ToolCall / Artifact 落 Postgres，单调 seq 保证顺序，SSE 流式推送且断线后可从 DB 恢复。
 - 新增 **Web UI**：多轮对话界面、事件时间线、最终报告展示。
 - 新增 **开发流程约束**：全程 TDD（纯逻辑单元离线 + 业务流程一律连真实 Vercel 沙箱/Neon 跑通，后端全绿才开前端），分阶段交付，每阶段完成后停下等人工检查，进度用 OpenSpec 记录。

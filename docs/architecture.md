@@ -24,16 +24,16 @@
 | --- | --- | --- |
 | Web / 控制面 | Next.js 16 App Router + Tailwind + React Query + zustand | 任务提交、事件展示、API routes、DB 操作 |
 | Agent Runtime | Pi (`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`) | agent loop、工具调用、session transcript |
-| LLM Gateway | pi-ai（仅 OpenAI 兼容协议，自定义 `baseUrl` 指向中转站；无 key 回退 faux provider） | 统一 OpenAI 协议接入 |
+| LLM Gateway | pi-ai（仅 OpenAI 兼容协议，自定义 `baseUrl` 指向中转站；无 key 直接报错） | 统一 OpenAI 协议接入 |
 | Sandbox | 统一 `Sandbox` 接口 + VercelSandbox 实现 | 隔离执行 workspace |
 | Database | Neon Postgres | 平台状态源 |
 | ORM | Prisma | schema、migration、类型化查询 |
-| 测试 | Vitest + pi-ai `registerFauxProvider` | 纯逻辑单元离线；业务集成连真实沙箱/DB |
+| 测试 | Vitest | 纯逻辑单元离线；业务集成连真实 LLM + 真实沙箱/DB |
 | 部署 | Vercel + Neon | 线上交付 |
 
 **关键选型理由**：
 
-- **Pi**：`Agent` 类提供现成 tool-call 循环；`beforeToolCall` hook 是 policy guard 的天然挂点；`subscribe(event)` 是事件同步的天然挂点；`AgentTool`（TypeBox schema）适配工具系统；`registerFauxProvider` 是为测试设计的可脚本化 MockLLM。
+- **Pi**：`Agent` 类提供现成 tool-call 循环；`beforeToolCall` hook 是 policy guard 的天然挂点；`subscribe(event)` 是事件同步的天然挂点；`AgentTool`（TypeBox schema）适配工具系统。
 - **沙箱（单一真实实现）**：`Sandbox` 接口借鉴 Vercel Open Agents（MIT）的形状（`readFile/writeFile/stat/mkdir/readdir/exec/stop/getState`）。只实现 `VercelSandbox`（`@vercel/sandbox`，Firecracker microVM）：业务测试与生产都跑在真实沙箱上，确保「测过的就是线上跑的」。保留接口抽象以便未来接入别的隔离后端，但 P0 不做 LocalSandbox。
 - **Postgres 事实源**：runtime transcript 易丢失、难查询、难审计；前端展示/恢复/审计都依赖结构化事件流。
 
@@ -236,11 +236,11 @@ P0 不使用 durable workflow，agent loop 直接跑在 Vercel Function 上：`r
 | 层级 | 测什么 | 工具 |
 | --- | --- | --- |
 | Unit（离线） | 状态机、path guard、policy、event seq、凭据解析 | Vitest，零外部依赖 |
-| Integration（真基建） | 工具、run-agent、DB CRUD | Vitest + faux LLM + **真实 Vercel 沙箱** + Neon |
+| Integration（真基建） | 工具、run-agent、DB CRUD | Vitest + **真实 LLM** + **真实 Vercel 沙箱** + Neon |
 | API | invite 校验、创建 run、cancel、reload、SSE | route handler tests（连真沙箱/DB） |
 | E2E | prompt → 事件 → 报告 | 1 条 happy path |
 
-Mock 层只 mock LLM：`registerFauxProvider`（脚本化 tool call / final answer）保证 agent 编排确定性。**沙箱与 DB 一律用真实的**——所有业务流程都在真实 Vercel 沙箱 + Neon 上测过，后端全绿才开前端。
+**沙箱与 DB 一律用真实的，LLM 连真实中转站**——所有业务流程都在真实 Vercel 沙箱 + Neon + 真实 LLM 上测过，后端全绿才开前端。
 
 > 两层依赖：纯逻辑单元测试零外部依赖（无 key / 无网络也全绿）；业务集成测试需 Vercel 凭据与网络（本机被墙时走代理，部署在 Vercel 上无此问题）。
 
