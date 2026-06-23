@@ -2,7 +2,7 @@ import { Sandbox as VercelSdkSandbox } from "@vercel/sandbox";
 import { resolveVercelCredentials } from "./vercel-credentials";
 import { VercelSandbox } from "./vercel-sandbox";
 
-const DEFAULT_SANDBOX_TIMEOUT_MS = 5 * 60 * 1000; // 5 分钟
+const DEFAULT_SANDBOX_TIMEOUT_MS = 30 * 60 * 1000; // 30 分钟，与 Function maxDuration 对齐
 
 export interface GetOrCreateOptions {
   /** 会话 id，用于命名沙箱（同一 session 跨 Run 复用同一 workspace）。 */
