@@ -1,34 +1,43 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, waitFor, act } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { FetchEventSourceInit } from "@microsoft/fetch-event-source";
 import { useRunSSE } from "@/hooks/useRunSSE";
 
-describe("useRunSSE", () => {
-  let EventSourceMock: ReturnType<typeof vi.fn>;
-  let mockESInstance: {
-    addEventListener: ReturnType<typeof vi.fn>;
-    close: ReturnType<typeof vi.fn>;
-    onopen: ((event: Event) => void) | null;
-    onerror: ((event: Event) => void) | null;
-  };
+const { fetchEventSourceMock } = vi.hoisted(() => ({
+  fetchEventSourceMock: vi.fn(),
+}));
 
+vi.mock("@microsoft/fetch-event-source", async () => {
+  const actual = await vi.importActual<typeof import("@microsoft/fetch-event-source")>(
+    "@microsoft/fetch-event-source",
+  );
+  return {
+    ...actual,
+    fetchEventSource: fetchEventSourceMock,
+  };
+});
+
+function latestInit(): FetchEventSourceInit {
+  return fetchEventSourceMock.mock.calls.at(-1)?.[1] as FetchEventSourceInit;
+}
+
+async function openConnection() {
+  await act(async () => {
+    await latestInit().onopen?.(
+      new Response(null, {
+        status: 200,
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+      }),
+    );
+  });
+}
+
+describe("useRunSSE", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-
-    // 创建一个可复用的 mock 实例
-    mockESInstance = {
-      addEventListener: vi.fn(),
-      close: vi.fn(),
-      onopen: null,
-      onerror: null,
-    };
-
-    // Mock EventSource 构造函数 - 必须是真正的构造函数
-    EventSourceMock = vi.fn(function (this: any, url: string) {
-      return mockESInstance;
-    }) as any;
-
-    global.EventSource = EventSourceMock as any;
+    fetchEventSourceMock.mockReset();
+    fetchEventSourceMock.mockImplementation(() => new Promise(() => {}));
   });
 
   afterEach(() => {
@@ -39,78 +48,67 @@ describe("useRunSSE", () => {
   it("runId 为 null 时不建立连接", () => {
     const { result } = renderHook(() => useRunSSE(null, { onDone: vi.fn(), onError: vi.fn() }));
 
-    expect(EventSourceMock).not.toHaveBeenCalled();
+    expect(fetchEventSourceMock).not.toHaveBeenCalled();
     expect(result.current.connected).toBe(false);
     expect(result.current.events).toEqual([]);
   });
 
-  it("runId 存在时建立 SSE 连接", () => {
+  it("runId 存在时用 POST 建立 SSE 连接", () => {
     renderHook(() => useRunSSE("run-1", { onDone: vi.fn(), onError: vi.fn() }));
 
-    // EventSource 应该被调用
-    expect(EventSourceMock).toHaveBeenCalledWith("/api/runs/run-1/events");
+    expect(fetchEventSourceMock).toHaveBeenCalledWith(
+      "/api/runs/run-1/events",
+      expect.objectContaining({
+        method: "POST",
+        headers: { accept: "text/event-stream" },
+        openWhenHidden: true,
+      }),
+    );
   });
 
-  it("接收 snapshot 事件，初始化事件列表", () => {
+  it("接收 snapshot 事件，初始化事件列表", async () => {
     const { result } = renderHook(() => useRunSSE("run-1", { onDone: vi.fn(), onError: vi.fn() }));
+    await openConnection();
 
-    // 找到 snapshot 事件处理器
-    const snapshotHandler = mockESInstance.addEventListener.mock.calls.find(
-      (call: any) => call[0] === "snapshot"
-    )?.[1];
-
-    expect(snapshotHandler).toBeDefined();
-
-    // 模拟 snapshot 事件
     act(() => {
-      snapshotHandler(
-        new MessageEvent("snapshot", {
-          data: JSON.stringify({
-            run: { id: "run-1" },
-            events: [
-              { seq: 0, type: "run_created" },
-              { seq: 1, type: "agent_started" },
-            ],
-          }),
-        })
-      );
+      latestInit().onmessage?.({
+        id: "",
+        event: "snapshot",
+        data: JSON.stringify({
+          run: { id: "run-1" },
+          events: [
+            { seq: 0, type: "run_created", createdAt: "2026-01-01T00:00:00.000Z" },
+            { seq: 1, type: "agent_started", createdAt: "2026-01-01T00:00:01.000Z" },
+          ],
+        }),
+      });
     });
 
-    // 验证事件已加载
     expect(result.current.events).toHaveLength(2);
     expect(result.current.connected).toBe(true);
   });
 
-  it("接收业务事件，增量追加", () => {
+  it("接收业务事件，增量追加", async () => {
     const { result } = renderHook(() => useRunSSE("run-1", { onDone: vi.fn(), onError: vi.fn() }));
+    await openConnection();
 
-    // 模拟 snapshot
-    const snapshotHandler = mockESInstance.addEventListener.mock.calls.find(
-      (call: any) => call[0] === "snapshot"
-    )?.[1];
     act(() => {
-      snapshotHandler(
-        new MessageEvent("snapshot", {
-          data: JSON.stringify({ run: { id: "run-1" }, events: [] }),
-        })
-      );
-    });
-
-    // 模拟 tool_call_started 事件
-    const toolStartedHandler = mockESInstance.addEventListener.mock.calls.find(
-      (call: any) => call[0] === "tool_call_started"
-    )?.[1];
-    act(() => {
-      toolStartedHandler(
-        new MessageEvent("tool_call_started", {
-          data: JSON.stringify({
-            seq: 1,
-            type: "tool_call_started",
-            title: "list_files",
-            payload: { args: { path: "src" } },
-          }),
-        })
-      );
+      latestInit().onmessage?.({
+        id: "",
+        event: "snapshot",
+        data: JSON.stringify({ run: { id: "run-1" }, events: [] }),
+      });
+      latestInit().onmessage?.({
+        id: "",
+        event: "tool_call_started",
+        data: JSON.stringify({
+          seq: 1,
+          type: "tool_call_started",
+          title: "list_files",
+          payload: { args: { path: "src" } },
+          createdAt: "2026-01-01T00:00:01.000Z",
+        }),
+      });
     });
 
     expect(result.current.events).toHaveLength(1);
@@ -119,146 +117,48 @@ describe("useRunSSE", () => {
     expect(result.current.events[0].payload?.args).toEqual({ path: "src" });
   });
 
-  it("接收 done 事件，触发 onDone 并关闭连接", () => {
+  it("接收 done 事件，触发 onDone 并断开连接", async () => {
     const onDone = vi.fn();
-    renderHook(() => useRunSSE("run-1", { onDone, onError: vi.fn() }));
+    const { result } = renderHook(() => useRunSSE("run-1", { onDone, onError: vi.fn() }));
+    await openConnection();
 
-    // 模拟 done 事件
-    const doneHandler = mockESInstance.addEventListener.mock.calls.find(
-      (call: any) => call[0] === "done"
-    )?.[1];
     act(() => {
-      doneHandler(new MessageEvent("done", { data: "{}" }));
+      latestInit().onmessage?.({ id: "", event: "done", data: "{}" });
     });
 
     expect(onDone).toHaveBeenCalledTimes(1);
-    expect(mockESInstance.close).toHaveBeenCalled();
+    expect(result.current.connected).toBe(false);
+    expect((latestInit().signal as AbortSignal).aborted).toBe(true);
   });
 
-  it.skip("心跳检测：30s 无消息触发重连", async () => {
+  it("连接错误后自动重连，最多重试 3 次", async () => {
     const onError = vi.fn();
-    const mockES = {
-      addEventListener: vi.fn(),
-      close: vi.fn(),
-      onopen: null,
-      onerror: null,
-    };
-    EventSourceMock.mockReturnValue(mockES);
+    fetchEventSourceMock.mockRejectedValue(new Error("network down"));
 
-    // renderHook(() => useRunSSE("run-1", { onDone: vi.fn(), onError }));
+    renderHook(() => useRunSSE("run-1", { onDone: vi.fn(), onError }));
 
-    // 模拟 snapshot（重置心跳）
-    const snapshotHandler = mockES.addEventListener.mock.calls.find(
-      (call: any) => call[0] === "snapshot"
-    )?.[1];
-    act(() => {
-      snapshotHandler?.(
-        new MessageEvent("snapshot", {
-          data: JSON.stringify({ run: { id: "run-1" }, events: [] }),
-        })
-      );
-    });
-
-    // 30s 后无消息
-    act(() => {
-      vi.advanceTimersByTime(30_000);
-    });
-
-    expect(mockES.close).toHaveBeenCalled();
-    // 断言：会触发重连（通过 onError 或直接重建）
-  });
-
-  it.skip("连接错误：触发 onerror，调用 onError callback", async () => {
-    const onError = vi.fn();
-    const mockES = {
-      addEventListener: vi.fn(),
-      close: vi.fn(),
-      onopen: null,
-      onerror: null,
-    };
-    EventSourceMock.mockReturnValue(mockES);
-
-    // renderHook(() => useRunSSE("run-1", { onDone: vi.fn(), onError }));
-
-    // 模拟连接错误
-    act(() => {
-      if (mockES.onerror) {
-        (mockES.onerror as any)(new Event("error"));
-      }
-    });
-
-    expect(onError).toHaveBeenCalledWith(expect.stringContaining("error"));
-  });
-
-  it.skip("visibilitychange：页面可见且未连接时重连", async () => {
-    const mockES = {
-      addEventListener: vi.fn(),
-      close: vi.fn(),
-      onopen: null,
-      onerror: null,
-    };
-    EventSourceMock.mockReturnValue(mockES);
-
-    // const { rerender } = renderHook(() => useRunSSE("run-1", { onDone: vi.fn(), onError: vi.fn() }));
-
-    // 模拟连接断开
-    act(() => {
-      if (mockES.onerror) {
-        (mockES.onerror as any)(new Event("error"));
-      }
-    });
-
-    // 模拟页面从隐藏变为可见
-    Object.defineProperty(document, "visibilityState", {
-      writable: true,
-      value: "visible",
-    });
-
-    act(() => {
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
-
-    // 断言：close 被调用（触发重连）
-    expect(mockES.close).toHaveBeenCalled();
-  });
-
-  it.skip("重连逻辑：3 次失败后停止", async () => {
-    const onError = vi.fn();
-    let callCount = 0;
-
-    EventSourceMock.mockImplementation(() => {
-      callCount++;
-      const mockES = {
-        addEventListener: vi.fn(),
-        close: vi.fn(),
-        onopen: null,
-        onerror: null,
-      };
-
-      // 立刻触发错误
-      setTimeout(() => {
-        if (mockES.onerror) {
-          (mockES.onerror as any)(new Event("error"));
-        }
-      }, 0);
-
-      return mockES;
-    });
-
-    // const { result } = renderHook(() => useRunSSE("run-1", { onDone: vi.fn(), onError }));
-
-    // 等待初始连接 + 3 次重连
     await act(async () => {
-      vi.advanceTimersByTime(2_000); // 第 1 次重连
       await Promise.resolve();
-      vi.advanceTimersByTime(5_000); // 第 2 次重连
-      await Promise.resolve();
-      vi.advanceTimersByTime(10_000); // 第 3 次重连
-      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(2_000);
     });
+    expect(fetchEventSourceMock).toHaveBeenCalledTimes(2);
 
-    // 断言：总共 4 次尝试（初始 + 3 次重连）
-    expect(callCount).toBe(4);
-    expect(onError).toHaveBeenCalled();
+    await act(async () => {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(fetchEventSourceMock).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(fetchEventSourceMock).toHaveBeenCalledTimes(4);
+
+    await act(async () => {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(onError).toHaveBeenCalledWith("SSE connection error after 3 retries");
   });
 });

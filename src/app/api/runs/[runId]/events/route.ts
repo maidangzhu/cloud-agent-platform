@@ -21,7 +21,18 @@ export async function GET(
   { params }: { params: Promise<{ runId: string }> },
 ) {
   const { runId } = await params;
+  return streamRunEvents(runId);
+}
 
+export async function POST(
+  _req: Request,
+  { params }: { params: Promise<{ runId: string }> },
+) {
+  const { runId } = await params;
+  return streamRunEvents(runId);
+}
+
+async function streamRunEvents(runId: string) {
   const run = await prisma.run.findUnique({ where: { id: runId } });
   if (!run) {
     const f = fail(ApiCode.NOT_FOUND, "Run not found");

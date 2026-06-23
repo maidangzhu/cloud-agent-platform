@@ -20,7 +20,7 @@ const { GET: runGet } = await import("@/app/api/runs/[runId]/route");
 const { POST: cancelPost } = await import(
   "@/app/api/runs/[runId]/cancel/route"
 );
-const { GET: eventsGet } = await import(
+const { GET: eventsGet, POST: eventsPost } = await import(
   "@/app/api/runs/[runId]/events/route"
 );
 
@@ -334,9 +334,9 @@ describe("POST /api/runs/:runId/cancel", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// GET /api/runs/:runId/events（SSE）
+// POST /api/runs/:runId/events（SSE，fetch-event-source）
 // ══════════════════════════════════════════════════════════════════════
-describe("GET /api/runs/:runId/events (SSE)", () => {
+describe("POST /api/runs/:runId/events (SSE)", () => {
   let sid: string;
 
   beforeEach(async () => {
@@ -372,7 +372,7 @@ describe("GET /api/runs/:runId/events (SSE)", () => {
       ],
     });
 
-    const res = await eventsGet(new Request("http://localhost"), {
+    const res = await eventsPost(new Request("http://localhost", { method: "POST" }), {
       params: Promise.resolve({ runId: run.id }),
     });
 
@@ -390,7 +390,7 @@ describe("GET /api/runs/:runId/events (SSE)", () => {
     const run = await prisma.run.create({
       data: { sessionId: sid, userPrompt: "x", status: "failed", error: "oops" },
     });
-    const res = await eventsGet(new Request("http://localhost"), {
+    const res = await eventsPost(new Request("http://localhost", { method: "POST" }), {
       params: Promise.resolve({ runId: run.id }),
     });
     const frames = await readSSE(res);
@@ -399,10 +399,23 @@ describe("GET /api/runs/:runId/events (SSE)", () => {
   });
 
   it("run 不存在 → 404", async () => {
-    const res = await eventsGet(new Request("http://localhost"), {
+    const res = await eventsPost(new Request("http://localhost", { method: "POST" }), {
       params: Promise.resolve({ runId: "no-such" }),
     });
     expect(res.status).toBe(404);
+  });
+
+  it("GET 仍兼容旧 EventSource 客户端", async () => {
+    const run = await prisma.run.create({
+      data: { sessionId: sid, userPrompt: "legacy", status: "completed" },
+    });
+
+    const res = await eventsGet(new Request("http://localhost"), {
+      params: Promise.resolve({ runId: run.id }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
   });
 });
 
@@ -482,8 +495,8 @@ describe("全链路：Session → Run → Events → Cancel 重建完整状态",
     expect(sd.runs).toHaveLength(1);
     expect(sd.runs[0].id).toBe(runId);
 
-    // 6. GET /api/runs/:runId/events → SSE snapshot 含全部 9 个事件
-    const sseRes = await eventsGet(new Request("http://localhost"), {
+    // 6. POST /api/runs/:runId/events → SSE snapshot 含全部 9 个事件
+    const sseRes = await eventsPost(new Request("http://localhost", { method: "POST" }), {
       params: Promise.resolve({ runId }),
     });
     const text = await sseRes.text();

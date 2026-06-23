@@ -1,6 +1,7 @@
 // 改进的 SSE hook：心跳检测、自动重连、错误处理
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { fetchEventSource, EventStreamContentType } from "@microsoft/fetch-event-source";
 import type { AgentEventDTO } from "@/lib/api-contract";
 
 export interface UseRunSSEOptions {
@@ -22,59 +23,35 @@ export function useRunSSE(
     connected: false,
   });
   const retryCount = useRef(0);
-  const esRef = useRef<EventSource | null>(null);
+  const onDoneRef = useRef(opts.onDone);
+  const onErrorRef = useRef(opts.onError);
+  const [retryNonce, setRetryNonce] = useState(0);
+
+  useEffect(() => {
+    onDoneRef.current = opts.onDone;
+    onErrorRef.current = opts.onError;
+  }, [opts.onDone, opts.onError]);
 
   useEffect(() => {
     if (!runId) {
-      setState({ events: [], connected: false });
       return;
     }
-
-    // 清理旧连接
-    esRef.current?.close();
 
     let heartbeatTimer: NodeJS.Timeout;
-    let es: EventSource;
-
-    try {
-      es = new EventSource(`/api/runs/${runId}/events`);
-      esRef.current = es;
-    } catch (err) {
-      opts.onError(`SSE connection failed: ${err}`);
-      return;
-    }
+    let retryTimer: NodeJS.Timeout | undefined;
+    const controller = new AbortController();
 
     // 心跳检测：10 分钟没消息才超时（后端会定期发 ping）
     const resetHeartbeat = () => {
       clearTimeout(heartbeatTimer);
       heartbeatTimer = setTimeout(() => {
-        console.warn("[useRunSSE] Heartbeat timeout after 10 minutes, closing connection");
-        es.close();
-        opts.onError("SSE heartbeat timeout after 10 minutes");
+        console.warn("[useRunSSE] Heartbeat timeout after 10 minutes, aborting connection");
+        controller.abort();
+        onErrorRef.current("SSE heartbeat timeout after 10 minutes");
         setState((prev) => ({ ...prev, connected: false }));
       }, 600_000); // 10 分钟 = 600,000 毫秒
     };
 
-    // onopen 处理
-    const handleOpen = () => {
-      setState((prev) => ({ ...prev, connected: true }));
-      retryCount.current = 0; // 连接成功，重置重连计数
-      resetHeartbeat();
-    };
-
-    // 直接赋值而不是通过 setter（兼容 mock）
-    if ('onopen' in es) {
-      es.onopen = handleOpen;
-    }
-
-    // snapshot 事件：初始化事件列表
-    es.addEventListener("snapshot", (e) => {
-      const d = JSON.parse(e.data);
-      setState({ events: d.events || [], connected: true });
-      resetHeartbeat();
-    });
-
-    // 业务事件：增量追加
     const BUSINESS_EVENTS = [
       "run_created",
       "workspace_provisioning",
@@ -93,65 +70,96 @@ export function useRunSSE(
       "run_cancelled",
     ];
 
-    BUSINESS_EVENTS.forEach((type) => {
-      es.addEventListener(type, (e) => {
-        const ev: AgentEventDTO = JSON.parse(e.data);
-        console.log(`[useRunSSE] 收到事件:`, type, ev);
-        setState((prev) => ({ ...prev, events: [...prev.events, ev] }));
-        resetHeartbeat();
-      });
-    });
-
-    // ping 心跳
-    es.addEventListener("ping", () => {
-      resetHeartbeat();
-    });
-
-    // done 事件：完成
-    es.addEventListener("done", () => {
-      clearTimeout(heartbeatTimer);
-      setState((prev) => ({ ...prev, connected: false }));
-      opts.onDone();
-      es.close();
-    });
-
-    // 错误处理
-    es.onerror = () => {
+    const scheduleRetry = () => {
       setState((prev) => ({ ...prev, connected: false }));
       clearTimeout(heartbeatTimer);
 
-      // 重连逻辑
       if (retryCount.current < 3) {
         const delays = [2000, 5000, 10000];
         const delay = delays[retryCount.current] || 10000;
         retryCount.current++;
-
-        setTimeout(() => {
-          // 触发 useEffect 重新执行
-          setState((prev) => ({ ...prev }));
+        retryTimer = setTimeout(() => {
+          setRetryNonce((prev) => prev + 1);
         }, delay);
       } else {
-        opts.onError("SSE connection error after 3 retries");
-      }
-
-      es.close();
-    };
-
-    // 浏览器休眠恢复
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && !state.connected) {
-        es.close(); // 触发重连
+        onErrorRef.current("SSE connection error after 3 retries");
       }
     };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    fetchEventSource(`/api/runs/${runId}/events`, {
+      method: "POST",
+      headers: { accept: EventStreamContentType },
+      signal: controller.signal,
+      openWhenHidden: true,
+      async onopen(response) {
+        if (!response.ok) {
+          throw new Error(`SSE connection failed with status ${response.status}`);
+        }
+        if (!response.headers.get("content-type")?.includes(EventStreamContentType)) {
+          throw new Error("SSE response is not text/event-stream");
+        }
+
+        setState((prev) => ({ ...prev, connected: true }));
+        retryCount.current = 0;
+        resetHeartbeat();
+      },
+      onmessage(message) {
+        if (message.event === "snapshot") {
+          const d = JSON.parse(message.data);
+          setState({ events: d.events || [], connected: true });
+          resetHeartbeat();
+          return;
+        }
+
+        if (BUSINESS_EVENTS.includes(message.event)) {
+          const ev: AgentEventDTO = JSON.parse(message.data);
+          console.log(`[useRunSSE] 收到事件:`, message.event, ev);
+          setState((prev) => ({ ...prev, events: [...prev.events, ev] }));
+          resetHeartbeat();
+          return;
+        }
+
+        if (message.event === "ping") {
+          resetHeartbeat();
+          return;
+        }
+
+        if (message.event === "done") {
+          clearTimeout(heartbeatTimer);
+          setState((prev) => ({ ...prev, connected: false }));
+          onDoneRef.current();
+          controller.abort();
+        }
+      },
+      onclose() {
+        if (!controller.signal.aborted) {
+          scheduleRetry();
+        }
+      },
+      onerror(err) {
+        if (!controller.signal.aborted) {
+          console.error("[useRunSSE] connection error", err);
+          scheduleRetry();
+        }
+        return null;
+      },
+    }).catch((err) => {
+      if (!controller.signal.aborted) {
+        console.error("[useRunSSE] connection failed", err);
+        scheduleRetry();
+      }
+    });
 
     return () => {
-      es.close();
+      controller.abort();
+      if (retryTimer) clearTimeout(retryTimer);
       clearTimeout(heartbeatTimer);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      esRef.current = null;
     };
-  }, [runId, retryCount.current]); // retryCount 变化时重连
+  }, [runId, retryNonce]);
+
+  if (!runId) {
+    return { events: [], connected: false };
+  }
 
   return state;
 }

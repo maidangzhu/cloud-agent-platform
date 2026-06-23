@@ -3,20 +3,30 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
+import type { FetchEventSourceInit } from "@microsoft/fetch-event-source";
+import type { RunDTO } from "@/lib/api-contract";
 import { useSessionState } from "@/hooks/useSessionState";
+
+const { fetchEventSourceMock } = vi.hoisted(() => ({
+  fetchEventSourceMock: vi.fn(),
+}));
+
+vi.mock("@microsoft/fetch-event-source", async () => {
+  const actual = await vi.importActual<typeof import("@microsoft/fetch-event-source")>(
+    "@microsoft/fetch-event-source",
+  );
+  return {
+    ...actual,
+    fetchEventSource: fetchEventSourceMock,
+  };
+});
 
 describe("useSessionState", () => {
   let queryClient: QueryClient;
   let fetchMock: ReturnType<typeof vi.fn>;
-  let EventSourceMock: ReturnType<typeof vi.fn>;
-  let mockESInstance: {
-    addEventListener: ReturnType<typeof vi.fn>;
-    close: ReturnType<typeof vi.fn>;
-    onopen: ((event: Event) => void) | null;
-    onerror: ((event: Event) => void) | null;
-  };
 
   beforeEach(() => {
+    fetchEventSourceMock.mockReset();
     queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -27,19 +37,7 @@ describe("useSessionState", () => {
     fetchMock = vi.fn();
     global.fetch = fetchMock;
 
-    // Mock EventSource (与 useRunSSE 测试保持一致)
-    mockESInstance = {
-      addEventListener: vi.fn(),
-      close: vi.fn(),
-      onopen: null,
-      onerror: null,
-    };
-
-    EventSourceMock = vi.fn(function (this: any, url: string) {
-      return mockESInstance;
-    }) as any;
-
-    global.EventSource = EventSourceMock as any;
+    fetchEventSourceMock.mockImplementation(() => new Promise(() => {}));
   });
 
   afterEach(() => {
@@ -48,6 +46,19 @@ describe("useSessionState", () => {
 
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client: queryClient }, children);
+
+  function latestSSEInit(): FetchEventSourceInit {
+    return fetchEventSourceMock.mock.calls.at(-1)?.[1] as FetchEventSourceInit;
+  }
+
+  async function openSSE() {
+    await latestSSEInit().onopen?.(
+      new Response(null, {
+        status: 200,
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+      }),
+    );
+  }
 
   describe("S1: 发送新消息", () => {
     it("立刻乐观渲染，建立 SSE 连接，不 refetch DB", async () => {
@@ -110,27 +121,20 @@ describe("useSessionState", () => {
 
       // 断言：建立 SSE 连接
       await waitFor(() => {
-        expect(EventSourceMock).toHaveBeenCalledWith("/api/runs/run-1/events");
+        expect(fetchEventSourceMock).toHaveBeenCalledWith(
+          "/api/runs/run-1/events",
+          expect.objectContaining({ method: "POST" }),
+        );
       });
 
       // 模拟 SSE 推送
-      const snapshotHandler = mockESInstance.addEventListener.mock.calls.find(
-        (call: any) => call[0] === "snapshot"
-      )?.[1];
-      if (snapshotHandler) {
-        snapshotHandler(
-          new MessageEvent("snapshot", {
-            data: JSON.stringify({ run: { id: "run-1" }, events: [] }),
-          })
-        );
-      }
-
-      const doneHandler = mockESInstance.addEventListener.mock.calls.find(
-        (call: any) => call[0] === "done"
-      )?.[1];
-      if (doneHandler) {
-        doneHandler(new MessageEvent("done", { data: "{}" }));
-      }
+      await openSSE();
+      latestSSEInit().onmessage?.({
+        id: "",
+        event: "snapshot",
+        data: JSON.stringify({ run: { id: "run-1" }, events: [] }),
+      });
+      latestSSEInit().onmessage?.({ id: "", event: "done", data: "{}" });
 
       // 断言：SSE done 后不调用 GET /sessions
       await waitFor(() => {
@@ -163,32 +167,30 @@ describe("useSessionState", () => {
 
       // 断言：自动建立 SSE 连接
       await waitFor(() => {
-        expect(EventSourceMock).toHaveBeenCalledWith("/api/runs/run-2/events");
+        expect(fetchEventSourceMock).toHaveBeenCalledWith(
+          "/api/runs/run-2/events",
+          expect.objectContaining({ method: "POST" }),
+        );
       });
 
       // 模拟 SSE snapshot（补齐历史）
-      const snapshotHandler = mockESInstance.addEventListener.mock.calls.find(
-        (call: any) => call[0] === "snapshot"
-      )?.[1];
-
-      if (snapshotHandler) {
-        snapshotHandler(
-          new MessageEvent("snapshot", {
-            data: JSON.stringify({
-              run: { id: "run-2" },
-              events: [
-                { seq: 0, type: "run_created" },
-                { seq: 1, type: "agent_started" },
-              ],
-            }),
-          })
-        );
-      }
+      await openSSE();
+      latestSSEInit().onmessage?.({
+        id: "",
+        event: "snapshot",
+        data: JSON.stringify({
+          run: { id: "run-2" },
+          events: [
+            { seq: 0, type: "run_created" },
+            { seq: 1, type: "agent_started" },
+          ],
+        }),
+      });
 
       // 断言：历史事件已加载
       await waitFor(() => {
         expect(result.current.runs[0]).toHaveProperty("liveEvents");
-        expect((result.current.runs[0] as any).liveEvents).toHaveLength(2);
+        expect((result.current.runs[0] as RunDTO).liveEvents).toHaveLength(2);
       });
     });
   });
@@ -220,7 +222,7 @@ describe("useSessionState", () => {
       });
 
       // 断言：不建立 SSE 连接
-      expect(EventSourceMock).not.toHaveBeenCalled();
+      expect(fetchEventSourceMock).not.toHaveBeenCalled();
     });
   });
 
@@ -242,9 +244,7 @@ describe("useSessionState", () => {
       });
 
       // Mock SSE 立刻失败
-      EventSourceMock.mockImplementation(() => {
-        throw new Error("Connection failed");
-      });
+      fetchEventSourceMock.mockRejectedValue(new Error("Connection failed"));
 
       // const { result } = renderHook(() => useSessionState(sessionId), { wrapper });
 
@@ -280,18 +280,15 @@ describe("useSessionState", () => {
 
       // Mock SSE
       let esErrorHandler: ((e: Event) => void) | null = null;
-      EventSourceMock.mockImplementation(() => ({
-        addEventListener: vi.fn(),
-        close: vi.fn(),
-        set onerror(handler: (e: Event) => void) {
-          esErrorHandler = handler;
-        },
-      }));
+      fetchEventSourceMock.mockImplementation((_url, init: FetchEventSourceInit) => {
+        esErrorHandler = () => init.onerror?.(new Error("Connection failed"));
+        return new Promise(() => {});
+      });
 
       // const { result } = renderHook(() => useSessionState(sessionId), { wrapper });
 
       await waitFor(() => {
-        expect(EventSourceMock).toHaveBeenCalledTimes(1);
+        expect(fetchEventSourceMock).toHaveBeenCalledTimes(1);
       });
 
       // 模拟断开
@@ -301,7 +298,7 @@ describe("useSessionState", () => {
       await new Promise((resolve) => setTimeout(resolve, 20000));
 
       // 断言：重连 3 次 + 降级轮询
-      expect(EventSourceMock).toHaveBeenCalledTimes(4); // 初始 + 3 次重连
+      expect(fetchEventSourceMock).toHaveBeenCalledTimes(4); // 初始 + 3 次重连
     });
   });
 
@@ -323,14 +320,11 @@ describe("useSessionState", () => {
       });
 
       // Mock SSE 立刻失败
-      EventSourceMock.mockImplementation(function (this: any, url: string) {
-        // 立刻触发 onerror
+      fetchEventSourceMock.mockImplementation((_url, init: FetchEventSourceInit) => {
         setTimeout(() => {
-          if (mockESInstance.onerror) {
-            mockESInstance.onerror(new Event("error"));
-          }
+          init.onerror?.(new Error("Connection failed"));
         }, 10);
-        return mockESInstance;
+        return new Promise(() => {});
       });
 
       const { result } = renderHook(() => useSessionState(sessionId), { wrapper });

@@ -16,6 +16,7 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.79.10",
     "@earendil-works/pi-ai": "^0.79.10",
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@prisma/adapter-pg": "7",
     "@prisma/client": "^7.8.0",
     "@radix-ui/react-label": "^2.1.10",
