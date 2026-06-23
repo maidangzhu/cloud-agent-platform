@@ -54,23 +54,36 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
   } = useQuery<{ code: number; data: SessionDetailData }>({
     queryKey: ["session", sessionId],
     queryFn: async () => {
+      console.log("[useSessionState] Fetching session data for:", sessionId);
       const res = await fetch(`/api/sessions/${sessionId}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
+      const data = await res.json();
+      console.log("[useSessionState] Session data received:", data);
+      return data;
     },
     enabled: !!sessionId,
     refetchInterval: (query) => {
       const snapshot = query.state.data as { data: SessionDetailData } | undefined;
-      return findRunningRun(snapshot?.data.runs || [], completedRunIds) ? 5000 : false;
+      const runningRunId = findRunningRun(snapshot?.data.runs || [], completedRunIds);
+      console.log("[useSessionState] refetchInterval check - runningRunId:", runningRunId);
+      return runningRunId ? 5000 : false;
     },
   });
 
   // 2. SSE 连接（只连接 running 的 run）
   const detectedRunningRunId = findRunningRun(dbSnapshot?.data.runs || [], completedRunIds);
   const runningRunId = activeRunId || detectedRunningRunId;
+  console.log("[useSessionState] SSE connection check:", {
+    activeRunId,
+    detectedRunningRunId,
+    runningRunId,
+    dbRuns: dbSnapshot?.data.runs,
+    completedRunIds: Array.from(completedRunIds),
+  });
 
   const { events, connected } = useRunSSE(runningRunId, {
     onDone: () => {
+      console.log("[useSessionState] SSE onDone triggered for runId:", runningRunId);
       // 缓存当前 run 的 events
       if (runningRunId) {
         setCompletedRunIds((prev) => new Set(prev).add(runningRunId));
@@ -85,7 +98,7 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
       setPendingMessage(null);
     },
     onError: (msg) => {
-      console.warn("SSE error:", msg);
+      console.warn("[useSessionState] SSE error:", msg);
       // 降级到轮询（refetchInterval 会自动生效）
     },
   });
@@ -110,7 +123,19 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
 
   // 4. 发送消息
   const sendMessage = async (prompt: string) => {
+    console.log("[useSessionState] sendMessage called with prompt:", prompt);
+    console.log("[useSessionState] Current state:", {
+      submitting,
+      runningRunId,
+      activeRunId,
+    });
+
     if (!prompt.trim() || submitting || runningRunId) {
+      console.log("[useSessionState] sendMessage blocked:", {
+        emptyPrompt: !prompt.trim(),
+        submitting,
+        runningRunId,
+      });
       return; // 阻止快速连发
     }
 
@@ -120,8 +145,10 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
     // 乐观渲染
     const tempRunId = `pending-${Date.now()}`;
     setPendingMessage({ prompt: trimmedPrompt, runId: tempRunId });
+    console.log("[useSessionState] Pending message set:", { prompt: trimmedPrompt, tempRunId });
 
     try {
+      console.log("[useSessionState] Sending POST to /api/sessions/" + sessionId + "/runs");
       const res = await fetch(`/api/sessions/${sessionId}/runs`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -129,21 +156,24 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
       });
 
       const result = await res.json();
+      console.log("[useSessionState] POST response:", result);
 
       if (result.code === 0) {
         const realRunId = result.data.run.id;
+        console.log("[useSessionState] Run created successfully, realRunId:", realRunId);
         setPendingMessage({ prompt: trimmedPrompt, runId: realRunId });
         setActiveRunId(realRunId);
       } else {
         // 发送失败，清除乐观渲染
+        console.error("[useSessionState] Failed to send message:", result.message);
         setPendingMessage(null);
-        console.error("Failed to send message:", result.message);
       }
     } catch (err) {
-      console.error("Failed to send message:", err);
+      console.error("[useSessionState] Failed to send message:", err);
       setPendingMessage(null);
     } finally {
       setSubmitting(false);
+      console.log("[useSessionState] Submitting state reset");
     }
   };
 

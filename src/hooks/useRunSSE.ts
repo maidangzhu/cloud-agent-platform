@@ -33,9 +33,14 @@ export function useRunSSE(
   }, [opts.onDone, opts.onError]);
 
   useEffect(() => {
+    console.log("[useRunSSE] Effect triggered, runId:", runId);
+
     if (!runId) {
+      console.log("[useRunSSE] No runId, skipping SSE connection");
       return;
     }
+
+    console.log("[useRunSSE] Starting SSE connection for runId:", runId);
 
     let heartbeatTimer: NodeJS.Timeout;
     let retryTimer: NodeJS.Timeout | undefined;
@@ -92,6 +97,7 @@ export function useRunSSE(
       signal: controller.signal,
       openWhenHidden: true,
       async onopen(response) {
+        console.log("[useRunSSE] SSE connection opened, status:", response.status);
         if (!response.ok) {
           throw new Error(`SSE connection failed with status ${response.status}`);
         }
@@ -99,13 +105,17 @@ export function useRunSSE(
           throw new Error("SSE response is not text/event-stream");
         }
 
+        console.log("[useRunSSE] SSE connection established successfully");
         setState((prev) => ({ ...prev, connected: true }));
         retryCount.current = 0;
         resetHeartbeat();
       },
       onmessage(message) {
+        console.log("[useRunSSE] Received message:", message.event, message.data?.substring(0, 100));
+
         if (message.event === "snapshot") {
           const d = JSON.parse(message.data);
+          console.log("[useRunSSE] Snapshot received, events count:", d.events?.length);
           setState({ events: d.events || [], connected: true });
           resetHeartbeat();
           return;
@@ -113,18 +123,20 @@ export function useRunSSE(
 
         if (BUSINESS_EVENTS.includes(message.event)) {
           const ev: AgentEventDTO = JSON.parse(message.data);
-          console.log(`[useRunSSE] 收到事件:`, message.event, ev);
+          console.log(`[useRunSSE] Business event received:`, message.event, ev);
           setState((prev) => ({ ...prev, events: [...prev.events, ev] }));
           resetHeartbeat();
           return;
         }
 
         if (message.event === "ping") {
+          console.log("[useRunSSE] Ping received");
           resetHeartbeat();
           return;
         }
 
         if (message.event === "done") {
+          console.log("[useRunSSE] Done event received, closing connection");
           clearTimeout(heartbeatTimer);
           setState((prev) => ({ ...prev, connected: false }));
           onDoneRef.current();
@@ -132,20 +144,21 @@ export function useRunSSE(
         }
       },
       onclose() {
+        console.log("[useRunSSE] Connection closed, aborted:", controller.signal.aborted);
         if (!controller.signal.aborted) {
           scheduleRetry();
         }
       },
       onerror(err) {
+        console.error("[useRunSSE] Connection error:", err);
         if (!controller.signal.aborted) {
-          console.error("[useRunSSE] connection error", err);
           scheduleRetry();
         }
         return null;
       },
     }).catch((err) => {
+      console.error("[useRunSSE] FetchEventSource failed:", err);
       if (!controller.signal.aborted) {
-        console.error("[useRunSSE] connection failed", err);
         scheduleRetry();
       }
     });

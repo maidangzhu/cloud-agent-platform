@@ -43,10 +43,16 @@ export default function HomePage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!input.trim() || loading) return;
+    console.log("[HomePage] handleSubmit called, input:", input, "loading:", loading);
+
+    if (!input.trim() || loading) {
+      console.log("[HomePage] Submit blocked - empty input or loading");
+      return;
+    }
 
     const inviteCode = localStorage.getItem("inviteCode");
     if (!inviteCode) {
+      console.log("[HomePage] No invite code, redirecting to /invite");
       router.push("/invite");
       return;
     }
@@ -54,15 +60,19 @@ export default function HomePage() {
     const prompt = input.trim();
     setInput(""); // 立即清空输入框
     setLoading(true);
+    console.log("[HomePage] Starting session creation with prompt:", prompt);
 
     try {
       // 1. 创建 session（使用第一句话作为 title）
+      console.log("[HomePage] Step 1: Creating session");
       const sessionRes = await fetch("/api/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ inviteCode, title: prompt }),
       });
       const sessionData = await sessionRes.json();
+      console.log("[HomePage] Session creation response:", sessionData);
+
       if (sessionData.code !== 0) {
         alert(sessionData.message);
         setLoading(false);
@@ -70,14 +80,18 @@ export default function HomePage() {
       }
 
       const sessionId = sessionData.data.session.id;
+      console.log("[HomePage] Session created with ID:", sessionId);
 
       // 2. 创建 run
+      console.log("[HomePage] Step 2: Creating run for session", sessionId);
       const runRes = await fetch(`/api/sessions/${sessionId}/runs`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ prompt }),
       });
       const runData = await runRes.json();
+      console.log("[HomePage] Run creation response:", runData);
+
       if (runData.code !== 0) {
         alert(runData.message);
         setLoading(false);
@@ -85,10 +99,11 @@ export default function HomePage() {
       }
 
       // 3. 跳转到对话页面（loading 状态会在跳转后消失）
+      console.log("[HomePage] Step 3: Navigating to /chat/" + sessionId);
       router.push(`/chat/${sessionId}`);
     } catch (err) {
       alert("创建对话失败，请重试");
-      console.error(err);
+      console.error("[HomePage] Error:", err);
       setLoading(false);
     }
   }
