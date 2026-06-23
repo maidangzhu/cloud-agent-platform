@@ -110,17 +110,21 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
   const mergedRuns = (dbSnapshot?.data.runs || []).map((run) => {
     // 如果是当前活动的 run，使用实时 events
     if (run.id === runningRunId) {
+      console.log(`[useSessionState] Run ${run.id} is active, using SSE events:`, events.length);
       return { ...run, liveEvents: events };
     }
     // 如果 run 已完成，优先使用缓存的 events，否则用 DB 的 events
     const cachedEvents = eventsCache[run.id];
     if (cachedEvents) {
+      console.log(`[useSessionState] Run ${run.id} using cached events:`, cachedEvents.length);
       return { ...run, liveEvents: cachedEvents };
     }
     // 从 DB 加载的 events（如果接口返回了）
     if (run.events && run.events.length > 0) {
+      console.log(`[useSessionState] Run ${run.id} using DB events:`, run.events.length, run.events.map(e => e.type));
       return { ...run, liveEvents: run.events };
     }
+    console.log(`[useSessionState] Run ${run.id} has no events`);
     return run;
   });
 
