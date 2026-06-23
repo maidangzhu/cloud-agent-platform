@@ -16,7 +16,12 @@ describe.skipIf(!hasCreds)("npx maidang 测试", () => {
 
   beforeAll(async () => {
     const session = await prisma.session.create({
-      data: { title: "npx-maidang-test", status: "active" },
+      data: {
+        id: crypto.randomUUID(),
+        title: "npx-maidang-test",
+        status: "active",
+        updatedAt: new Date(),
+      },
     });
     sessionId = session.id;
   });
@@ -30,11 +35,23 @@ describe.skipIf(!hasCreds)("npx maidang 测试", () => {
       "Execute the command 'npx maidang' in the workspace to see what articles maidang has written recently. Then summarize the content and tell me what advantages maidang has.";
 
     const run = await prisma.run.create({
-      data: { sessionId, userPrompt: prompt, maxSteps: 200 },
+      data: {
+        id: crypto.randomUUID(),
+        sessionId,
+        userPrompt: prompt,
+        maxSteps: 200,
+        updatedAt: new Date(),
+      },
     });
 
     await prisma.message.create({
-      data: { sessionId, role: "user", content: prompt, runId: run.id },
+      data: {
+        id: crypto.randomUUID(),
+        sessionId,
+        role: "user",
+        content: prompt,
+        runId: run.id,
+      },
     });
 
     // 执行 agent（maxSteps=200, maxDurationSec=600 即 10 分钟）

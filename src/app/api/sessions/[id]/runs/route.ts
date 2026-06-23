@@ -4,6 +4,10 @@ import { runAgent } from "@/server/agent/run-agent";
 import { ApiCode, apiJson, fail, ok } from "@/lib/api-contract";
 import type { CreateRunData } from "@/lib/api-contract";
 
+// Vercel Function 配置：允许长时间运行（fire-and-forget runAgent 需要）
+export const maxDuration = 300; // 5 分钟（Pro plan 上限）
+export const dynamic = "force-dynamic";
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
