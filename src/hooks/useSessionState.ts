@@ -85,18 +85,13 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
   });
 
   const { events, connected } = useRunSSE(runningRunId, {
-    onDone: () => {
+    onDone: (finalEvents) => {
       console.log("[useSessionState] SSE onDone triggered for runId:", runningRunId);
-      // 缓存当前 run 的 events
-      if (runningRunId) {
-        setCompletedRunIds((prev) => new Set(prev).add(runningRunId));
-        if (events.length > 0) {
-          setEventsCache((prev) => ({ ...prev, [runningRunId]: events }));
-          console.log(`[useSessionState] 缓存 runId=${runningRunId} 的 events:`, events.length);
-        }
+      if (runningRunId && finalEvents.length > 0) {
+        setEventsCache((prev) => ({ ...prev, [runningRunId]: finalEvents }));
+        console.log(`[useSessionState] 缓存 runId=${runningRunId} 的 events:`, finalEvents.length);
       }
-
-      // SSE 完成后不 refetch，直接清除 activeRunId
+      setCompletedRunIds((prev) => new Set(prev).add(runningRunId!));
       setActiveRunId(null);
       setPendingMessage(null);
     },

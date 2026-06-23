@@ -5,7 +5,7 @@ import { fetchEventSource, EventStreamContentType } from "@microsoft/fetch-event
 import type { AgentEventDTO } from "@/lib/api-contract";
 
 export interface UseRunSSEOptions {
-  onDone: () => void;
+  onDone: (finalEvents: AgentEventDTO[]) => void;
   onError: (message: string) => void;
 }
 
@@ -26,6 +26,8 @@ export function useRunSSE(
   const onDoneRef = useRef(opts.onDone);
   const onErrorRef = useRef(opts.onError);
   const [retryNonce, setRetryNonce] = useState(0);
+  // Ref to always hold the latest events — avoids stale closure in onDone
+  const eventsRef = useRef<AgentEventDTO[]>([]);
 
   useEffect(() => {
     onDoneRef.current = opts.onDone;
@@ -116,7 +118,8 @@ export function useRunSSE(
         if (message.event === "snapshot") {
           const d = JSON.parse(message.data);
           console.log("[useRunSSE] Snapshot received, events count:", d.events?.length);
-          setState({ events: d.events || [], connected: true });
+          eventsRef.current = d.events || [];
+          setState({ events: eventsRef.current, connected: true });
           resetHeartbeat();
           return;
         }
@@ -124,7 +127,8 @@ export function useRunSSE(
         if (BUSINESS_EVENTS.includes(message.event)) {
           const ev: AgentEventDTO = JSON.parse(message.data);
           console.log(`[useRunSSE] Business event received:`, message.event, ev);
-          setState((prev) => ({ ...prev, events: [...prev.events, ev] }));
+          eventsRef.current = [...eventsRef.current, ev];
+          setState((prev) => ({ ...prev, events: eventsRef.current }));
           resetHeartbeat();
           return;
         }
@@ -139,7 +143,7 @@ export function useRunSSE(
           console.log("[useRunSSE] Done event received, closing connection");
           clearTimeout(heartbeatTimer);
           setState((prev) => ({ ...prev, connected: false }));
-          onDoneRef.current();
+          onDoneRef.current(eventsRef.current);
           controller.abort();
         }
       },
