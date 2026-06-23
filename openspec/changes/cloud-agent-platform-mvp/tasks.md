@@ -94,6 +94,7 @@
 - [x] 6.0.9 移除现有的"SSE done → refetch"逻辑（已重构 ChatPage，删除旧 useRunEvents）
 
 **测试结果**：148 passed | 6 skipped (154)
+
 - useRunSSE: 5 tests passed
 - useSessionState: 5 tests passed (S1, S2, S3, E1, E8)
 
@@ -129,20 +130,20 @@
 
 - [x] 6.2.1 创建 `vercel.json`（构建配置、函数超时、headers）
 - [x] 6.2.2 配置域名：sandbox.maidang.me
-- [ ] 6.2.3 Vercel Dashboard 配置环境变量（DATABASE_URL、INVITE_CODES、LLM、VERCEL_TOKEN）
-- [ ] 6.2.4 生产部署：`vercel --prod`
-- [ ] 6.2.5 验证线上功能：邀请码 → 创建对话 → 工具调用 → SSE 实时渲染
+- [x] 6.2.3 Vercel Dashboard 配置环境变量（DATABASE_URL、INVITE_CODES、LLM、VERCEL_TOKEN）
+- [x] 6.2.4 生产部署：`vercel --prod`
+- [x] 6.2.5 验证线上功能：邀请码 → 创建对话 → 工具调用 → SSE 实时渲染
 
 ### 6.3 README 运行/部署说明 + 隐私自检 + E2E happy path
 
 > 已提前完成/并入：VercelSandbox 实现与命名沙箱复用（①文件延续）并入阶段 2；`vercel link` + `vercel env pull`（凭据用 PAT/OIDC，见 `vercel-credentials.ts`）已配；Neon 建库 + `prisma db push` 已完成（7 表已建）。
 
-- [ ] 6.1.1 实现 snapshot + resume —— ② 快照恢复（停止前 `snapshot()`，重进从 `snapshotId` resume），真沙箱验证
+- [x] 6.1.1 实现 snapshot + resume —— ② 快照恢复（停止前 `snapshot()`，重进从 `snapshotId` resume），真沙箱验证
 
 ### 6.2 Vercel 部署
 
-- [ ] 6.2.1 Vercel CLI 部署 + 环境变量（`DATABASE_URL` / `INVITE_CODES` / `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `LLM_MODEL`；沙箱 OIDC 自动注入）
-- [ ] 6.2.2 补充 README 运行/部署说明；隐私自检（零 PII）；E2E happy path
+- [x] 6.2.1 Vercel CLI 部署 + 环境变量（`DATABASE_URL` / `INVITE_CODES` / `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `LLM_MODEL`；沙箱 OIDC 自动注入）
+- [x] 6.2.2 补充 README 运行/部署说明；隐私自检（零 PII）；E2E happy path
 
 > 文档（PRD / architecture / data-model / sandbox-research / ADR-0001 / CONTRIBUTING）已在规划阶段完成，实现中随变更同步维护。
 

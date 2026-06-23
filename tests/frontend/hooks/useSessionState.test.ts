@@ -172,6 +172,7 @@ describe("useSessionState", () => {
           expect.objectContaining({ method: "POST" }),
         );
       });
+      expect(result.current.activeRunId).toBe("run-2");
 
       // 模拟 SSE snapshot（补齐历史）
       await openSSE();
@@ -191,6 +192,12 @@ describe("useSessionState", () => {
       await waitFor(() => {
         expect(result.current.runs[0]).toHaveProperty("liveEvents");
         expect((result.current.runs[0] as RunDTO).liveEvents).toHaveLength(2);
+      });
+
+      latestSSEInit().onmessage?.({ id: "", event: "done", data: "{}" });
+
+      await waitFor(() => {
+        expect(result.current.activeRunId).toBeNull();
       });
     });
   });
