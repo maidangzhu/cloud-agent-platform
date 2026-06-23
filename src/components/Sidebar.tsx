@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 
 interface SessionSummary {
@@ -9,43 +10,54 @@ interface SessionSummary {
   createdAt: string;
 }
 
+interface SessionsResponse {
+  code: number;
+  message: string;
+  data: {
+    sessions: SessionSummary[];
+  } | null;
+}
+
 export function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [mounted, setMounted] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
 
+  const { data: sessions = [] } = useQuery({
+    queryKey: ["sidebar-sessions", inviteCode],
+    enabled: !!inviteCode && mounted,
+    retry: 1,
+    queryFn: async ({ signal }) => {
+      const res = await fetch("/api/sessions", {
+        headers: { "x-invite-code": inviteCode },
+        cache: "no-store",
+        signal,
+      });
+      const data = (await res.json()) as SessionsResponse;
+      if (data.code !== 0) {
+        throw new Error(data.message);
+      }
+      return (
+        data.data?.sessions.map((s) => ({
+          id: s.id,
+          title: s.title || "New Chat",
+          createdAt: s.createdAt,
+        })) ?? []
+      );
+    },
+  });
+
   useEffect(() => {
-    const code = localStorage.getItem("inviteCode");
+    setMounted(true);
+    const code = localStorage.getItem("inviteCode") ?? "";
+    setInviteCode(code);
     if (!code) {
       router.push("/invite");
-      return;
     }
-    setInviteCode(code);
-    loadSessions(code);
   }, [router]);
 
-  async function loadSessions(code: string) {
-    try {
-      const res = await fetch("/api/sessions", {
-        headers: { "x-invite-code": code },
-      });
-      const data = await res.json();
-      if (data.code === 0) {
-        setSessions(
-          data.data.sessions.map((s: any) => ({
-            id: s.id,
-            title: s.title || "New Chat",
-            createdAt: s.createdAt,
-          }))
-        );
-      }
-    } catch (err) {
-      console.error("Failed to load sessions:", err);
-    }
-  }
-
-  if (!inviteCode) return null;
+  if (!mounted || !inviteCode) return null;
 
   return (
     <div className="w-64 border-r border-zinc-800 flex flex-col bg-zinc-950">
