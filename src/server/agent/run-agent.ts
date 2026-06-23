@@ -65,7 +65,7 @@ function toAgentMessage(msg: {
 
 export async function runAgent(params: RunAgentParams): Promise<void> {
   const { runId, sessionId, userPrompt } = params;
-  const maxSteps = params.maxSteps ?? 60;
+  const maxSteps = params.maxSteps ?? 500;
   const maxDurationMs = (params.maxDurationSec ?? 780) * 1000;
   const seq = new SeqCounter(0);
 
