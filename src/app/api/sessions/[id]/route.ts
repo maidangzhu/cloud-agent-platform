@@ -2,6 +2,9 @@ import { prisma } from "@/server/db/client";
 import { toMessageDTO, toRunDTO, toSessionDTO, toAgentEventDTO } from "@/server/runs/run-service";
 import { ApiCode, apiJson, fail, ok } from "@/lib/api-contract";
 import type { SessionDetailData } from "@/lib/api-contract";
+import type { AgentEvent, Run } from "@prisma/client";
+
+type RunWithEvents = Run & { events: AgentEvent[] };
 
 export async function GET(
   _req: Request,
@@ -15,7 +18,7 @@ export async function GET(
     return apiJson(f.body, f.status);
   }
 
-  const [messages, runs] = await Promise.all([
+  const [messages, runs]: [Awaited<ReturnType<typeof prisma.message.findMany>>, RunWithEvents[]] = await Promise.all([
     prisma.message.findMany({
       where: { sessionId: id },
       orderBy: { createdAt: "asc" },
