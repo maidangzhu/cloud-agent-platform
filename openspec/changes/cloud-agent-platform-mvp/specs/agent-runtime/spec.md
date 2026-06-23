@@ -16,10 +16,10 @@
 - **THEN** run 状态变为 `timeout`
 
 ### Requirement: LLM 集成与回退
-平台 SHALL 通过 pi-ai 集成 OpenAI/Anthropic；当缺少 API key 时 MUST 回退到 faux provider，保证流程可运行。
+平台 SHALL 通过 pi-ai 以 OpenAI 兼容协议（`openai-completions`）集成 LLM，`baseUrl` 可指向中转站；当缺少 API key 时 MUST 回退到 faux provider，保证流程可运行。
 
 #### Scenario: 无 key 回退
-- **WHEN** 环境未配置任何 LLM API key
+- **WHEN** 环境未配置 `OPENAI_API_KEY`
 - **THEN** 系统使用 faux provider 运行，不抛缺 key 错误
 
 ### Requirement: Policy guard 挂载

@@ -1,0 +1,161 @@
+// Cloud Agent Platform — Prisma schema
+// 权威来源：docs/data-model.md（P0 七表 + 4 枚举）。
+// 平台状态以 Postgres 为唯一事实源（见 docs/architecture.md 第 2 节三状态边界）。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── 会话容器：一次长期会话，绑定一个可复用 workspace，含多条 Message 与多次 Run ──
+model Session {
+  id             String        @id @default(cuid())
+  inviteCodeHash String? // 邀请码 hash，不存明文
+  title          String // 会话标题（由首条 prompt 生成）
+  status         SessionStatus @default(active)
+  workspace      Workspace?
+  messages       Message[]
+  runs           Run[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([status, createdAt])
+}
+
+// ── 沙箱引用（不存文件系统本身）：命名沙箱 + snapshot，支撑会话内复用 / 沙箱回收后恢复 ──
+model Workspace {
+  id                String          @id @default(cuid())
+  sessionId         String          @unique
+  session           Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  provider          String          @default("local") // "local" | "vercel"
+  status            WorkspaceStatus @default(pending)
+  sandboxName       String? // 命名沙箱，getOrCreate 复用（① 文件延续）
+  sandboxState      Json? // 重连引用
+  snapshotId        String? // 最近快照，用于 resume（② 快照恢复）
+  snapshotExpiresAt DateTime? // 快照保留期
+  workingDir        String?
+  error             String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+// ── 用户视角的对话消息（user / assistant）──
+model Message {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String // "user" | "assistant"
+  content   String // 文本内容（Markdown）
+  runId     String? // assistant 消息关联的那次 Run
+  createdAt DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+}
+
+// ── 一次 agent 执行（一条 prompt → 一轮 loop）──
+model Run {
+  id              String       @id @default(cuid())
+  sessionId       String
+  session         Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userPrompt      String // 触发这次 Run 的用户 prompt
+  status          RunStatus    @default(created)
+  maxSteps        Int          @default(60) // 步数上限，防失控
+  maxDurationSec  Int          @default(780) // wall time 上限
+  startedAt       DateTime?
+  completedAt     DateTime?
+  lastHeartbeatAt DateTime? // 心跳，用于中断判定
+  error           String?
+  events          AgentEvent[]
+  toolCalls       ToolCall[]
+  artifacts       Artifact[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([sessionId, createdAt])
+  @@index([status, createdAt])
+}
+
+// ── Run 内的执行事件流（事实源，append-only）──
+model AgentEvent {
+  id        String   @id @default(cuid())
+  runId     String
+  run       Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  seq       Int // run 内单调递增序号
+  type      String // run_created / model_step / tool_call_started ...
+  role      String? // user / assistant / tool
+  title     String?
+  content   String?
+  raw       Json? // 原始模型输出 / 元数据
+  createdAt DateTime @default(now())
+
+  @@unique([runId, seq]) // 保证事件顺序事实源
+  @@index([runId, createdAt])
+}
+
+// ── 一次工具调用及结果 ──
+model ToolCall {
+  id          String         @id @default(cuid())
+  runId       String
+  run         Run            @relation(fields: [runId], references: [id], onDelete: Cascade)
+  eventSeq    Int
+  name        String // list_files / read_file / search_text / write_file / run_command
+  status      ToolCallStatus @default(pending)
+  args        Json
+  result      Json?
+  error       String?
+  startedAt   DateTime       @default(now())
+  completedAt DateTime?
+
+  @@index([runId, eventSeq])
+  @@index([name, status])
+}
+
+// ── 最终报告或生成文件 ──
+model Artifact {
+  id        String   @id @default(cuid())
+  runId     String
+  run       Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  kind      String // "report" 等
+  title     String?
+  path      String?
+  content   String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+}
+
+enum SessionStatus {
+  active
+  archived
+}
+
+enum RunStatus {
+  created
+  provisioning_workspace
+  running
+  completed
+  failed
+  timeout
+  cancel_requested
+  cancelled
+  interrupted
+}
+
+enum WorkspaceStatus {
+  pending
+  provisioning
+  ready
+  archived
+  failed
+}
+
+enum ToolCallStatus {
+  pending
+  running
+  completed
+  failed
+  timeout
+  rejected
+}

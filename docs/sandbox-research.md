@@ -85,7 +85,7 @@ interface Credentials {
 - **本地开发**：`vercel link`（关联项目）→ `vercel env pull`（拉开发 token）。SDK 自动从环境读取。本项目本地 Vercel CLI 已登录，走这条。
 - **生产（部署在 Vercel 上）**：认证自动完成，OIDC token 自动注入，无需手动配。
 
-环境变量层面通常对应 `VERCEL_TOKEN` / `VERCEL_PROJECT_ID` / `VERCEL_TEAM_ID`（或由 `vercel env pull` 生成的 `.env.local` 提供）。
+实测（参照已跑通项目）：**单个 `VERCEL_OIDC_TOKEN` 即足够**。`@vercel/sandbox` 内置 dev-credentials 会自动从环境读取它，`Sandbox.getOrCreate()/create()` 无需显式传 credentials。该 token 是 JWT，payload 含 `owner_id`(=teamId) 与 `project_id`，仅在需要显式 `Credentials` 的场景（如 `Sandbox.list()` 清理，MVP 不需要）才解析。`vercel env pull` 会把它写入 `.env.local`；部署在 Vercel 上时自动注入并轮换。`VERCEL_TOKEN`/`VERCEL_TEAM_ID`/`VERCEL_PROJECT_ID`（PAT）仅作无 OIDC 时的兜底。
 
 ## 4. 限制与定价（官方文档，2026 状态）
 

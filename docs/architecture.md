@@ -24,7 +24,7 @@
 | --- | --- | --- |
 | Web / 控制面 | Next.js 16 App Router + Tailwind + React Query + zustand | 任务提交、事件展示、API routes、DB 操作 |
 | Agent Runtime | Pi (`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`) | agent loop、工具调用、session transcript |
-| LLM Gateway | pi-ai（OpenAI / Anthropic，无 key 回退 faux provider） | 屏蔽模型供应商差异 |
+| LLM Gateway | pi-ai（仅 OpenAI 兼容协议，自定义 `baseUrl` 指向中转站；无 key 回退 faux provider） | 统一 OpenAI 协议接入 |
 | Sandbox | 统一 `Sandbox` 接口 + LocalSandbox / VercelSandbox 双实现 | 隔离执行 workspace |
 | Database | Neon Postgres | 平台状态源 |
 | ORM | Prisma | schema、migration、类型化查询 |

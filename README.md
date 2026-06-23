@@ -20,7 +20,7 @@
 
 - **Web / API / 控制面**：Next.js 16 App Router
 - **Agent Runtime**：Pi (`@earendil-works/pi-agent-core` + `pi-ai`)
-- **LLM**：OpenAI / Anthropic（无 key 时回退 faux provider）
+- **LLM**：pi-ai，仅 OpenAI 兼容协议（自定义 `baseURL` 指向中转站；无 key 时回退 faux provider）
 - **沙箱**：统一 `Sandbox` 接口 + 双实现（本地临时目录 / Vercel Firecracker microVM）
 - **数据库**：Neon Postgres + Prisma
 - **测试**：Vitest

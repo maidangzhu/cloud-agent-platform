@@ -6,22 +6,22 @@
 ## 0. 地基（依赖 + 配置）
 
 - [x] 0.1 安装运行时依赖：`@earendil-works/pi-agent-core`、`@earendil-works/pi-ai`、`@vercel/sandbox`、`@prisma/client`
-- [ ] 0.2 安装开发依赖：`vitest`、`prisma`
-- [ ] 0.3 配置 vitest（config + test 脚本），跑通空套件
-- [ ] 0.4 编写 Prisma schema（Session/Workspace/Message/Run/AgentEvent/ToolCall/Artifact 七表 + 枚举），`prisma generate`
-- [ ] 0.5 创建 `.env.example`（DATABASE_URL、INVITE_CODES、LLM key、SANDBOX_PROVIDER 等占位）
-- [ ] 0.6 验证 `pnpm build` 通过
+- [x] 0.2 安装开发依赖：`vitest`、`prisma`
+- [x] 0.3 配置 vitest（config + test 脚本），跑通空套件
+- [x] 0.4 编写 Prisma schema（Session/Workspace/Message/Run/AgentEvent/ToolCall/Artifact 七表 + 枚举），`prisma generate`
+- [x] 0.5 创建 `.env.example`（DATABASE_URL、INVITE_CODES、LLM key、SANDBOX_PROVIDER 等占位）
+- [x] 0.6 验证 `pnpm build` 通过
 
 ## 1. 纯逻辑层（unit）
 
-- [ ] 1.1 写测试：Run 状态机（合法/非法转移、终态守卫）+ Session 状态（active/archived）
-- [ ] 1.2 实现 `run-status.ts`
-- [ ] 1.3 写测试：path guard（相对/绝对越权拒绝、合法放行）
-- [ ] 1.4 实现 `path-guard.ts`
-- [ ] 1.5 写测试：policy（命令白名单、高风险拒绝）
-- [ ] 1.6 实现 `policy.ts`
-- [ ] 1.7 写测试：事件 seq 单调与偏序（纯逻辑部分）
-- [ ] 1.8 全部 unit 测试跑绿
+- [x] 1.1 写测试：Run 状态机（合法/非法转移、终态守卫）+ Session 状态（active/archived）
+- [x] 1.2 实现 `run-status.ts`
+- [x] 1.3 写测试：path guard（相对/绝对越权拒绝、合法放行）
+- [x] 1.4 实现 `path-guard.ts`
+- [x] 1.5 写测试：policy（命令白名单、高风险拒绝）
+- [x] 1.6 实现 `policy.ts`
+- [x] 1.7 写测试：事件 seq 单调与偏序（纯逻辑部分）
+- [x] 1.8 全部 unit 测试跑绿
 
 ## 2. 工具层 + LocalSandbox（integration）
 
@@ -59,7 +59,7 @@
 
 - [ ] 5.1 邀请码门禁页
 - [ ] 5.2 对话界面：MessageList（多轮）+ EventTimeline + ReportPanel + ToolCallCard（借鉴 Open Agents 渲染模式，接 SSE）
-- [ ] 5.3 接真实 Anthropic/OpenAI 跑一次本地多轮 demo（LocalSandbox：找 TODO → 追问排序写文件）
+- [ ] 5.3 接真实 LLM（OpenAI 协议中转站）跑一次本地多轮 demo（LocalSandbox：找 TODO → 追问排序写文件）
 - [ ] 5.4 本地端到端自测（提交 → 事件流 → 报告 → 追问复用 workspace）
 
 ## 6. Vercel Sandbox + snapshot/resume + 部署
