@@ -131,6 +131,8 @@ export interface AgentEventDTO {
   role?: string;
   title?: string;
   content?: string;
+  /** tool_call_started 时含 args；tool_call_completed/failed 时含 result/error。 */
+  payload?: { args?: unknown; result?: unknown; error?: string };
   createdAt: string;
 }
 

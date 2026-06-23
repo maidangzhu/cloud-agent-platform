@@ -70,8 +70,10 @@
 
 ## 5. UI 多轮对话 + 真实 LLM（可交付里程碑）
 
-- [ ] 5.1 邀请码门禁页
-- [ ] 5.2 对话界面：MessageList（多轮）+ EventTimeline + ReportPanel + ToolCallCard（借鉴 Open Agents 渲染模式，接 SSE）
+- [x] 5.1 邀请码门禁页（`/invite`：输入邀请码 → 校验 → 建 Session → 跳转对话页）
+- [x] 5.2 对话界面：`/chat/[sessionId]`（MessageList 多轮 + RunTimeline 执行事件 + ToolCallCard 工具折叠 + SSE 实时接入）
+- [x] 5.2a AgentEventDTO 新增 `payload`（args/result/error）字段，SSE 事件携带完整工具调用数据，前端无需额外请求
+- [x] 5.2b `useRunEvents` SSE hook（EventSource 订阅 + snapshot 重连 + done 关闭）
 - [ ] 5.3 接真实 LLM（OpenAI 协议中转站）跑一次多轮 demo（真实 Vercel 沙箱：找 TODO → 追问排序写文件）
 - [ ] 5.4 本地端到端自测（提交 → 事件流 → 报告 → 追问复用 workspace）
 

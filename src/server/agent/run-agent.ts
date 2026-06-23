@@ -212,7 +212,13 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
         event.isError || entry.blocked ? "tool_call_failed" : "tool_call_completed";
       await appendEvent(runId, seq.next(), eventType, {
         title: event.toolName,
-        raw: { toolCallId: event.toolCallId },
+        raw: {
+          toolCallId: event.toolCallId,
+          result: entry.blocked ? undefined : event.isError ? undefined : event.result,
+          error: entry.blocked || event.isError
+            ? String((event.result as any)?.content?.[0]?.text ?? "error")
+            : undefined,
+        },
       });
       inFlight.delete(event.toolCallId);
     } else if (event.type === "message_end" && event.message.role === "assistant") {

@@ -74,12 +74,20 @@ export function toMessageDTO(m: Message): MessageDTO {
 }
 
 export function toAgentEventDTO(e: AgentEvent): AgentEventDTO {
+  const raw = e.raw as Record<string, unknown> | null;
+  let payload: AgentEventDTO["payload"];
+  if (raw) {
+    if (e.type === "tool_call_started") payload = { args: raw.args };
+    else if (e.type === "tool_call_completed") payload = { result: raw.result };
+    else if (e.type === "tool_call_failed") payload = { error: raw.error as string };
+  }
   return {
     seq: e.seq,
     type: e.type,
     role: e.role ?? undefined,
     title: e.title ?? undefined,
     content: e.content ?? undefined,
+    payload,
     createdAt: e.createdAt.toISOString(),
   };
 }
