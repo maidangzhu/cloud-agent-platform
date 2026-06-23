@@ -165,13 +165,10 @@ export default function HomePage() {
                   key={template.title}
                   type="button"
                   onClick={() => fillTemplate(template.prompt)}
-                  className="min-h-24 rounded-lg border border-zinc-800 bg-zinc-900/70 px-4 py-3 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+                  className="min-h-16 rounded-lg border border-zinc-800 bg-zinc-900/70 px-4 py-3 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
                 >
                   <span className="block text-sm font-medium text-zinc-100">
                     {template.title}
-                  </span>
-                  <span className="mt-1 block line-clamp-2 text-xs leading-5 text-zinc-500">
-                    {template.prompt}
                   </span>
                 </button>
               ))}
