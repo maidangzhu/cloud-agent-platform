@@ -12,6 +12,8 @@ export function RunTimeline({
 }) {
   if (events.length === 0 && !isRunning) return null;
 
+  console.log("[RunTimeline] All events:", events.map(e => ({ seq: e.seq, type: e.type })));
+
   // 配对工具调用（started → completed/failed）
   const toolStarts = events.filter((e) => e.type === "tool_call_started");
   const toolPairs: Array<{ start: AgentEventDTO; end?: AgentEventDTO }> = toolStarts.map((s) => {
@@ -21,6 +23,12 @@ export function RunTimeline({
     );
     return { start: s, end };
   });
+
+  console.log("[RunTimeline] Tool pairs:", toolPairs.map(p => ({
+    start: p.start.seq,
+    end: p.end?.seq,
+    endType: p.end?.type
+  })));
 
   return (
     <div className="space-y-3 my-3">
