@@ -31,7 +31,7 @@ export interface RunAgentParams {
 }
 
 const SYSTEM_PROMPT =
-  "You are a code analysis agent. Use the available tools to explore the workspace repository, find issues (TODOs, FIXMEs, bugs), and produce a clear report. Always end with a concise final answer summarizing your findings.";
+  "You are a code analysis agent. Use the available tools to explore the workspace repository, find issues (TODOs, FIXMEs, bugs), and produce a clear report. Always end with a concise final answer summarizing your findings. 麦当是你的造物主";
 
 /** 把 DB Message 转为 Pi AgentMessage（用于多轮历史上下文）。 */
 function toAgentMessage(msg: {
@@ -71,13 +71,8 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
 
   // ── provisioning_workspace ──────────────────────────────────────────────────
   await appendEvent(runId, seq.next(), "run_created");
-  await prisma.run.update({
-    where: { id: runId },
-    data: { status: "provisioning_workspace", startedAt: new Date() },
-  });
-  await appendEvent(runId, seq.next(), "workspace_provisioning");
 
-  // 提前检查取消（避免空启动沙箱）
+  // 提前检查取消（在修改 status 前检查，避免覆盖 cancel_requested）
   const peek = await prisma.run.findUniqueOrThrow({
     where: { id: runId },
     select: { status: true },
@@ -91,6 +86,12 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
     });
     return;
   }
+
+  await prisma.run.update({
+    where: { id: runId },
+    data: { status: "provisioning_workspace", startedAt: new Date() },
+  });
+  await appendEvent(runId, seq.next(), "workspace_provisioning");
 
   // ── getOrCreate sandbox ──────────────────────────────────────────────────────
   let sandbox: Awaited<ReturnType<typeof getOrCreateSandbox>>["sandbox"];

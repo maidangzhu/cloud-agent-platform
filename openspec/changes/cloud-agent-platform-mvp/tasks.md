@@ -35,13 +35,13 @@
 
 ## 3. Agent loop 编排 + 多轮（真实 LLM）
 
-- [ ] 3.1 实现 `event-store.ts`（appendEvent/persistToolCall/persistArtifact）+ message 落库
-- [ ] 3.2 实现 `model.ts`（真 key 解析；无 key 抛错）
-- [ ] 3.3 写测试：run-agent happy path（真实 LLM 探索仓库 → 工具调用 → completed + 写 assistant Message）
-- [ ] 3.4 实现 `run-agent.ts` 编排（getOrCreate workspace、挂 beforeToolCall/subscribe、跑 Pi Agent）
-- [ ] 3.5 写测试：多轮上下文（第二轮 Run 能看到第一轮对话历史 + 复用 workspace 文件）
-- [ ] 3.6 写测试：失败 → failed、超限 → timeout、取消 → cancelled（事件保留）
-- [ ] 3.7 agent 编排测试跑绿
+- [x] 3.1 实现 `event-store.ts`（appendEvent/persistToolCall/persistArtifact）+ message 落库
+- [x] 3.2 实现 `model.ts`（真 key 解析；无 key 抛错）
+- [x] 3.3 写测试：run-agent happy path（真实 LLM 探索仓库 → 工具调用 → completed + 写 assistant Message）
+- [x] 3.4 实现 `run-agent.ts` 编排（getOrCreate workspace、挂 beforeToolCall/subscribe、跑 Pi Agent）
+- [x] 3.5 写测试：多轮上下文（第二轮 Run 能看到第一轮对话历史 + 复用 workspace 文件）
+- [x] 3.6 写测试：失败 → failed、超限 → timeout、取消 → cancelled（事件保留）
+- [x] 3.7 agent 编排测试跑绿
 
 ## 4. API 路由（route tests）
 
