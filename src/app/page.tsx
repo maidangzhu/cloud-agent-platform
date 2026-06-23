@@ -23,7 +23,6 @@ const PROMPT_TEMPLATES = [
    - 前端：Next.js 16 + React 19 + TanStack Query（双源状态管理）
    - 后端：Vercel Sandbox（microVM 代码执行）+ Prisma 7（数据层）
    - Agent：Pi Agent Core（工具调用框架）
-   - 为什么用 SSE 而不是 WebSocket？
    - 沙箱生命周期管理与 persistent 命名策略
 
 3. **从 Stage 0 到 Stage 6 的演进路径**（openspec/）：

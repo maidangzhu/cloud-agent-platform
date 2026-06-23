@@ -34,7 +34,7 @@ function RunTurn({
     <div className="space-y-3 mb-8">
       {/* 用户消息 */}
       <div className="flex justify-end">
-        <div className="max-w-[70%] rounded-2xl rounded-br-sm bg-zinc-700 px-4 py-2.5 text-sm text-white">
+        <div className="max-w-[70%] rounded-2xl rounded-br-sm bg-zinc-700 px-4 py-2.5 text-sm text-white whitespace-pre-wrap">
           {userContent}
         </div>
       </div>
