@@ -42,21 +42,31 @@
 - [x] 3.5 写测试：多轮上下文（第二轮 Run 能看到第一轮对话历史 + 复用 workspace 文件）
 - [x] 3.6 写测试：失败 → failed、超限 → timeout、取消 → cancelled（事件保留）
 - [x] 3.7 agent 编排测试跑绿
+- [x] 3.8 policy 宽松模式：移除白名单，改为 denylist（只拦截 rm -rf/sudo/dd 等高危；放行 git/npx/node/curl/ssh 等）
+- [x] 3.9 修复 cancel 逻辑：先检查 cancel_requested 再更新状态（避免 provisioning_workspace 覆盖预设取消）
+- [x] 3.10 多轮场景集成测试（npx maidang whoami → songs --year 2025 → 写 workspace 文件 → 验证文件内容含真实歌手名）
+- [x] 3.11 外部仓库集成测试（git clone + npx 在真沙箱执行，验证沙箱网络连通）
+- [x] 3.12 session 执行过程 viewer（`maidang-multiturn-viewer.integration.test.ts`，按事件流格式化输出 AI 推理过程）
+- [x] 3.13 docs/adr/0003：执行事件分表存储 vs parts 内嵌对比决策（生产可扩展性、多维查询、审计追踪）
 
 ## 4. API 路由（route tests）
 
 > 接口规范（统一 `{code,message,data}` 信封、错误码、DTO、SSE 事件格式）见 `docs/api-contract.md` + `src/lib/api-contract.ts`（前后端共用，已先行定义并测试）。本阶段所有端点按此契约实现与测试。
 
 - [x] 4.0 定义接口契约：`docs/api-contract.md` + `src/lib/api-contract.ts`（信封/错误码/DTO/SSE）+ 单元测试
-- [ ] 4.1 实现 Prisma client singleton + invite service
-- [ ] 4.2 写测试 + 实现：`POST /api/invite`（服务端二次校验）
-- [ ] 4.3 写测试 + 实现：`POST /api/sessions`（建会话 + workspace 准备）
-- [ ] 4.4 写测试 + 实现：`POST /api/sessions/[id]/runs`（追加 message、触发 worker、复用 workspace）
-- [ ] 4.5 写测试 + 实现：`GET /api/sessions/[id]`（会话历史 + 对话消息）
-- [ ] 4.6 写测试 + 实现：`POST /api/runs/[runId]/cancel`
-- [ ] 4.7 写测试 + 实现：`GET /api/runs/[runId]`（快照 + derivedUiState）
-- [ ] 4.8 实现：`GET /api/runs/[runId]/events`（SSE，runtime=nodejs）
-- [ ] 4.9 API 测试跑绿
+- [x] 4.1 实现 `invite-service.ts`（isValidInviteCode + hashCode）+ 单元测试（有效码/无效码/trim/未配置）
+- [x] 4.2 实现 `run-service.ts`（derivedUiState 按心跳新鲜度推导 + toSessionDTO/toRunDTO/toMessageDTO/toAgentEventDTO/toToolCallDTO/toArtifactDTO）+ 单元测试（全状态覆盖 + 心跳时效三档）
+- [x] 4.3 写测试 + 实现：`POST /api/invite`（有效码→200、无效→401、缺字段→400、非JSON→400）
+- [x] 4.4 写测试 + 实现：`POST /api/sessions`（建会话 + inviteCodeHash 存库、无prompt→默认title、无效码→401）
+- [x] 4.5 写测试 + 实现：`GET /api/sessions/[id]`（含消息列表 + runs 列表、404）
+- [x] 4.6 写测试 + 实现：`POST /api/sessions/[id]/runs`（建Run + 写user Message + fire-and-forget触发runAgent、session不存在→404、缺prompt→400）
+- [x] 4.7 写测试 + 实现：`GET /api/runs/[runId]`（events + toolCalls + artifacts + derivedUiState、404）
+- [x] 4.8 写测试 + 实现：`POST /api/runs/[runId]/cancel`（running→cancel_requested、终态→409/2001、404）
+- [x] 4.9 实现：`GET /api/runs/[runId]/events`（SSE streaming：snapshot→业务事件→ping→done；runtime=nodejs）+ 测试（终态立即done、content-type、snapshot含已有事件、404）
+- [x] 4.10 全链路集成测试：session→run→手动植入9事件+工具调用+artifact→验证所有端点数据一致→cancel报409
+- [x] 4.11 取消链路测试：running→cancel_requested→derivedUiState=cancelled，GET run同步反映
+- [x] 4.12 多轮对话链路测试：两轮Run共享session消息历史，GET /api/sessions/:id返回全部messages+runs
+- [x] 4.13 API 测试跑绿（30个集成测试全通过）
 
 ## 5. UI 多轮对话 + 真实 LLM（可交付里程碑）
 
