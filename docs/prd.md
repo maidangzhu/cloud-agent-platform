@@ -106,7 +106,7 @@ pending → provisioning → ready → archived
 
 ## 8. 范围划分（P0 / P1 / P2）
 
-**P0（本期 MVP）做**：邀请码访问、**多轮会话**（Session + Message）、Vercel Function 内跑 agent loop、SSE 事件流、Postgres 持久化、本地/Vercel 沙箱、5 个最小工具、demo repo 找 TODO 生成报告、**workspace 会话内复用与 snapshot resume（①persistent 文件延续 + ②显式 snapshot/resume）**。
+**P0（本期 MVP）做**：邀请码访问、**多轮会话**（Session + Message）、Vercel Function 内跑 agent loop、SSE 事件流、Postgres 持久化、Vercel 沙箱隔离执行、5 个最小工具、demo repo 找 TODO 生成报告、**workspace 会话内复用与 snapshot resume（①persistent 文件延续 + ②显式 snapshot/resume）**。
 
 **P0 不做**：OAuth、真实多用户、计费、GitHub App、PR、**自动 hibernate 生命周期编排（③）**、durable workflow、独立 worker、subagent、向量记忆。
 

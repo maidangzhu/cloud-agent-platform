@@ -18,8 +18,9 @@
 3. **全程测试驱动开发 (TDD)**
    - 每个阶段：**先写测试 → 再实现 → 跑绿**，然后才停下。
    - 确定性逻辑（状态机、path guard、工具边界、事件顺序、agent 编排）必须有测试覆盖。
-   - LLM 的不确定性用 pi-ai 内置的 `registerFauxProvider` 脚本化；沙箱用 `LocalSandbox`。
-   - **测试必须零外部依赖**：不依赖真实 LLM key、真实 Vercel Sandbox 或线上数据库即可全部跑绿。
+   - **所有业务流程一律由测试驱动实现**：工具层、agent loop、API 全部用集成测试跑通真实 Vercel 沙箱 + 真实 DB；后端业务测试全绿后才开始前端开发——进入前端时整条业务链已被测试证明可跑。
+   - LLM 的不确定性用 pi-ai 内置的 `registerFauxProvider` 脚本化（保证测试确定性）；沙箱**只用真实 VercelSandbox**（无 LocalSandbox）。
+   - **分两层测试**：① 纯逻辑单元测试零外部依赖（无 key / 无网络也能全绿）；② 业务集成测试连真实 Vercel 沙箱 + Neon（需 Vercel 凭据与网络，本机被墙时需代理）。
 
 4. **隐私约束（硬性）**
    - 仓库内**不得出现任何个人隐私信息**：人名、公司名、个人电脑路径（如 `/Users/<name>`）、笔试编号、私有仓库地址等。
@@ -45,7 +46,7 @@ npx @fission-ai/openspec archive cloud-agent-platform-mvp
 | --- | --- | --- |
 | 0 | 地基（依赖 + 配置） | 构建可跑 |
 | 1 | 纯逻辑层（状态机/path guard/policy/事件序） | unit |
-| 2 | 工具层 + LocalSandbox | integration |
+| 2 | 工具层 + VercelSandbox | integration（真沙箱） |
 | 3 | Agent loop 编排（faux LLM） | integration |
 | 4 | API 路由 | route tests |
 | 5 | UI + 真实接入 + 部署 + 文档 | e2e + 手测 |

@@ -35,7 +35,7 @@
 
 ## 连带决策：workspace 会话内持久（跨请求、跨沙箱实例）
 
-多轮会话下 workspace 必须跨请求、跨沙箱实例存活（serverless 下每次请求是独立 Function 实例，本地临时目录不保留）。采用分层策略，详见 [ADR 关联的 `sandbox-research.md` 第 6 节]：
+多轮会话下 workspace 必须跨请求、跨沙箱实例存活（serverless 下每次请求是独立 Function 实例，沙箱也可能被回收）。采用分层策略，详见 [ADR 关联的 `sandbox-research.md` 第 6 节]：
 
 - **① 文件延续（P0 必做）**：persistent 命名沙箱，`getOrCreate({name})` 活着复用、回收则重建。
 - **② 快照恢复（P0 增强）**：停止前 `snapshot()`，重新进入从 `snapshotId` resume。
@@ -46,7 +46,7 @@
 ## 取舍 / 后果
 
 - **工期**：相对单任务模型约 +60~80% 代码量（+2 张表、+会话/消息 API、workspace 从「每次新建」改「getOrCreate 复用」、UI 从单次结果页改对话流）。通过渐进交付控制风险：先 ①（文件延续）跑通多轮，再 ②（snapshot/resume）做会话恢复，任何时刻有可交付版本。
-- **TDD 折扣**：snapshot/resume 真实验证只能在阶段 6 真接 Vercel 时做；前面阶段用 LocalSandbox 目录复用 + tar 近似，测不到真快照恢复。
+- **TDD 折扣**：无。所有业务测试都跑在真实 Vercel 沙箱上，snapshot/resume（②）从工具层阶段起即可真实验证（命名沙箱复用 + 真快照恢复），不再有「测不到真快照」的近似。
 - **与 ADR-0001 的关系**：仍是 Sandbox as Tool —— agent loop 在 server，多轮只是多次触发 loop 并复用同一沙箱后端，未改变 agent 与 sandbox 的边界。
 - **明确不做（P1）**：自动 hibernate 生命周期编排、多份历史快照、多用户隔离（User/Project）。
 

@@ -9,12 +9,12 @@
 - 新增 **邀请码门禁**：轻量访问控制，服务端二次校验，替代登录/计费。
 - 新增 **多轮会话**：`Session` 会话容器 + `Message` 对话消息，支持追问、会话恢复，workspace 会话内复用。
 - 新增 **Run 编排与状态机**：创建 run、状态流转、心跳、取消、中断恢复。
-- 新增 **沙箱隔离层**：统一 `Sandbox` 接口 + 双实现（本地临时目录 / Vercel Firecracker microVM），path guard 限制在 workspace 内；命名沙箱复用 + snapshot/resume 会话内持久。
+- 新增 **沙箱隔离层**：统一 `Sandbox` 接口 + 唯一 VercelSandbox 实现（Firecracker microVM），path guard 限制在 workspace 内；命名沙箱复用 + snapshot/resume 会话内持久。
 - 新增 **工具系统**：`list_files / read_file / search_text / write_file / run_command`，统一 schema 校验、超时、输出截断、命令白名单。
 - 新增 **Agent runtime 集成**：基于 Pi（`@earendil-works/pi-agent-core` + `pi-ai`），`beforeToolCall` 做 policy guard，`subscribe` 做事件同步；无 key 时回退 faux provider。
 - 新增 **事件持久化**：AgentEvent / ToolCall / Artifact 落 Postgres，单调 seq 保证顺序，SSE 流式推送且断线后可从 DB 恢复。
 - 新增 **Web UI**：多轮对话界面、事件时间线、最终报告展示。
-- 新增 **开发流程约束**：全程 TDD（faux LLM + 本地沙箱保证测试零外部依赖），分阶段交付，每阶段完成后停下等人工检查，进度用 OpenSpec 记录。
+- 新增 **开发流程约束**：全程 TDD（纯逻辑单元离线 + 业务流程一律连真实 Vercel 沙箱/Neon 跑通，后端全绿才开前端），分阶段交付，每阶段完成后停下等人工检查，进度用 OpenSpec 记录。
 
 ## Capabilities
 
@@ -23,7 +23,7 @@
 - `invite-gate`: 邀请码访问控制，服务端可信校验。
 - `session-management`: 多轮会话容器、对话消息持久化、会话恢复。
 - `run-orchestration`: Run 生命周期、状态机、心跳、取消与中断恢复。
-- `sandbox-isolation`: 统一沙箱接口、path guard、本地/Vercel 双实现、workspace 复用与 snapshot/resume。
+- `sandbox-isolation`: 统一沙箱接口、path guard、VercelSandbox 实现、workspace 复用与 snapshot/resume。
 - `tool-system`: 受控工具集，schema 校验、policy guard、超时与输出截断。
 - `agent-runtime`: Pi agent loop 编排、LLM 集成、工具绑定、maxSteps/时长约束。
 - `event-persistence`: 事件流落库、单调 seq、artifact 存储、SSE 与刷新恢复。

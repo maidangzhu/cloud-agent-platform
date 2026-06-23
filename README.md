@@ -21,7 +21,7 @@
 - **Web / API / 控制面**：Next.js 16 App Router
 - **Agent Runtime**：Pi (`@earendil-works/pi-agent-core` + `pi-ai`)
 - **LLM**：pi-ai，仅 OpenAI 兼容协议（自定义 `baseURL` 指向中转站；无 key 时回退 faux provider）
-- **沙箱**：统一 `Sandbox` 接口 + 双实现（本地临时目录 / Vercel Firecracker microVM）
+- **沙箱**：统一 `Sandbox` 接口 + VercelSandbox 实现（Firecracker microVM）
 - **数据库**：Neon Postgres + Prisma
 - **测试**：Vitest
 - **部署**：Vercel + Neon
@@ -32,7 +32,7 @@
 
 1. **分阶段交付**：每完成一个阶段就停下，等人工检查通过再继续。
 2. **OpenSpec 记录进度**：变更规格与任务清单在 `openspec/changes/cloud-agent-platform-mvp/`。
-3. **全程 TDD**：先写测试 → 实现 → 跑绿；测试零外部依赖（faux LLM + 本地沙箱）。
+3. **全程 TDD**：先写测试 → 实现 → 跑绿。纯逻辑单元测试离线（faux LLM）；业务测试连真实 Vercel 沙箱 + Neon，后端全绿才开前端。
 4. **零隐私信息**：仓库内不含任何个人/公司隐私信息。
 
 查看当前进度：

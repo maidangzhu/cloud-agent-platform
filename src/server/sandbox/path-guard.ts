@@ -1,6 +1,6 @@
 // path guard —— 把任意用户/模型给的路径归一化并约束在 workspace root 内。
 // 纯字符串归一化（不触碰文件系统），接口层即拦截 `../` 与绝对路径越权，
-// 不依赖沙箱本身的隔离。LocalSandbox / VercelSandbox 共用这套保护。
+// 不依赖沙箱本身的隔离。VercelSandbox 在工具层复用这套保护。
 //
 // 限制（P0）：基于字符串归一化，不解析符号链接。真实 symlink 逃逸的防护
 // 留给沙箱实现层（如 realpath 校验），见 docs/sandbox-research.md §7。

@@ -9,7 +9,7 @@
 - [x] 0.2 安装开发依赖：`vitest`、`prisma`
 - [x] 0.3 配置 vitest（config + test 脚本），跑通空套件
 - [x] 0.4 编写 Prisma schema（Session/Workspace/Message/Run/AgentEvent/ToolCall/Artifact 七表 + 枚举），`prisma generate`
-- [x] 0.5 创建 `.env.example`（DATABASE_URL、INVITE_CODES、LLM key、SANDBOX_PROVIDER 等占位）
+- [x] 0.5 创建 `.env.example`（DATABASE_URL、INVITE_CODES、LLM key、Vercel 凭据 等占位）
 - [x] 0.6 验证 `pnpm build` 通过
 
 ## 1. 纯逻辑层（unit）
@@ -23,15 +23,15 @@
 - [x] 1.7 写测试：事件 seq 单调与偏序（纯逻辑部分）
 - [x] 1.8 全部 unit 测试跑绿
 
-## 2. 工具层 + LocalSandbox（integration）
+## 2. 工具层 + VercelSandbox（integration，真沙箱）
 
-- [ ] 2.1 定义 `Sandbox` 接口（含 snapshot/getState）
-- [ ] 2.2 写测试：LocalSandbox 读写、workspace 初始化、按 sessionId 复用目录
-- [ ] 2.3 实现 `local-sandbox.ts` + `factory.ts`（getOrCreate：目录在则复用，不在则建+seed）
-- [ ] 2.4 准备中性 demo-repo fixture（含 TODO/FIXME，零 PII）
-- [ ] 2.5 写测试：5 个工具（越权拒绝、超时、输出截断、高风险 rejected、search_text 命中）
-- [ ] 2.6 实现 `tools/registry.ts`（5 工具，TypeBox schema）
-- [ ] 2.7 工具层 integration 测试跑绿
+- [ ] 2.1 定义 `Sandbox` 接口（`readFile/writeFile/readdir/exec/snapshot/stop/getState`）
+- [ ] 2.2 实现 `vercel-sandbox.ts` + `factory.ts`（`getOrCreate` 命名沙箱：活着复用、回收则重建+seed；凭据用 `vercel-credentials.ts`）
+- [ ] 2.3 写测试（真沙箱）：读写、workspace 初始化、按 sessionId 复用命名沙箱
+- [ ] 2.4 准备中性 demo-repo fixture（含 TODO/FIXME，零 PII），seed 进沙箱
+- [ ] 2.5 写测试（真沙箱）：5 个工具（越权拒绝、超时、输出截断、高风险 rejected、search_text 命中）
+- [ ] 2.6 实现 `tools/registry.ts`（5 工具，TypeBox schema，复用 path-guard + policy）
+- [ ] 2.7 工具层 integration 测试跑绿（真沙箱）
 
 ## 3. Agent loop 编排 + 多轮（faux LLM）
 
@@ -59,16 +59,15 @@
 
 - [ ] 5.1 邀请码门禁页
 - [ ] 5.2 对话界面：MessageList（多轮）+ EventTimeline + ReportPanel + ToolCallCard（借鉴 Open Agents 渲染模式，接 SSE）
-- [ ] 5.3 接真实 LLM（OpenAI 协议中转站）跑一次本地多轮 demo（LocalSandbox：找 TODO → 追问排序写文件）
+- [ ] 5.3 接真实 LLM（OpenAI 协议中转站）跑一次多轮 demo（真实 Vercel 沙箱：找 TODO → 追问排序写文件）
 - [ ] 5.4 本地端到端自测（提交 → 事件流 → 报告 → 追问复用 workspace）
 
-## 6. Vercel Sandbox + snapshot/resume + 部署
+## 6. snapshot/resume 增强 + 部署
 
-- [ ] 6.1 实现 `vercel-sandbox.ts`（getOrCreate + persistent 命名沙箱）—— ① 文件延续
-- [ ] 6.2 本地 `vercel link` + `vercel env pull`，切 `SANDBOX_PROVIDER=vercel` 跑通真实 microVM
-- [ ] 6.3 实现 snapshot + resume —— ② 快照恢复（停止前 snapshot，重进从 snapshotId resume）
-- [ ] 6.4 Neon 建库 + `prisma migrate deploy`
-- [ ] 6.5 Vercel CLI 部署 + 环境变量
-- [ ] 6.6 补充 README 运行/部署说明；隐私自检（零 PII）；E2E happy path
+> 已提前完成/并入：VercelSandbox 实现与命名沙箱复用（①文件延续）并入阶段 2；`vercel link` + `vercel env pull`（凭据用 PAT/OIDC，见 `vercel-credentials.ts`）已配；Neon 建库 + `prisma db push` 已完成（7 表已建）。
+
+- [ ] 6.1 实现 snapshot + resume —— ② 快照恢复（停止前 `snapshot()`，重进从 `snapshotId` resume），真沙箱验证
+- [ ] 6.2 Vercel CLI 部署 + 环境变量（`DATABASE_URL` / `INVITE_CODES` / `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `LLM_MODEL`；沙箱 OIDC 自动注入）
+- [ ] 6.3 补充 README 运行/部署说明；隐私自检（零 PII）；E2E happy path
 
 > 文档（PRD / architecture / data-model / sandbox-research / ADR-0001 / CONTRIBUTING）已在规划阶段完成，实现中随变更同步维护。

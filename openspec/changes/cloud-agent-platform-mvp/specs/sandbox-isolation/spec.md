@@ -1,10 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: 统一沙箱接口
-平台 SHALL 通过统一 `Sandbox` 接口访问文件系统与命令执行，并提供本地与 Vercel 两种实现，由 `SANDBOX_PROVIDER` 选择。
+平台 SHALL 通过统一 `Sandbox` 接口访问文件系统与命令执行；P0 提供唯一实现 `VercelSandbox`（`@vercel/sandbox`，Firecracker microVM），业务测试与生产共用真实沙箱。接口保留抽象以便未来接入其它隔离后端。
 
-#### Scenario: 本地实现可读写
-- **WHEN** 使用本地沙箱写入再读取一个 workspace 内文件
+#### Scenario: 沙箱可读写
+- **WHEN** 在沙箱内写入再读取一个 workspace 内文件
 - **THEN** 读到的内容与写入一致
 
 #### Scenario: workspace 初始化

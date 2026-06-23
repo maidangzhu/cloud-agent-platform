@@ -5,9 +5,9 @@
 ## 1. 结论先行
 
 - **Vercel Sandbox = 按需启动的隔离 Linux microVM**（Firecracker），用于运行不可信代码 / AI 生成的命令。正是本题「云端隔离环境执行」所需。
-- **本项目策略**：定义统一 `Sandbox` 接口 + 双实现。`LocalSandbox`（临时目录）用于 TDD 与本地 dev（零外部依赖）；`VercelSandbox`（`@vercel/sandbox`）用于生产隔离。切换只改 `SANDBOX_PROVIDER` 环境变量。
+- **本项目策略**：定义统一 `Sandbox` 接口 + 唯一实现 `VercelSandbox`（`@vercel/sandbox`）。业务测试与生产都跑在真实 microVM 上（无 LocalSandbox），保证「测过的就是线上跑的」。保留接口抽象以便未来接别的后端。
 - **关键边界**：agent loop 跑在 server，沙箱只是「工具伸手进去执行危险动作」的隔离环境。平台 DB 只存沙箱**状态引用**，不存文件系统。
-- **可行性**：本地已装 SDK，API 清晰；本地 Vercel CLI 已登录，认证可走 `vercel link` + `vercel env pull`。风险点是真实 microVM 调通的不确定性，因此用 LocalSandbox 兜底，Vercel 作为生产 adapter 在阶段 5 验证。
+- **可行性（已验证）**：SDK 已装、认证已打通（PAT 显式凭据 + 从 OIDC 解析 team/project），并已实测从本地拉起真实 microVM 跑通 create→exec→读写→stop。本机访问 `vercel.com` 若被网络阻断需开全局代理；部署在 Vercel 上无此问题。
 
 ## 2. SDK 核心 API（@vercel/sandbox 2.2.1，一手确认）
 
@@ -147,33 +147,33 @@ interface Sandbox {
 getOrCreateSandbox(workspace): Promise<Sandbox>;
 ```
 
-两个实现：
+唯一实现 `VercelSandbox`：
 
-| | LocalSandbox | VercelSandbox |
-| --- | --- | --- |
-| 后端 | 固定目录 `tmpdir/cap/<sessionId>` | `@vercel/sandbox` microVM |
-| 用途 | TDD + 本地 dev | 生产隔离 |
-| 依赖 | 零 | Vercel 账号 + token |
-| 隔离强度 | 进程内 + path guard | Firecracker microVM |
-| 复用/恢复 | 目录在则复用；可 tar 模拟快照 | `getOrCreate(name)` + `snapshot()`/resume |
+| | VercelSandbox |
+| --- | --- |
+| 后端 | `@vercel/sandbox` microVM |
+| 用途 | 业务测试 + 生产隔离（同一套真实沙箱） |
+| 依赖 | Vercel 账号 + token（PAT 或 OIDC） |
+| 隔离强度 | Firecracker microVM |
+| 复用/恢复 | `getOrCreate(name)` + `snapshot()`/resume |
 
-所有路径经 `path-guard` 归一化并限制在 `workingDir` 内（防 `../` 越权），命令经 policy 白名单 + timeout + 输出截断。两个实现共享这套保护逻辑。
+所有路径经 `path-guard` 归一化并限制在 `workingDir` 内（防 `../` 越权），命令经 policy 白名单 + timeout + 输出截断。这套保护逻辑在接口层实现，与具体沙箱后端无关。
 
 ### workspace 会话内持久（跨请求、跨沙箱实例）（snapshot/resume 分层）
 
 多轮会话下 workspace 必须跨请求、跨沙箱实例存活，分三层（P0 做 ①②，不做 ③）：
 
-| 层 | 机制 | Vercel SDK 支持 | LocalSandbox | 范围 |
-| --- | --- | --- | --- | --- |
-| ① 文件延续 | persistent 命名沙箱，`getOrCreate({name, persistent:true})` 活着复用、死了重建 | 原生 | 固定目录复用 | **P0 必做** |
-| ② 快照恢复 | 停止前 `snapshot()`，回来 `create({source:{type:snapshot,snapshotId}})` resume | 原生 | tar 目录模拟 | **P0 增强** |
-| ③ 自动 hibernate 编排 | 定时判断空闲→休眠→lease→定时检查 | 需自建 workflow | — | **P1，不做** |
+| 层 | 机制 | Vercel SDK 支持 | 范围 |
+| --- | --- | --- | --- |
+| ① 文件延续 | persistent 命名沙箱，`getOrCreate({name, persistent:true})` 活着复用、死了重建 | 原生 | **P0 必做** |
+| ② 快照恢复 | 停止前 `snapshot()`，回来 `create({source:{type:snapshot,snapshotId}})` resume | 原生 | **P0 增强** |
+| ③ 自动 hibernate 编排 | 定时判断空闲→休眠→lease→定时检查 | 需自建 workflow | **P1，不做** |
 
 关键认知：让 Open Agents 那套显得复杂的是 ③（自动 hibernate 的生命周期 workflow），不是 snapshot 本身。①② 都是 Vercel SDK 原生能力（`persistent` 参数 + `snapshot()` + 从 snapshot `create`），P0 可控。
 
 「过两天回来继续对话」恢复路径：对话历史读 DB（永久）；workspace `getOrCreate` 发现原沙箱被回收 → 从 `snapshotId` resume 重建（一次冷启动）→ 文件恢复。边界：snapshot 存文件不存进程。
 
-**TDD 折扣（诚实标注）**：snapshot/resume 的真实验证只能在阶段 5 真接 Vercel 时做；前面阶段测试覆盖「复用/重建/重连的判断逻辑」，LocalSandbox 用 tar 近似快照，但真快照恢复测不到。
+**①② 全程在真实 Vercel 沙箱上验证**（命名沙箱复用 + 真快照恢复），不再有近似或「测不到」的折扣。
 
 ## 7. 安全要点
 
@@ -186,16 +186,16 @@ getOrCreateSandbox(workspace): Promise<Sandbox>;
 
 ## 8. 落地计划（对应 tasks 阶段）
 
-- **阶段 2**：先实现 `LocalSandbox` + `Sandbox` 接口 + path-guard + 按 session 复用目录，跑通全部工具的 integration 测试（零外部依赖）。
-- **阶段 5**：实现 `VercelSandbox` adapter（`getOrCreate` + `snapshot`/resume），本地 `vercel link` + `vercel env pull` 配认证，切 `SANDBOX_PROVIDER=vercel` 跑通真实 microVM 端到端，验证 ①②；部署后生产认证自动。
+- **阶段 2**：实现 `Sandbox` 接口 + `VercelSandbox`（`getOrCreate` 命名沙箱复用 + path-guard）+ demo-repo seed，跑通全部工具的 integration 测试——直接在真实 microVM 上验证。
+- **阶段 2/3**：实现 `snapshot`/resume（②），用真实快照验证会话恢复；生产部署后认证自动。
 
-snapshot/resume 渐进交付：先 ①（persistent 命名沙箱，文件延续）跑通多轮，再 ②（显式 snapshot + resume）做会话恢复——任何时刻都有可交付版本。
+snapshot/resume 渐进交付：先 ①（persistent 命名沙箱，文件延续）跑通多轮，再 ②（显式 snapshot + resume）做会话恢复——全程真沙箱验证。
 
 ## 9. 取舍
 
 - **P0 做**：①persistent 命名沙箱（文件延续）+ ②显式 snapshot/resume（会话恢复）。
 - **P0 不做**：③自动 hibernate 生命周期编排（定时休眠/lease/workflow）、多份历史快照、网络策略收紧、git clone/commit。这些写进演进路径（见 `data-model.md` P1）。
-- **为什么不一上来就只用 Vercel**：TDD 要求测试零外部依赖；本地 dev 也不该每次都起 microVM。LocalSandbox 保证主链路与测试不被 Vercel 账号/网络阻塞，Vercel 作为生产 adapter 验证隔离与 snapshot 能力。
+- **为什么只用 Vercel 沙箱（不做 LocalSandbox）**：业务测试与生产共用同一套真实沙箱，确保「测过的就是线上跑的」，避免本地模拟与生产行为不一致；snapshot/resume 等能力也能真实验证。代价是业务测试需 Vercel 凭据与网络（纯逻辑单元测试仍离线）。
 - **为什么不用 E2B / 其他**：Vercel Sandbox 与本项目部署目标（Vercel）同生态，认证在生产自动完成，且 `persistent` + `snapshot` 原生支持 ①②，接入成本最低。
 
 ## 参考来源

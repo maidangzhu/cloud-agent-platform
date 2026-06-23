@@ -43,7 +43,7 @@ Server                              Sandbox
 
 4. **「可扩展性」讲得更好**。以 A 为 P0，可在文档中清晰展开演进：P1 抽到独立 worker/queue，P2 甚至可演进到 agent-in-sandbox。展示架构判断力比直接堆复杂度更有价值。
 
-5. **24h 工期下的工程现实**。范式 B 的最小可用版本必须先打通「沙箱内常驻 daemon + 远程控制 + 事件归一化导出 + 落库」才能见到第一个 demo；范式 A 用本地沙箱当晚即可跑通主链路，次日再接 Vercel adapter，且具备「时间不足也能交付」的降级路径。
+5. **24h 工期下的工程现实**。范式 B 的最小可用版本必须先打通「沙箱内常驻 daemon + 远程控制 + 事件归一化导出 + 落库」才能见到第一个 demo；范式 A 中沙箱只需能 `exec`/读写文件，用统一 `Sandbox` 接口接 Vercel microVM 即可跑通主链路，工程量小得多。
 
 ## 范式 B 的坑（A 全部规避）
 
@@ -66,4 +66,4 @@ Server                              Sandbox
 
 ## 结论
 
-P0 采用 Sandbox as Tool：agent loop 在 server（Pi），沙箱经统一 `Sandbox` 接口被当作受控工具执行后端（LocalSandbox 用于测试/本地，VercelSandbox 用于生产）。
+P0 采用 Sandbox as Tool：agent loop 在 server（Pi），沙箱经统一 `Sandbox` 接口被当作受控工具执行后端（唯一实现 VercelSandbox，业务测试与生产共用真实 microVM）。
