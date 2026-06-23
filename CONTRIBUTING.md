@@ -8,6 +8,7 @@
    - 实现按阶段推进，阶段划分见 `openspec/changes/cloud-agent-platform-mvp/tasks.md`。
    - **每完成一个阶段（tasks.md 中的一个 `##` 分组），必须停下来，等人工检查通过后，才进入下一阶段。**
    - 不允许一次性铺开多个阶段的实现。
+   - **提交（git commit）只能在人工检查通过、且明确同意后进行**；不得在未获批准前主动提交。完成一个阶段后给出改动摘要，等人工 review，得到「可以提交」的明确指令才 `git commit`。
 
 2. **进度用 OpenSpec 记录**
    - 采用 [OpenSpec](https://github.com/Fission-AI/OpenSpec) 规范驱动开发。

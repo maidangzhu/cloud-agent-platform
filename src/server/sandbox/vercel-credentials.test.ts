@@ -15,7 +15,7 @@ describe("resolveVercelCredentials", () => {
       VERCEL_TOKEN: "pat_xxx",
       VERCEL_TEAM_ID: "team_1",
       VERCEL_PROJECT_ID: "prj_1",
-    } as NodeJS.ProcessEnv);
+    });
     expect(c).toEqual({ token: "pat_xxx", teamId: "team_1", projectId: "prj_1" });
   });
 
@@ -24,7 +24,7 @@ describe("resolveVercelCredentials", () => {
     const c = resolveVercelCredentials({
       VERCEL_TOKEN: "pat_xxx",
       VERCEL_OIDC_TOKEN: oidc,
-    } as NodeJS.ProcessEnv);
+    });
     expect(c).toEqual({
       token: "pat_xxx",
       teamId: "team_jwt",
@@ -36,7 +36,7 @@ describe("resolveVercelCredentials", () => {
     const oidc = fakeOidc({ owner_id: "team_jwt", project_id: "prj_jwt" });
     const c = resolveVercelCredentials({
       VERCEL_OIDC_TOKEN: oidc,
-    } as NodeJS.ProcessEnv);
+    });
     expect(c).toEqual({
       token: oidc,
       teamId: "team_jwt",
@@ -50,18 +50,18 @@ describe("resolveVercelCredentials", () => {
       VERCEL_OIDC_TOKEN: oidc,
       VERCEL_TEAM_ID: "team_env",
       VERCEL_PROJECT_ID: "prj_env",
-    } as NodeJS.ProcessEnv);
+    });
     expect(c?.teamId).toBe("team_env");
     expect(c?.projectId).toBe("prj_env");
   });
 
   it("凭据不全返回 null", () => {
-    expect(resolveVercelCredentials({} as NodeJS.ProcessEnv)).toBeNull();
+    expect(resolveVercelCredentials({})).toBeNull();
     // 有 token 但缺 team/project（且无 OIDC 可解析）
     expect(
       resolveVercelCredentials({
         VERCEL_TOKEN: "pat_xxx",
-      } as NodeJS.ProcessEnv),
+      }),
     ).toBeNull();
   });
 });

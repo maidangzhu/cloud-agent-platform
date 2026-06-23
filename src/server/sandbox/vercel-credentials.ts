@@ -30,7 +30,7 @@ function decodeJwtPayload(jwt: string): Record<string, unknown> | null {
 }
 
 export function resolveVercelCredentials(
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): VercelCredentials | null {
   const oidc = env.VERCEL_OIDC_TOKEN;
   const payload = oidc ? decodeJwtPayload(oidc) : null;

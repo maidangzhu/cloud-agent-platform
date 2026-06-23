@@ -25,13 +25,13 @@
 
 ## 2. 工具层 + VercelSandbox（integration，真沙箱）
 
-- [ ] 2.1 定义 `Sandbox` 接口（`readFile/writeFile/readdir/exec/snapshot/stop/getState`）
-- [ ] 2.2 实现 `vercel-sandbox.ts` + `factory.ts`（`getOrCreate` 命名沙箱：活着复用、回收则重建+seed；凭据用 `vercel-credentials.ts`）
-- [ ] 2.3 写测试（真沙箱）：读写、workspace 初始化、按 sessionId 复用命名沙箱
-- [ ] 2.4 准备中性 demo-repo fixture（含 TODO/FIXME，零 PII），seed 进沙箱
-- [ ] 2.5 写测试（真沙箱）：5 个工具（越权拒绝、超时、输出截断、高风险 rejected、search_text 命中）
-- [ ] 2.6 实现 `tools/registry.ts`（5 工具，TypeBox schema，复用 path-guard + policy）
-- [ ] 2.7 工具层 integration 测试跑绿（真沙箱）
+- [x] 2.1 定义 `Sandbox` 接口（`readFile/writeFile/readdir/exec/snapshot/stop/getState`）
+- [x] 2.2 实现 `vercel-sandbox.ts` + `factory.ts`（`getOrCreate` 命名沙箱：活着复用、回收则重建+seed；凭据用 `vercel-credentials.ts`）
+- [x] 2.3 写测试（真沙箱）：读写、workspace 初始化、按 sessionId 复用命名沙箱
+- [x] 2.4 准备中性 demo-repo fixture（含 TODO/FIXME，零 PII），seed 进沙箱
+- [x] 2.5 写测试（真沙箱）：5 个工具（越权拒绝、超时、输出截断、高风险 rejected、search_text 命中）
+- [x] 2.6 实现 `tools/registry.ts`（5 工具，TypeBox schema，复用 path-guard + policy）
+- [x] 2.7 工具层 integration 测试跑绿（真沙箱）
 
 ## 3. Agent loop 编排 + 多轮（faux LLM）
 
@@ -45,6 +45,9 @@
 
 ## 4. API 路由（route tests）
 
+> 接口规范（统一 `{code,message,data}` 信封、错误码、DTO、SSE 事件格式）见 `docs/api-contract.md` + `src/lib/api-contract.ts`（前后端共用，已先行定义并测试）。本阶段所有端点按此契约实现与测试。
+
+- [x] 4.0 定义接口契约：`docs/api-contract.md` + `src/lib/api-contract.ts`（信封/错误码/DTO/SSE）+ 单元测试
 - [ ] 4.1 实现 Prisma client singleton + invite service
 - [ ] 4.2 写测试 + 实现：`POST /api/invite`（服务端二次校验）
 - [ ] 4.3 写测试 + 实现：`POST /api/sessions`（建会话 + workspace 准备）
