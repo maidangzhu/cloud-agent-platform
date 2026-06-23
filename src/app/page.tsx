@@ -166,6 +166,17 @@ export default function HomePage() {
                 Start
               </Button>
             </div>
+
+            <div className="pt-2 text-center text-xs text-zinc-500">
+              <a
+                href="https://maidang.me"
+                target="_blank"
+                rel="noreferrer"
+                className="transition-colors hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+              >
+                maidang.me
+              </a>
+            </div>
           </form>
         )}
       </div>
