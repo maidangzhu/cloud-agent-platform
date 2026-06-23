@@ -3,7 +3,7 @@
 // 约束：零 PII（无人名/公司/个人路径），内容中立；故意撒 TODO/FIXME 供 search_text 命中。
 
 export const DEMO_REPO_FILES: Record<string, string> = {
-  "README.md": `# Task Tracker (demo)
+  "demo-project/README.md": `# Task Tracker (demo)
 
 一个极简任务管理示例项目，用于演示 Cloud Agent Platform 的代码检视能力。
 
@@ -14,7 +14,7 @@ export const DEMO_REPO_FILES: Record<string, string> = {
 - \`src/utils.ts\` 工具函数
 `,
 
-  "package.json": `{
+  "demo-project/package.json": `{
   "name": "task-tracker-demo",
   "version": "0.1.0",
   "private": true,
@@ -24,7 +24,7 @@ export const DEMO_REPO_FILES: Record<string, string> = {
 }
 `,
 
-  "src/index.ts": `import { createStore } from "./store";
+  "demo-project/src/index.ts": `import { createStore } from "./store";
 import { handleRequest } from "./api";
 
 // TODO: 从环境变量读取端口，目前硬编码
@@ -41,7 +41,7 @@ function main() {
 main();
 `,
 
-  "src/store.ts": `export interface Task {
+  "demo-project/src/store.ts": `export interface Task {
   id: string;
   title: string;
   done: boolean;
@@ -63,7 +63,7 @@ export function createStore() {
 }
 `,
 
-  "src/api.ts": `import type { Task } from "./store";
+  "demo-project/src/api.ts": `import type { Task } from "./store";
 
 interface Req {
   method: string;
@@ -83,7 +83,7 @@ export function handleRequest(
 }
 `,
 
-  "src/utils.ts": `// 工具函数集合
+  "demo-project/src/utils.ts": `// 工具函数集合
 
 export function slugify(input: string): string {
   // TODO: 处理 Unicode，目前只支持 ASCII
@@ -96,7 +96,7 @@ export function formatDate(d: Date): string {
 }
 `,
 
-  "docs/notes.md": `# 开发笔记
+  "demo-project/docs/notes.md": `# 开发笔记
 
 - TODO: 补单元测试
 - TODO: 评估替换内存存储为 SQLite
