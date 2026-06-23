@@ -30,9 +30,12 @@ function findRunningRun(runs: RunDTO[], completedRunIds: Set<string>): string | 
   const runningRun = runs.find(
     (r) =>
       !completedRunIds.has(r.id) &&
-      (r.status === "provisioning_workspace" ||
+      (r.status === "created" ||
+        r.status === "provisioning_workspace" ||
         r.status === "running")
   );
+  console.log("[findRunningRun] Checking runs:", runs.map(r => ({ id: r.id, status: r.status })));
+  console.log("[findRunningRun] Found running run:", runningRun?.id);
   return runningRun?.id || null;
 }
 
