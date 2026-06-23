@@ -11,26 +11,7 @@ const PROMPT_TEMPLATES = [
     title: "48 小时 Cloud Agent Platform 大作战",
     prompt: `git clone https://github.com/maidangzhu/cloud-agent-platform
 
-请深入分析这个项目的技术设计和实现，重点展示：
-
-1. **核心架构决策**（docs/adr/）：
-   - ADR-0001: Sandbox as Tool —— 为什么不把整个 agent 跑在沙箱里？
-   - ADR-0002: 多轮会话模型 —— Session/Message/Run/AgentEvent 四层状态分层
-   - ADR-0003: 执行事件与对话消息分离存储 —— 不塞进 messages 单表
-   - ADR-0004: DB First + SSE Enhancement 双源合并 —— 如何实现流畅的实时体验
-
-2. **技术栈与工程实践**：
-   - 前端：Next.js 16 + React 19 + TanStack Query（双源状态管理）
-   - 后端：Vercel Sandbox（microVM 代码执行）+ Prisma 7（数据层）
-   - Agent：Pi Agent Core（工具调用框架）
-   - 沙箱生命周期管理与 persistent 命名策略
-
-3. **从 Stage 0 到 Stage 6 的演进路径**（openspec/）：
-   - 每个 stage 的目标、依赖和验收标准
-   - 我们如何从单次执行演进到多轮对话
-   - 如何从轮询降级到 SSE 实时推送
-
-请用面试官能理解的方式，展示我们的思考深度、技术选型理由、以及完整的实现路径。`,
+克隆这个项目，快速过一遍代码，说说它有哪些技术亮点。`,
   },
   {
     title: "认识麦当 - AI 可读的数字名片",
