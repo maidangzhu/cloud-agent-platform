@@ -48,6 +48,13 @@
 - [x] 3.11 外部仓库集成测试（git clone + npx 在真沙箱执行，验证沙箱网络连通）
 - [x] 3.12 session 执行过程 viewer（`maidang-multiturn-viewer.integration.test.ts`，按事件流格式化输出 AI 推理过程）
 - [x] 3.13 docs/adr/0003：执行事件分表存储 vs parts 内嵌对比决策（生产可扩展性、多维查询、审计追踪）
+- [x] 3.14 TDD：LLM 首响应超时重试单元测试（首个 stream event >10s 触发 abort；最多 2 次重试；事件数量可量化）
+- [x] 3.15 实现 LLM stream retry wrapper：`llm_attempt_started` / `llm_attempt_timeout` / `llm_attempt_succeeded`
+- [x] 3.16 TDD：重试耗尽后 Run 明确落库为 `timeout`，写 `run_timeout` 与 `completedAt`，不允许长期 `running`
+- [x] 3.17 实现超时收敛：首响应重试耗尽或墙钟超时后直接落库终态
+- [x] 3.18 TDD：成功最终回答只写 assistant Message，不写 Artifact，不写 `artifact_created`
+- [x] 3.19 移除主流程 Artifact 写入；Artifact 表与 DTO/API 兼容保留
+- [x] 3.20 跑绿相关 unit/integration tests，并记录量化指标（尝试次数、timeoutMs、事件序列、DB 终态）
 
 ## 4. API 路由（route tests）
 
@@ -146,4 +153,3 @@
 - [x] 6.2.2 补充 README 运行/部署说明；隐私自检（零 PII）；E2E happy path
 
 > 文档（PRD / architecture / data-model / sandbox-research / ADR-0001 / CONTRIBUTING）已在规划阶段完成，实现中随变更同步维护。
-

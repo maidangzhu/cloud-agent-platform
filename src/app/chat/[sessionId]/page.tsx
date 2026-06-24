@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSessionState } from "@/hooks/useSessionState";
 import { RunTimeline } from "@/components/RunTimeline";
 import { Button } from "@/components/ui/button";
@@ -57,10 +57,20 @@ function RunTurn({
 export default function ChatPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const shouldStickToBottomRef = useRef(true);
 
   useEffect(() => {
     params.then((p) => setSessionId(p.sessionId));
   }, [params]);
+
+  function updateStickToBottom() {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    shouldStickToBottomRef.current = distanceFromBottom < 120;
+  }
 
   // 使用新的 useSessionState hook
   const {
@@ -84,6 +94,11 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
       console.log(`[ChatPage] liveEvents 详情:`, liveEvents);
     }
   }, [liveEvents, activeRunId, pendingMessage]);
+
+  useEffect(() => {
+    if (!shouldStickToBottomRef.current) return;
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [runs, messages, pendingMessage, liveEvents]);
 
   if (!sessionId) return null;
 
@@ -168,10 +183,14 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
           </div>
         </div>
 
-      <div className="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto overscroll-contain px-4 py-6">
-        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col-reverse">
+      <div
+        ref={scrollContainerRef}
+        onScroll={updateStickToBottom}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6"
+      >
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col">
           <div className="flex flex-col">
-            {/* 空状态提示（最底部） */}
+            {/* 空状态提示 */}
             {runs.length === 0 && !pendingMessage && (
               <div className="pb-20 text-center text-sm text-zinc-500">
                 <p className="text-4xl mb-4" aria-hidden="true">
@@ -181,7 +200,7 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
               </div>
             )}
 
-            {/* 已完成的轮次（来自 DB，正序渲染；column-reverse 容器负责贴底） */}
+            {/* 已完成的轮次（来自 DB，正序渲染） */}
             {runs
               .filter((run) => run.id !== pendingMessage?.runId)
               .map((run) => {
@@ -216,6 +235,7 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
                 isActiveRun={activeRunId === pendingMessage.runId}
               />
             )}
+            <div ref={bottomRef} aria-hidden="true" />
           </div>
         </div>
       </div>

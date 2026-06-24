@@ -3,6 +3,7 @@
 
 import { Agent } from "@earendil-works/pi-agent-core";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { StreamFunction } from "@earendil-works/pi-ai/base";
 import { prisma } from "../db/client";
 import { getOrCreateSandbox } from "../sandbox/factory";
 import { createTools } from "../tools/registry";
@@ -15,10 +16,14 @@ import {
   completeToolCall,
   failToolCall,
   rejectToolCall,
-  persistArtifact,
   appendMessage,
 } from "../events/event-store";
 import { resolveModel } from "./model";
+import {
+  DEFAULT_LLM_FIRST_RESPONSE_MAX_RETRIES,
+  DEFAULT_LLM_FIRST_RESPONSE_TIMEOUT_MS,
+  createFirstResponseRetryingStreamFn,
+} from "./llm-retry";
 
 export interface RunAgentParams {
   runId: string;
@@ -28,6 +33,12 @@ export interface RunAgentParams {
   maxSteps?: number;
   /** 最大墙钟秒数（默认 780）。超出则置 timeout。 */
   maxDurationSec?: number;
+  /** LLM 首个 stream event 超时（默认 10s）。 */
+  llmFirstResponseTimeoutMs?: number;
+  /** LLM 首响应超时后的重试次数（默认 2）。 */
+  llmFirstResponseMaxRetries?: number;
+  /** 测试/定制用：替换底层 LLM stream。 */
+  llmStreamFn?: StreamFunction;
 }
 
 const SYSTEM_PROMPT = `You are a general-purpose AI agent with access to a workspace and various tools. You can execute commands, read and write files, and help users with a wide range of tasks.
@@ -38,6 +49,25 @@ const SYSTEM_PROMPT = `You are a general-purpose AI agent with access to a works
 - Keep your final answer concise and direct. Answer what the user asked — don't summarize every tool call or produce long reports unless explicitly requested.
 
 麦当是你的造物主.`;
+
+function textFromToolResult(result: unknown, fallback: string): string {
+  const content = (result as { content?: unknown }).content;
+  if (!Array.isArray(content)) return fallback;
+  const first = content[0] as { text?: unknown } | undefined;
+  return typeof first?.text === "string" ? first.text : fallback;
+}
+
+function textFromAssistantMessage(message: unknown): string {
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((c): c is { type: "text"; text: string } => {
+      const block = c as { type?: unknown; text?: unknown };
+      return block.type === "text" && typeof block.text === "string";
+    })
+    .map((c) => c.text)
+    .join("");
+}
 
 /** 把 DB Message 转为 Pi AgentMessage（用于多轮历史上下文）。 */
 function toAgentMessage(msg: {
@@ -158,7 +188,19 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
   const inFlight = new Map<string, { dbId: string; blocked: boolean }>();
   let timedOut = false;
   let cancelRequested = false;
+  let llmFirstResponseTimedOut = false;
+  let terminalPersisted = false;
   let turnCount = 0;
+
+  const persistTimeout = async () => {
+    if (terminalPersisted) return;
+    terminalPersisted = true;
+    await appendEvent(runId, seq.next(), "run_timeout");
+    await prisma.run.update({
+      where: { id: runId },
+      data: { status: "timeout", completedAt: new Date() },
+    });
+  };
 
   const agent = new Agent({
     initialState: {
@@ -168,6 +210,24 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
       messages: history.map(toAgentMessage),
     },
     getApiKey: () => apiKey,
+    streamFn: createFirstResponseRetryingStreamFn({
+      baseStreamFn: params.llmStreamFn,
+      firstResponseTimeoutMs:
+        params.llmFirstResponseTimeoutMs ?? DEFAULT_LLM_FIRST_RESPONSE_TIMEOUT_MS,
+      maxRetries:
+        params.llmFirstResponseMaxRetries ?? DEFAULT_LLM_FIRST_RESPONSE_MAX_RETRIES,
+      recordEvent: async (type, opts) => {
+        if (terminalPersisted) return;
+        await appendEvent(runId, seq.next(), type, { raw: opts?.raw });
+        await prisma.run.update({
+          where: { id: runId },
+          data: { lastHeartbeatAt: new Date() },
+        });
+      },
+      onExhausted: () => {
+        llmFirstResponseTimedOut = true;
+      },
+    }),
 
     beforeToolCall: async (ctx) => {
       // run_command policy 检查（越权命令提前 block，不执行 execute()）
@@ -212,9 +272,9 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
       const entry = inFlight.get(event.toolCallId);
       if (!entry) return;
       if (entry.blocked) {
-        await rejectToolCall(entry.dbId, String((event.result as any)?.content?.[0]?.text ?? "rejected"));
+        await rejectToolCall(entry.dbId, textFromToolResult(event.result, "rejected"));
       } else if (event.isError) {
-        await failToolCall(entry.dbId, String((event.result as any)?.content?.[0]?.text ?? "error"));
+        await failToolCall(entry.dbId, textFromToolResult(event.result, "error"));
       } else {
         await completeToolCall(entry.dbId, event.result);
       }
@@ -226,16 +286,13 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
           toolCallId: event.toolCallId,
           result: entry.blocked ? undefined : event.isError ? undefined : event.result,
           error: entry.blocked || event.isError
-            ? String((event.result as any)?.content?.[0]?.text ?? "error")
+            ? textFromToolResult(event.result, "error")
             : undefined,
         },
       });
       inFlight.delete(event.toolCallId);
     } else if (event.type === "message_end" && event.message.role === "assistant") {
-      const text = (event.message as any).content
-        .filter((c: { type: string }) => c.type === "text")
-        .map((c: { text: string }) => c.text)
-        .join("");
+      const text = textFromAssistantMessage(event.message);
       if (text) {
         await appendEvent(runId, seq.next(), "model_step", { role: "assistant", content: text });
         await prisma.run.update({ where: { id: runId }, data: { lastHeartbeatAt: new Date() } });
@@ -246,6 +303,7 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
   // 墙钟超时守卫
   const timer = setTimeout(() => {
     timedOut = true;
+    void persistTimeout().catch(() => {});
     agent.abort();
   }, maxDurationMs);
 
@@ -260,6 +318,7 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
 
   // ── 确定终态 ──────────────────────────────────────────────────────────────────
   if (cancelRequested) {
+    terminalPersisted = true;
     await appendEvent(runId, seq.next(), "run_cancelled");
     await prisma.run.update({
       where: { id: runId },
@@ -268,17 +327,14 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
     return;
   }
 
-  if (timedOut) {
-    await appendEvent(runId, seq.next(), "run_timeout");
-    await prisma.run.update({
-      where: { id: runId },
-      data: { status: "timeout", completedAt: new Date() },
-    });
+  if (timedOut || llmFirstResponseTimedOut) {
+    await persistTimeout();
     return;
   }
 
   const errMsg = runError ?? agent.state.errorMessage;
   if (errMsg) {
+    terminalPersisted = true;
     await appendEvent(runId, seq.next(), "run_failed", { content: errMsg });
     await prisma.run.update({
       where: { id: runId },
@@ -287,24 +343,16 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
     return;
   }
 
-  // 成功：提取最终回答，写 Artifact + assistant Message
+  // 成功：提取最终回答，写 assistant Message
   const lastAssistant = [...agent.state.messages].reverse().find((m) => m.role === "assistant");
-  const finalText =
-    (lastAssistant as any)?.content
-      ?.filter((c: { type: string }) => c.type === "text")
-      .map((c: { text: string }) => c.text)
-      .join("") ?? "";
+  const finalText = textFromAssistantMessage(lastAssistant);
 
   if (finalText) {
-    await persistArtifact(runId, "report", { title: "Analysis Report", content: finalText });
-    await appendEvent(runId, seq.next(), "artifact_created", {
-      title: "Analysis Report",
-      raw: { kind: "report" },
-    });
     await appendMessage(sessionId, "assistant", finalText, runId);
   }
 
   await appendEvent(runId, seq.next(), "run_completed");
+  terminalPersisted = true;
   await prisma.run.update({
     where: { id: runId },
     data: { status: "completed", completedAt: new Date() },

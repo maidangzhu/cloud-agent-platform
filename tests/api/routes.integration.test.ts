@@ -449,8 +449,7 @@ describe("全链路：Session → Run → Events → Cancel 重建完整状态",
         { runId, seq: 4, type: "tool_call_started", title: "search_text" },
         { runId, seq: 5, type: "tool_call_completed", title: "search_text" },
         { runId, seq: 6, type: "model_step", role: "assistant", content: "Found 3 TODOs." },
-        { runId, seq: 7, type: "artifact_created", title: "Analysis Report" },
-        { runId, seq: 8, type: "run_completed" },
+        { runId, seq: 7, type: "run_completed" },
       ],
     });
     await prisma.toolCall.create({
@@ -460,9 +459,6 @@ describe("全链路：Session → Run → Events → Cancel 重建完整状态",
         result: { content: [{ text: "3 matches" }] },
         status: "completed",
       },
-    });
-    await prisma.artifact.create({
-      data: { runId, kind: "report", title: "Analysis Report", content: "## Found 3 TODOs\n..." },
     });
     await prisma.message.create({
       data: { sessionId, role: "assistant", content: "Found 3 TODOs.", runId },
@@ -479,11 +475,10 @@ describe("全链路：Session → Run → Events → Cancel 重建完整状态",
     const rd = (await rdRes.json()).data;
     expect(rd.run.status).toBe("completed");
     expect(rd.run.derivedUiState).toBe("completed");
-    expect(rd.events).toHaveLength(9);
+    expect(rd.events).toHaveLength(8);
     expect(rd.toolCalls).toHaveLength(1);
     expect(rd.toolCalls[0].name).toBe("search_text");
-    expect(rd.artifacts).toHaveLength(1);
-    expect(rd.artifacts[0].kind).toBe("report");
+    expect(rd.artifacts).toHaveLength(0);
 
     // 5. GET /api/sessions/:id → 验证消息历史
     const sdRes = await sessionGet(new Request("http://localhost"), {

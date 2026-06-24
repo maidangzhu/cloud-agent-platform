@@ -15,6 +15,29 @@
 - **WHEN** agent 运行超过 `maxSteps` 仍未给出最终回答
 - **THEN** run 状态变为 `timeout`
 
+#### Scenario: LLM 首响应超时后重试
+- **WHEN** 单次 LLM stream 请求在 10 秒内没有产生首个 provider stream event
+- **THEN** 平台 SHALL abort 该次请求并重试，最多重试 2 次
+- **AND** 每次尝试 SHALL 写入 `llm_attempt_started` 事件
+- **AND** 每次首响应超时 SHALL 写入 `llm_attempt_timeout` 事件，事件 payload 包含 `attempt` 与 `timeoutMs`
+
+#### Scenario: LLM 重试后成功
+- **WHEN** 某次重试在 10 秒内产生首个 provider stream event
+- **THEN** 平台 SHALL 写入 `llm_attempt_succeeded` 事件
+- **AND** agent loop SHALL 继续消费该次成功的 LLM stream
+
+#### Scenario: LLM 首响应重试耗尽
+- **WHEN** 初始尝试与 2 次重试均未在 10 秒内产生首个 provider stream event
+- **THEN** run 状态 SHALL 变为 `timeout`
+- **AND** 平台 SHALL 写入 `run_timeout` 事件与 `completedAt`
+- **AND** run SHALL NOT 长期停留在 `running`
+
+#### Scenario: 最终回答不再写 Artifact
+- **WHEN** agent 成功产出最终回答
+- **THEN** 平台 SHALL 写入 assistant Message 与 `run_completed`
+- **AND** 平台 SHALL NOT 在主流程创建 Artifact 记录
+- **AND** 平台 SHALL NOT 写入 `artifact_created` 事件
+
 ### Requirement: LLM 集成
 平台 SHALL 通过 pi-ai 以 OpenAI 兼容协议（`openai-completions`）集成 LLM，`baseUrl` 可指向中转站；所有业务流程（含集成测试）一律连真实 LLM，不提供 mock 回退。
 
