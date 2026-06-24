@@ -114,75 +114,77 @@ export default function HomePage() {
       <Sidebar />
 
       {/* 主区域：居中输入框 或 loading 状态 */}
-      <div className="flex-1 flex items-center justify-center px-4">
-        {loading ? (
-          // Loading 状态：转圈圈
-          <div className="text-center space-y-4">
-            <div className="inline-block w-12 h-12 border-4 border-zinc-700 border-t-white rounded-full animate-spin" />
-            <p className="text-zinc-400 text-sm">Creating conversation…</p>
-          </div>
-        ) : (
-          // 输入框
-          <form onSubmit={handleSubmit} className="w-full max-w-3xl space-y-4">
-            <div className="text-center mb-8">
-              <h1 className="text-4xl font-bold mb-2">Cloud Agent Platform</h1>
-              <p className="text-zinc-400">What can I help you with?</p>
+      <div className="flex min-h-0 flex-1 flex-col px-4">
+        <main className="flex min-h-0 flex-1 items-center justify-center">
+          {loading ? (
+            // Loading 状态：转圈圈
+            <div className="text-center space-y-4">
+              <div className="inline-block w-12 h-12 border-4 border-zinc-700 border-t-white rounded-full animate-spin" />
+              <p className="text-zinc-400 text-sm">Creating conversation…</p>
             </div>
+          ) : (
+            // 输入框
+            <form onSubmit={handleSubmit} className="w-full max-w-3xl space-y-4">
+              <div className="text-center mb-8">
+                <h1 className="text-4xl font-bold mb-2">Cloud Agent Platform</h1>
+                <p className="text-zinc-400">What can I help you with?</p>
+              </div>
 
-            <div className="grid gap-2 sm:grid-cols-2">
-              {PROMPT_TEMPLATES.map((template) => (
-                <button
-                  key={template.title}
-                  type="button"
-                  onClick={() => fillTemplate(template.prompt)}
-                  className="min-h-16 rounded-lg border border-zinc-800 bg-zinc-900/70 px-4 py-3 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
-                >
-                  <span className="block text-sm font-medium text-zinc-100">
-                    {template.title}
-                  </span>
-                </button>
-              ))}
-            </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {PROMPT_TEMPLATES.map((template) => (
+                  <button
+                    key={template.title}
+                    type="button"
+                    onClick={() => fillTemplate(template.prompt)}
+                    className="min-h-16 rounded-lg border border-zinc-800 bg-zinc-900/70 px-4 py-3 text-left transition-colors hover:border-zinc-600 hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+                  >
+                    <span className="block text-sm font-medium text-zinc-100">
+                      {template.title}
+                    </span>
+                  </button>
+                ))}
+              </div>
 
-            <div className="space-y-3">
-              <Label htmlFor="prompt-input" className="sr-only">
-                Your task or question
-              </Label>
-              <Textarea
-                ref={textareaRef}
-                id="prompt-input"
-                name="prompt"
-                autoComplete="off"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    e.currentTarget.form?.requestSubmit();
-                  }
-                }}
-                placeholder="Type your task or question… (Shift+Enter for new line)"
-                rows={4}
-                className="resize-none"
-                autoFocus
-              />
-              <Button type="submit" disabled={!input.trim()} className="w-full">
-                Start
-              </Button>
-            </div>
+              <div className="space-y-3">
+                <Label htmlFor="prompt-input" className="sr-only">
+                  Your task or question
+                </Label>
+                <Textarea
+                  ref={textareaRef}
+                  id="prompt-input"
+                  name="prompt"
+                  autoComplete="off"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      e.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                  placeholder="Type your task or question… (Shift+Enter for new line)"
+                  rows={4}
+                  className="resize-none"
+                  autoFocus
+                />
+                <Button type="submit" disabled={!input.trim()} className="w-full">
+                  Start
+                </Button>
+              </div>
+            </form>
+          )}
+        </main>
 
-            <div className="pt-2 text-center text-xs text-zinc-500">
-              <a
-                href="https://maidang.me"
-                target="_blank"
-                rel="noreferrer"
-                className="transition-colors hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
-              >
-                maidang.me
-              </a>
-            </div>
-          </form>
-        )}
+        <footer className="shrink-0 py-6 text-center text-xs text-zinc-500">
+          <a
+            href="https://maidang.me"
+            target="_blank"
+            rel="noreferrer"
+            className="underline decoration-zinc-700 underline-offset-4 transition-colors hover:text-zinc-300 hover:decoration-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+          >
+            maidang.me
+          </a>
+        </footer>
       </div>
     </div>
   );

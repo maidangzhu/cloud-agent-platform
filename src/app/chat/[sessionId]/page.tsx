@@ -168,55 +168,55 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
           </div>
         </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="mx-auto max-w-3xl flex flex-col-reverse">
-          {/* 空状态提示（最底部） */}
-          {runs.length === 0 && !pendingMessage && (
-            <div className="text-center text-zinc-500 text-sm pb-20">
-              <p className="text-4xl mb-4" aria-hidden="true">
-                🤖
-              </p>
-              <p>输入任务，让 Agent 开始工作</p>
-            </div>
-          )}
+      <div className="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto overscroll-contain px-4 py-6">
+        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col-reverse">
+          <div className="flex flex-col">
+            {/* 空状态提示（最底部） */}
+            {runs.length === 0 && !pendingMessage && (
+              <div className="pb-20 text-center text-sm text-zinc-500">
+                <p className="text-4xl mb-4" aria-hidden="true">
+                  🤖
+                </p>
+                <p>输入任务，让 Agent 开始工作</p>
+              </div>
+            )}
 
-          {/* 乐观渲染的当前轮次（最新，显示在最下面） */}
-          {pendingMessage && (
-            <RunTurn
-              key={pendingMessage.runId}
-              runId={pendingMessage.runId}
-              userContent={pendingMessage.prompt}
-              assistantContent={undefined}
-              liveEvents={
-                // 从 mergedRuns 中找到对应的 run，取其 liveEvents
-                runs.find((r) => r.id === pendingMessage.runId)?.liveEvents || liveEvents
-              }
-              isActiveRun={activeRunId === pendingMessage.runId}
-            />
-          )}
+            {/* 已完成的轮次（来自 DB，正序渲染；column-reverse 容器负责贴底） */}
+            {runs
+              .filter((run) => run.id !== pendingMessage?.runId)
+              .map((run) => {
+                const userMsg = messages.find((m) => m.role === "user" && m.runId === run.id);
+                const assistantMsg = messages.find(
+                  (m) => m.role === "assistant" && m.runId === run.id
+                );
 
-          {/* 已完成的轮次（来自 DB，倒序渲染） */}
-          {runs
-            .filter((run) => run.id !== pendingMessage?.runId)
-            .slice()
-            .reverse() // 倒序：最新的在前面（视觉上在下面）
-            .map((run) => {
-              const userMsg = messages.find((m) => m.role === "user" && m.runId === run.id);
-              const assistantMsg = messages.find(
-                (m) => m.role === "assistant" && m.runId === run.id
-              );
+                return (
+                  <RunTurn
+                    key={run.id}
+                    runId={run.id}
+                    userContent={userMsg?.content ?? run.userPrompt}
+                    assistantContent={assistantMsg?.content}
+                    liveEvents={run.liveEvents}
+                    isActiveRun={run.id === activeRunId}
+                  />
+                );
+              })}
 
-              return (
-                <RunTurn
-                  key={run.id}
-                  runId={run.id}
-                  userContent={userMsg?.content ?? run.userPrompt}
-                  assistantContent={assistantMsg?.content}
-                  liveEvents={run.liveEvents}
-                  isActiveRun={run.id === activeRunId}
-                />
-              );
-            })}
+            {/* 乐观渲染的当前轮次（最新，显示在最下面） */}
+            {pendingMessage && (
+              <RunTurn
+                key={pendingMessage.runId}
+                runId={pendingMessage.runId}
+                userContent={pendingMessage.prompt}
+                assistantContent={undefined}
+                liveEvents={
+                  // 从 mergedRuns 中找到对应的 run，取其 liveEvents
+                  runs.find((r) => r.id === pendingMessage.runId)?.liveEvents || liveEvents
+                }
+                isActiveRun={activeRunId === pendingMessage.runId}
+              />
+            )}
+          </div>
         </div>
       </div>
 
