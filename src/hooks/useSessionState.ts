@@ -54,6 +54,7 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
     data: dbSnapshot,
     isLoading,
     error,
+    refetch,
   } = useQuery<{ code: number; data: SessionDetailData }>({
     queryKey: ["session", sessionId],
     queryFn: async () => {
@@ -94,6 +95,8 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
       setCompletedRunIds((prev) => new Set(prev).add(runningRunId!));
       setActiveRunId(null);
       setPendingMessage(null);
+      // 立即 refetch DB，确保新完成的 run 出现在 runs 列表里
+      refetch();
     },
     onError: (msg) => {
       console.warn("[useSessionState] SSE error:", msg);
