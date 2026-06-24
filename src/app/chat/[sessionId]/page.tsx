@@ -123,7 +123,10 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
 
           <div className="border-t border-zinc-800 px-4 py-4">
             <div className="mx-auto max-w-3xl">
-              <Skeleton className="h-44 w-full rounded-lg" />
+              <div className="relative">
+                <Skeleton className="h-44 w-full rounded-xl" />
+                <Skeleton className="absolute bottom-3 right-3 h-10 w-10 rounded-full" />
+              </div>
             </div>
           </div>
         </div>
@@ -219,42 +222,58 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
 
       <div className="border-t border-zinc-800 px-4 py-4">
         <form onSubmit={send} className="mx-auto max-w-3xl">
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <Label htmlFor="prompt-input" className="sr-only">
-                任务输入
-              </Label>
-              <Textarea
-                id="prompt-input"
-                name="prompt"
-                autoComplete="off"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    e.currentTarget.form?.requestSubmit();
-                  }
-                }}
-                placeholder="输入任务…（Shift+Enter 换行）"
-                rows={1}
-                disabled={isLoading || !!activeRunId}
-                className="min-h-[44px]"
-              />
-            </div>
+          <div className="relative">
+            <Label htmlFor="prompt-input" className="sr-only">
+              任务输入
+            </Label>
+            <Textarea
+              id="prompt-input"
+              name="prompt"
+              autoComplete="off"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit();
+                }
+              }}
+              placeholder="输入任务…（Shift+Enter 换行）"
+              rows={6}
+              disabled={isLoading || !!activeRunId}
+              className="min-h-[160px] w-full resize-none rounded-xl pr-14"
+            />
             <Button
               type="submit"
               disabled={isLoading || !!activeRunId || !input.trim()}
-              className="min-w-16"
+              size="icon"
+              className="absolute bottom-3 right-3 h-10 w-10 rounded-full"
               aria-label={activeRunId ? "Agent 正在运行" : "发送"}
             >
               {activeRunId ? (
-                <span
-                  className="h-4 w-4 rounded-full border-2 border-zinc-500 border-t-zinc-950 animate-spin"
-                  aria-hidden="true"
-                />
+                <>
+                  {/* 外围转圈的圆环 */}
+                  <span
+                    className="absolute inset-[-4px] rounded-full border-2 border-zinc-700 border-t-zinc-400 animate-spin"
+                    aria-hidden="true"
+                  />
+                  {/* 中心的暂停图标或点 */}
+                  <span className="w-2 h-2 rounded-full bg-white" aria-hidden="true" />
+                </>
               ) : (
-                "发送"
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5"
+                  aria-hidden="true"
+                >
+                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                </svg>
               )}
             </Button>
           </div>

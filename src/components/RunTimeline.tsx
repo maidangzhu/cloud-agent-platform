@@ -86,17 +86,20 @@ export function RunTimeline({
         return null;
       })}
 
-      {/* 运行中指示器 */}
+      {/* 运行中指示器 - 更明显的样式 */}
       {isRunning && (
-        <div className="flex gap-1 pl-1">
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce"
-              style={{ animationDelay: `${i * 0.15}s` }}
-              aria-hidden="true"
-            />
-          ))}
+        <div className="flex items-center gap-3 p-4 rounded-lg bg-zinc-900/50 border border-zinc-800">
+          <div className="flex gap-1.5">
+            {[0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className="w-2 h-2 rounded-full bg-zinc-400 animate-bounce"
+                style={{ animationDelay: `${i * 0.15}s` }}
+                aria-hidden="true"
+              />
+            ))}
+          </div>
+          <span className="text-sm text-zinc-400">Agent 正在思考和执行...</span>
         </div>
       )}
     </div>
