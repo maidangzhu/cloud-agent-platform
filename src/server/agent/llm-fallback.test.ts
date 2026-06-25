@@ -147,6 +147,28 @@ function successStream(
   };
 }
 
+/** 模拟 pi-ai 的 "Stream ended without finish_reason" bug 形态：
+ *  流过程中 push 了 start + 一些 delta（Agent 视为 partial success），
+ *  但 result.stopReason="error" + errorMessage="Stream ended without finish_reason"。
+ *  fallback 必须识别这是失败并切到下一个 entry。 */
+function partialThenFailStream(
+  model: Model<"openai-completions">,
+  errorMessage: string,
+): StreamFunction {
+  return () => {
+    const stream = createAssistantMessageEventStream();
+    const partialMsg = makeAssistant(model, "");
+    const errorMsg = makeErrorAssistant(model, errorMessage);
+    setTimeout(() => {
+      stream.push({ type: "start", partial: partialMsg });
+      // 中途一个 error event（pi-ai catch 路径会推送）
+      stream.push({ type: "error", reason: "error", error: errorMsg });
+      stream.end(errorMsg);
+    }, 1);
+    return stream;
+  };
+}
+
 async function collectAll<T>(stream: AssistantMessageEventStream): Promise<T[]> {
   const out: T[] = [];
   for await (const ev of stream) out.push(ev as T);
@@ -432,6 +454,40 @@ describe("createFallbackStreamFn — 第一个 entry 之外的成功", () => {
     });
     expect(result.stopReason).toBe("stop");
     expect(result.errorMessage).toBeUndefined();
+  });
+});
+
+describe("createFallbackStreamFn — 回归：pi-ai 'Stream ended without finish_reason' 形态", () => {
+  // 真实线上场景：ch1 偶尔会推到 start 之后流中断，pi-ai catch 路径 push error event
+  // 并设 result.stopReason="error"、errorMessage="Stream ended without finish_reason"。
+  // fallback 之前只看 stopReason，错误地标 succeeded，导致整个 chain 不切换 → run_failed。
+  it("流里有 start + error event + result.errorMessage 非空 → 切到下一个 entry", async () => {
+    const chain = makeChain();
+    const perEntry: Record<string, StreamFunction> = {
+      "gpt-5.5": partialThenFailStream(chain[0].model, "Stream ended without finish_reason"),
+      "gpt-5.4": successStream(chain[1].model, "rescued"),
+    };
+    const events: { type: string; raw?: unknown }[] = [];
+    const streamFn = createFallbackStreamFn(chain, {
+      baseStreamFn: makeRoutingBase(perEntry),
+      recordEvent: async (type, e) => events.push({ type, raw: e?.raw }),
+    });
+    const stream = streamFn(chain[0].model, context, {});
+    await collectAll(stream);
+    const result = await stream.result();
+
+    const startedKeys = events
+      .filter((e) => e.type === "llm_entry_started")
+      .map((e) => (e.raw as { key: string }).key);
+    expect(startedKeys).toEqual(["ch1-primary", "ch1-fallback"]);
+    // ch1-primary 必须标 failed，不能标 succeeded
+    const primaryEvents = events.filter(
+      (e) => (e.raw as { key?: string })?.key === "ch1-primary",
+    );
+    expect(primaryEvents.some((e) => e.type === "llm_entry_failed")).toBe(true);
+    expect(primaryEvents.some((e) => e.type === "llm_entry_succeeded")).toBe(false);
+    // 最终 ch1-fallback 成功
+    expect(result.stopReason).toBe("stop");
   });
 });
 

@@ -125,6 +125,9 @@ export function defaultIsRetryable(err: unknown): boolean {
     if (/\b429\b|rate.?limit/i.test(errorMessage)) return true;
     // first-response timeout 错误（来自 llm-retry 用尽后）
     if (/LLM stream event within|LLM first response timeout/i.test(errorMessage)) return true;
+    // pi-ai "Stream ended without finish_reason"：中转站流断开没传 finish_reason，
+    // 这是上游/中转站问题，换个 channel/model 可能就好
+    if (/Stream ended without finish_reason/i.test(errorMessage)) return true;
     if (/timeout|timed.?out|ETIMEDOUT|ECONNRESET|ECONNREFUSED/i.test(errorMessage)) return true;
     // 4xx 其他视为不可重试（避免无限循环）。也要避开 "503" 内的 "03"。
     if (/(?:^|[^0-9])4\d{2}(?!\d)/.test(errorMessage)) {
@@ -249,12 +252,28 @@ export function createFallbackStreamFn(
         const result = await resultPromise;
         attempts += 1;
 
-        if (isResolved || (result.stopReason !== "error" && !firstError)) {
+        // success 判定：流里有数据 + pi-ai result 自身没标 error + errorMessage 缺失。
+        // 注意 pi-ai 的 "Stream ended without finish_reason" 会异步 throw，
+        // 走 catch 后 push error event 并设 result.stopReason="error"，但有时候
+        // 部分 chunk 已流到外层（isResolved=true）。必须三个条件都满足才算成功。
+        if (
+          isResolved &&
+          result.stopReason !== "error" &&
+          !firstError &&
+          !result.errorMessage
+        ) {
           await recordEvent?.("llm_entry_succeeded", {
             raw: { key: entry.key, attempts, modelId: entry.model.id },
           });
           outer.end(result);
           return;
+        }
+
+        // 如果流里有数据但 result 报 error，外部 Agent 会自己把 partial message 当成功；
+        // 但我们的 fallback 责任是：在 LLM 真正出错时切到下一个 entry。
+        // 此时把 firstError 用 result.errorMessage 重新填一下。
+        if (!firstError && result.errorMessage) {
+          firstError = errorAssistantMessage(entry.model, result.errorMessage);
         }
 
         // 失败路径
