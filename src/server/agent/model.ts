@@ -2,12 +2,21 @@
 // 只用 OpenAI 兼容协议（api: "openai-completions"），baseUrl 指向中转站。
 // 无 OPENAI_API_KEY 即报错——本项目不再提供 mock 回退，所有业务流程跑真实 LLM。
 //
-// Fallback 链顺序：channel[1] primary → channel[1] fallback → channel[2] primary → channel[2] fallback
-// （若对应 env 未配置则跳过该槽位；链长度 ≥ 1；空链抛错）。
-// 同名 LLM_MODEL_FALLBACK 默认等于 LLM_MODEL（仅同渠道降级模型，跨渠道已由 channel 覆盖）。
+// Channel 数量是动态的：循环 idx=1..N 直到 OPENAI_API_KEY{idx} 不存在为止。
+//   channel 1: OPENAI_API_KEY / OPENAI_BASE_URL / LLM_MODEL[/LLM_MODEL_FALLBACK]
+//   channel 2: OPENAI_API_KEY2 / OPENAI_BASE_URL2 / LLM_MODEL2[/LLM_MODEL_FALLBACK2]
+//   channel N: OPENAI_API_KEY{N} / OPENAI_BASE_URL{N} / LLM_MODEL{N}[/LLM_MODEL_FALLBACK{N}]
+//
+// 同一 channel 内 primary→fallback 是模型降级；跨 channel 是中转站降级。
+// 任意一个 channel 的 env 缺 key/baseUrl/primaryModel 都跳过该 channel。
+// LLM_MODEL_FALLBACK{N} 未设或等于 LLM_MODEL{N} 时不入链（避免重复尝试）。
+// 至少要有 channel 1，否则抛错。
 
 import type { Model } from "@earendil-works/pi-ai";
 import "@earendil-works/pi-ai";
+
+/** 软上限：超过这个数量就停（防止 env 异常时无限循环）。 */
+const MAX_CHANNELS = 20;
 
 export interface ResolvedModel {
   model: Model<"openai-completions">;
@@ -19,7 +28,7 @@ export interface ModelChainEntry {
   /** 唯一标识，事件落库 / 日志用。 */
   key: string;
   /** Channel 序号（1-based），便于观察跨渠道切换。 */
-  channel: 1 | 2;
+  channel: number;
   /** "primary" = 主模型；"fallback" = 同渠道降级模型。 */
   tier: "primary" | "fallback";
   apiKey: string;
@@ -44,21 +53,16 @@ function buildModel(
   } satisfies Model<"openai-completions">;
 }
 
-function envKey(idx: 1 | 2, suffix: "" | "2"): string {
-  // 1: OPENAI_API_KEY / OPENAI_BASE_URL / LLM_MODEL / LLM_MODEL_FALLBACK
-  // 2: OPENAI_API_KEY2 / OPENAI_BASE_URL2 / LLM_MODEL2 / LLM_MODEL_FALLBACK2
-  return suffix;
-}
-
-/** 读取单个 channel 的配置，env 缺则返回 null（链中跳过）。 */
-function readChannel(idx: 1 | 2): {
-  channel: 1 | 2;
+/** 读取单个 channel 的配置，env 缺则返回 null（链中跳过）。
+ *  idx=1 → 无后缀；idx>=2 → 加数字后缀。 */
+function readChannel(idx: number): {
+  channel: number;
   apiKey: string;
   baseUrl: string;
   primary: string;
   fallback: string;
 } | null {
-  const suffix: "" | "2" = idx === 1 ? "" : "2";
+  const suffix = idx === 1 ? "" : String(idx);
   const apiKey = process.env[`OPENAI_API_KEY${suffix}`]?.trim();
   const baseUrl = process.env[`OPENAI_BASE_URL${suffix}`]?.trim();
   const primary = process.env[`LLM_MODEL${suffix}`]?.trim();
@@ -73,12 +77,20 @@ function readChannel(idx: 1 | 2): {
   };
 }
 
-/** 解析完整 fallback chain。env 全空抛错（与旧 resolveModel 行为一致）。 */
+/** 解析完整 fallback chain。从 idx=1 开始连续读，遇到没有 apiKey 的 idx 就停。 */
 export function resolveModelChain(): ModelChainEntry[] {
   const chain: ModelChainEntry[] = [];
-  for (const idx of [1, 2] as const) {
+  for (let idx = 1; idx <= MAX_CHANNELS; idx++) {
     const ch = readChannel(idx);
-    if (!ch) continue;
+    if (!ch) {
+      // channel 1 必须有；channel >=2 缺则停止扫描（避免 env 漏配导致假阴性）
+      if (idx === 1) {
+        throw new Error(
+          "LLM 未配置：run-agent 需要真实 LLM（OpenAI 兼容协议中转站）。请在 .env 设置 OPENAI_API_KEY / OPENAI_BASE_URL / LLM_MODEL（可选加 _N 后缀加更多 channel）。",
+        );
+      }
+      break;
+    }
     chain.push({
       key: `ch${ch.channel}-primary`,
       channel: ch.channel,
@@ -99,7 +111,7 @@ export function resolveModelChain(): ModelChainEntry[] {
   }
   if (chain.length === 0) {
     throw new Error(
-      "LLM 未配置：run-agent 需要真实 LLM（OpenAI 兼容协议中转站）。请在 .env 设置 OPENAI_API_KEY / OPENAI_BASE_URL / LLM_MODEL（可选加 _2 后缀渠道）。",
+      "LLM 未配置：run-agent 需要真实 LLM（OpenAI 兼容协议中转站）。请在 .env 设置 OPENAI_API_KEY / OPENAI_BASE_URL / LLM_MODEL（可选加 _N 后缀加更多 channel）。",
     );
   }
   return chain;
