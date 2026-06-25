@@ -79,6 +79,45 @@ vi.mock("./model", () => ({
       maxTokens: 1024,
     },
   })),
+  resolveModelChain: vi.fn(() => [
+    {
+      key: "ch1-primary",
+      channel: 1,
+      tier: "primary",
+      apiKey: "test-key",
+      model: {
+        id: "test-model",
+        name: "test-model",
+        api: "openai-completions",
+        provider: "test",
+        baseUrl: "https://example.test/v1",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128_000,
+        maxTokens: 1024,
+      },
+    },
+    {
+      key: "ch1-fallback",
+      channel: 1,
+      tier: "fallback",
+      apiKey: "test-key",
+      model: {
+        id: "test-model-fb",
+        name: "test-model-fb",
+        api: "openai-completions",
+        provider: "test",
+        baseUrl: "https://example.test/v1",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128_000,
+        maxTokens: 1024,
+      },
+    },
+  ]),
+  resolvePrimaryModelId: vi.fn(() => "test-model"),
 }));
 
 let promptImpl: ((agent: FakeAgent, prompt: string) => Promise<void>) | undefined;
@@ -162,12 +201,29 @@ describe("runAgent orchestration", () => {
     abortImpl = undefined;
   });
 
-  it("marks the run timeout when LLM first-response retries are exhausted", async () => {
+  it("marks the run failed when LLM chain is fully exhausted (all entries fail)", async () => {
     vi.useFakeTimers();
     const { runAgent } = await import("./run-agent");
+    // streamFn 在被 abort 后立即 emit error event + end（模拟 first-response timeout
+    // 被 llm-retry 用尽后的产物，被 fallback 视为可重试 → 切到下一个 entry）
     const stalledStreamFn = vi.fn((_model, _context, options) => {
       const stream = createAssistantMessageEventStream();
-      options?.signal?.addEventListener("abort", () => undefined);
+      options?.signal?.addEventListener("abort", () => {
+        // emit error event after abort
+        const msg = {
+          role: "assistant",
+          content: [],
+          api: "openai-completions",
+          provider: "test",
+          model: "test-model",
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+          stopReason: "error",
+          errorMessage: "No LLM stream event within 10ms after 3 attempts",
+          timestamp: Date.now(),
+        } as AssistantMessage;
+        stream.push({ type: "error", reason: "error", error: msg });
+        stream.end(msg);
+      });
       return stream;
     });
 
@@ -178,14 +234,21 @@ describe("runAgent orchestration", () => {
           void event;
         }
       })();
-      await vi.advanceTimersByTimeAsync(30);
+      // 触发 3 次 abort（单 entry 内部 retry 3 次）→ 失败 → fallback 切到 ch1-fallback →
+      // ch1-fallback 同理 3 次失败 → 链耗尽 → outer error
+      await vi.advanceTimersByTimeAsync(10);
+      await vi.advanceTimersByTimeAsync(10);
+      await vi.advanceTimersByTimeAsync(10);
+      await vi.advanceTimersByTimeAsync(10);
+      await vi.advanceTimersByTimeAsync(10);
+      await vi.advanceTimersByTimeAsync(10);
       await consume;
       const result = await stream.result();
       agent.state.errorMessage = result.errorMessage;
     };
 
     await runAgent({
-      runId: "run-timeout",
+      runId: "run-fallback-exhausted",
       sessionId: "session-1",
       userPrompt: "hello",
       llmStreamFn: stalledStreamFn,
@@ -193,13 +256,17 @@ describe("runAgent orchestration", () => {
       llmFirstResponseMaxRetries: 2,
     });
 
-    expect(stalledStreamFn).toHaveBeenCalledTimes(3);
-    expect(dbEvents.map((event) => event.type)).toContain("run_timeout");
-    expect(dbEvents.filter((event) => event.type === "llm_attempt_started")).toHaveLength(3);
-    expect(dbEvents.filter((event) => event.type === "llm_attempt_timeout")).toHaveLength(3);
+    // 单 entry 内部被调 3 次（maxRetries+1），2 个 entry 共 6 次
+    expect(stalledStreamFn).toHaveBeenCalledTimes(6);
+    // fallback 链耗尽 → run 走 failed
+    const types = dbEvents.map((event) => event.type);
+    expect(types).toContain("llm_entry_started");
+    expect(types).toContain("llm_entry_failed");
+    expect(types).toContain("llm_fallback_exhausted");
+    expect(types).toContain("run_failed");
     expect(runUpdates).toContainEqual({
-      where: { id: "run-timeout" },
-      data: expect.objectContaining({ status: "timeout", completedAt: expect.any(Date) }),
+      where: { id: "run-fallback-exhausted" },
+      data: expect.objectContaining({ status: "failed" }),
     });
   });
 

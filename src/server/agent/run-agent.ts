@@ -18,12 +18,13 @@ import {
   rejectToolCall,
   appendMessage,
 } from "../events/event-store";
-import { resolveModel } from "./model";
+import { resolveModelChain, resolvePrimaryModelId } from "./model";
 import {
   DEFAULT_LLM_FIRST_RESPONSE_MAX_RETRIES,
   DEFAULT_LLM_FIRST_RESPONSE_TIMEOUT_MS,
   createFirstResponseRetryingStreamFn,
 } from "./llm-retry";
+import { createFallbackStreamFn } from "./llm-fallback";
 
 export interface RunAgentParams {
   runId: string;
@@ -85,7 +86,7 @@ function toAgentMessage(msg: {
     content: [{ type: "text", text: msg.content }],
     api: "openai-completions",
     provider: "relay",
-    model: process.env.LLM_MODEL ?? "gpt-4o",
+    model: resolvePrimaryModelId(),
     usage: {
       input: 0,
       output: 0,
@@ -181,14 +182,16 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
   });
 
   // ── build Pi Agent ────────────────────────────────────────────────────────────
-  const { model, apiKey } = resolveModel();
+  const chain = resolveModelChain();
+  // 当前正在使用的 entry（fallback 切换时由 streamFn 内部重选），
+  // getApiKey 根据这个 entry 取对应 channel 的 key。
+  let currentEntry = chain[0];
   const tools = createTools({ sandbox: sandbox! });
 
   // 追踪飞行中的工具调用：pi toolCallId → { dbId, blocked }
   const inFlight = new Map<string, { dbId: string; blocked: boolean }>();
   let timedOut = false;
   let cancelRequested = false;
-  let llmFirstResponseTimedOut = false;
   let terminalPersisted = false;
   let turnCount = 0;
 
@@ -202,32 +205,43 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
     });
   };
 
+  // baseStreamFn = 单 entry 内部的 first-response retry 包装
+  const innerStreamFn = createFirstResponseRetryingStreamFn({
+    baseStreamFn: params.llmStreamFn,
+    firstResponseTimeoutMs:
+      params.llmFirstResponseTimeoutMs ?? DEFAULT_LLM_FIRST_RESPONSE_TIMEOUT_MS,
+    maxRetries:
+      params.llmFirstResponseMaxRetries ?? DEFAULT_LLM_FIRST_RESPONSE_MAX_RETRIES,
+  });
+
+  // 外层 fallback stream：跨 channel / 同 channel 降级模型
+  const fallbackStreamFn = createFallbackStreamFn(chain, {
+    baseStreamFn: innerStreamFn,
+    recordEvent: async (type, e) => {
+      if (terminalPersisted) return;
+      // 同步 currentEntry：fallback 切到哪个 entry，getApiKey 就用哪个 key
+      if (type === "llm_entry_started") {
+        const key = (e?.raw as { key?: string } | undefined)?.key;
+        const next = chain.find((c) => c.key === key);
+        if (next) currentEntry = next;
+      }
+      await appendEvent(runId, seq.next(), type, { raw: e?.raw });
+      await prisma.run.update({
+        where: { id: runId },
+        data: { lastHeartbeatAt: new Date() },
+      });
+    },
+  });
+
   const agent = new Agent({
     initialState: {
       systemPrompt: SYSTEM_PROMPT,
-      model,
+      model: currentEntry.model,
       tools,
       messages: history.map(toAgentMessage),
     },
-    getApiKey: () => apiKey,
-    streamFn: createFirstResponseRetryingStreamFn({
-      baseStreamFn: params.llmStreamFn,
-      firstResponseTimeoutMs:
-        params.llmFirstResponseTimeoutMs ?? DEFAULT_LLM_FIRST_RESPONSE_TIMEOUT_MS,
-      maxRetries:
-        params.llmFirstResponseMaxRetries ?? DEFAULT_LLM_FIRST_RESPONSE_MAX_RETRIES,
-      recordEvent: async (type, opts) => {
-        if (terminalPersisted) return;
-        await appendEvent(runId, seq.next(), type, { raw: opts?.raw });
-        await prisma.run.update({
-          where: { id: runId },
-          data: { lastHeartbeatAt: new Date() },
-        });
-      },
-      onExhausted: () => {
-        llmFirstResponseTimedOut = true;
-      },
-    }),
+    getApiKey: () => currentEntry.apiKey,
+    streamFn: fallbackStreamFn,
 
     beforeToolCall: async (ctx) => {
       // run_command policy 检查（越权命令提前 block，不执行 execute()）
@@ -327,7 +341,7 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
     return;
   }
 
-  if (timedOut || llmFirstResponseTimedOut) {
+  if (timedOut) {
     await persistTimeout();
     return;
   }
