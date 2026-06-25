@@ -45,7 +45,10 @@ function buildModel(
     api: "openai-completions",
     provider: "relay" as string,
     baseUrl,
-    reasoning: true,
+    // 不再强制 reasoning=true：reasoning 模型在 pi-ai 内部会注入 `role: "developer"`
+    // 消息，部分 OpenAI 兼容中转站（特别是套壳 Anthropic 或 OpenAI 协议不严格实现的）
+    // 会 400 拒收。如果以后某个 model 真的需要 reasoning，再单独加 flag。
+    reasoning: false,
     input: ["text"] as ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128_000,
