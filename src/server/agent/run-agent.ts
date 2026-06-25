@@ -26,6 +26,19 @@ import {
 } from "./llm-retry";
 import { createFallbackStreamFn } from "./llm-fallback";
 
+/** 从 err / Agent state 里抽可读字符串（避免 [object Object] 落 DB）。 */
+function describeError(err: unknown): string {
+  if (!err) return "";
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message || err.name;
+  if (typeof err === "object") {
+    const obj = err as { errorMessage?: unknown; message?: unknown };
+    if (typeof obj.errorMessage === "string" && obj.errorMessage) return obj.errorMessage;
+    if (typeof obj.message === "string" && obj.message) return obj.message;
+  }
+  return String(err);
+}
+
 export interface RunAgentParams {
   runId: string;
   sessionId: string;
@@ -325,7 +338,7 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
   try {
     await agent.prompt(userPrompt);
   } catch (err) {
-    runError = String(err);
+    runError = describeError(err);
   } finally {
     clearTimeout(timer);
   }
@@ -346,7 +359,7 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
     return;
   }
 
-  const errMsg = runError ?? agent.state.errorMessage;
+  const errMsg = runError ?? describeError(agent.state.errorMessage);
   if (errMsg) {
     terminalPersisted = true;
     await appendEvent(runId, seq.next(), "run_failed", { content: errMsg });

@@ -11,7 +11,11 @@ import {
   type Model,
   type StreamFunction,
 } from "@earendil-works/pi-ai/base";
-import { createFallbackStreamFn, defaultIsRetryable } from "./llm-fallback";
+import {
+  createFallbackStreamFn,
+  defaultIsRetryable,
+  extractErrorMessage,
+} from "./llm-fallback";
 import type { ModelChainEntry } from "./model";
 
 function makeModel(id: string, baseUrl: string): Model<"openai-completions"> {
@@ -543,5 +547,36 @@ describe("defaultIsRetryable 分类", () => {
     expect(defaultIsRetryable({ errorMessage: "503 No available channel for model" })).toBe(true);
     expect(defaultIsRetryable({ errorMessage: "Upstream 502 returned" })).toBe(true);
     expect(defaultIsRetryable({ errorMessage: "Error code: 504 - Gateway Timeout" })).toBe(true);
+  });
+});
+
+describe("extractErrorMessage 抽取可读错误", () => {
+  // 防止 run.error 落 [object Object]（线上出现过）。
+  it("Error 实例 → 用 message", () => {
+    expect(extractErrorMessage(new Error("boom"))).toBe("boom");
+  });
+  it("字符串 → 原样", () => {
+    expect(extractErrorMessage("oops")).toBe("oops");
+  });
+  it("AssistantMessage 形态 → 抽 errorMessage", () => {
+    expect(
+      extractErrorMessage({
+        errorMessage: "Stream ended without finish_reason",
+        stopReason: "error",
+      }),
+    ).toBe("Stream ended without finish_reason");
+  });
+  it("有 message 字段的对象 → 用 message", () => {
+    expect(extractErrorMessage({ message: "fetch failed" })).toBe("fetch failed");
+  });
+  it("null / undefined / 0 → fallback 字符串", () => {
+    expect(extractErrorMessage(null)).toBe("(no error)");
+    expect(extractErrorMessage(undefined)).toBe("(no error)");
+  });
+  it("没任何字段的奇怪对象 → JSON 序列化", () => {
+    const out = extractErrorMessage({ weird: { nested: 1 } });
+    // 至少不能是 "[object Object]"
+    expect(out).not.toMatch(/^\[object /);
+    expect(out.length).toBeGreaterThan(0);
   });
 });

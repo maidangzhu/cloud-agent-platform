@@ -69,9 +69,31 @@ function errorAssistantMessage(
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     },
     stopReason: "error",
-    errorMessage: err instanceof Error ? err.message : String(err),
+    errorMessage: extractErrorMessage(err),
     timestamp: Date.now(),
   };
+}
+
+/** 从各种 err 形态里抽可读字符串，避免 `[object Object]`。
+ *  兼容：Error / AssistantMessage（带 errorMessage 字段）/ 普通对象。
+ *  导出是为了在测试中直接验证，避免 [object Object] 落 DB。 */
+export function extractErrorMessage(err: unknown): string {
+  if (!err) return "(no error)";
+  if (err instanceof Error) return err.message || err.name;
+  if (typeof err === "string") return err;
+  if (typeof err === "object") {
+    const obj = err as { errorMessage?: unknown; message?: unknown; status?: unknown; code?: unknown };
+    if (typeof obj.errorMessage === "string" && obj.errorMessage) return obj.errorMessage;
+    if (typeof obj.message === "string" && obj.message) return obj.message;
+    if (obj.status !== undefined) return `HTTP ${obj.status}`;
+    if (obj.code) return `code=${obj.code}`;
+    try {
+      return JSON.stringify(err).slice(0, 200);
+    } catch {
+      return String(err);
+    }
+  }
+  return String(err);
 }
 
 /** 默认判定：5xx / 429 / 网络错 / Timeout 触发 fallback；其他 4xx 视为不可重试。
@@ -285,7 +307,7 @@ export function createFallbackStreamFn(
             key: entry.key,
             modelId: entry.model.id,
             retryable,
-            errorMessage: (lastError as AssistantMessage).errorMessage ?? String(lastError),
+            errorMessage: extractErrorMessage(lastError),
             attempts,
           },
         });
@@ -312,7 +334,7 @@ export function createFallbackStreamFn(
 
         if (attempts >= maxTotalAttempts) {
           await recordEvent?.("llm_fallback_exhausted", {
-            raw: { attempts, maxTotalAttempts, lastError: String(lastError) },
+            raw: { attempts, maxTotalAttempts, lastError: extractErrorMessage(lastError) },
           });
           outer.push({
             type: "error",
@@ -328,7 +350,7 @@ export function createFallbackStreamFn(
       // chain 走完仍未成功
       const err = lastError ?? new Error("All LLM chain entries failed without explicit error");
       await recordEvent?.("llm_fallback_exhausted", {
-        raw: { attempts, maxTotalAttempts, lastError: String(err) },
+        raw: { attempts, maxTotalAttempts, lastError: extractErrorMessage(err) },
       });
       outer.push({
         type: "error",
