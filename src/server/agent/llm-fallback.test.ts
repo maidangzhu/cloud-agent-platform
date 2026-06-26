@@ -16,6 +16,7 @@ import {
   defaultIsRetryable,
   extractErrorMessage,
 } from "./llm-fallback";
+import { createFirstResponseRetryingStreamFn } from "./llm-retry";
 import type { ModelChainEntry } from "./model";
 
 function makeModel(id: string, baseUrl: string): Model<"openai-completions"> {
@@ -578,5 +579,59 @@ describe("extractErrorMessage 抽取可读错误", () => {
     // 至少不能是 "[object Object]"
     expect(out).not.toMatch(/^\[object /);
     expect(out.length).toBeGreaterThan(0);
+  });
+});
+
+describe("createFallbackStreamFn abort handling", () => {
+  it("emits an error event and ends outer stream when the signal aborts mid-call", async () => {
+    // 回归：signal 触发时必须主动 end outer stream，否则上层 for await 永久挂起。
+    const chain: ModelChainEntry[] = [
+      {
+        key: "ch1",
+        channel: 1,
+        tier: "primary",
+        model: {
+          id: "gpt-5.5",
+          name: "gpt-5.5",
+          api: "openai-completions",
+          provider: "relay",
+          baseUrl: "https://example.test/v1",
+          reasoning: false,
+          input: ["text"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 128_000,
+          maxTokens: 1024,
+        },
+        apiKey: "k1",
+      },
+    ];
+    const baseStreamFn: StreamFunction = () => {
+      // 永远不 emit
+      return createAssistantMessageEventStream();
+    };
+    const streamFn = createFallbackStreamFn(chain, {
+      baseStreamFn: createFirstResponseRetryingStreamFn({
+        baseStreamFn,
+        firstResponseTimeoutMs: 10_000,
+        maxRetries: 0,
+        maxAttemptDurationMs: 10_000, // 故意设大
+      }),
+      recordEvent: async () => {},
+    });
+    const ac = new AbortController();
+    const stream = streamFn(
+      chain[0].model as Model<"openai-completions">,
+      { systemPrompt: "", messages: [], tools: [] },
+      { signal: ac.signal },
+    );
+    // 立刻 abort
+    ac.abort(new Error("test abort"));
+    const events: string[] = [];
+    for await (const ev of stream) events.push(ev.type);
+    // 必须看到 error 事件，for await 必须退出（不能 hang）
+    expect(events).toEqual(["error"]);
+    const result = await stream.result();
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toMatch(/abort/i);
   });
 });

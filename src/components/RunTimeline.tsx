@@ -6,11 +6,34 @@ import { ToolCallCard } from "./ToolCallCard";
 export function RunTimeline({
   events,
   isRunning,
+  derivedUiState,
 }: {
   events: AgentEventDTO[];
   isRunning: boolean;
+  /** 派生 UI 状态：用于显示 cancelling / cancelled / failed / timeout 等终态横幅 */
+  derivedUiState?: string;
 }) {
   if (events.length === 0 && !isRunning) return null;
+
+  // 终态横幅：用户已点取消、等待后端收尾
+  if (derivedUiState === "cancelling") {
+    return (
+      <div className="flex items-center gap-2 p-3 rounded-lg bg-zinc-900/50 border border-amber-900/50 text-amber-200 text-sm">
+        <span
+          className="h-3 w-3 rounded-full border-2 border-amber-500 border-t-transparent animate-spin"
+          aria-hidden="true"
+        />
+        <span>正在取消…（等当前工具调用结束）</span>
+      </div>
+    );
+  }
+  if (derivedUiState === "cancelled") {
+    return (
+      <div className="p-3 rounded-lg bg-zinc-900/50 border border-zinc-800 text-zinc-400 text-sm">
+        ⏹ 已取消
+      </div>
+    );
+  }
 
   console.log("[RunTimeline] All events:", events.map(e => ({ seq: e.seq, type: e.type })));
 
@@ -58,7 +81,9 @@ export function RunTimeline({
           event.type === "workspace_ready" ||
           event.type === "agent_started" ||
           event.type === "run_failed" ||
-          event.type === "run_completed"
+          event.type === "run_completed" ||
+          event.type === "run_cancelled" ||
+          event.type === "run_timeout"
         ) {
           const statusLabels: Record<string, string> = {
             workspace_provisioning: "🔧 正在准备工作环境…",
@@ -66,9 +91,14 @@ export function RunTimeline({
             agent_started: "🤖 Agent 开始工作",
             run_completed: "✅ 运行完成",
             run_failed: "❌ 运行失败",
+            run_cancelled: "⏹ 已取消",
+            run_timeout: "⏰ 超时",
           };
 
-          const isError = event.type === "run_failed";
+          const isError =
+            event.type === "run_failed" ||
+            event.type === "run_cancelled" ||
+            event.type === "run_timeout";
 
           return (
             <div key={event.seq} className={isError ? "text-sm text-red-400" : "text-xs text-zinc-500 italic"}>

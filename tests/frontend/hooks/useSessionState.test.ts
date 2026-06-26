@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 import type { FetchEventSourceInit } from "@microsoft/fetch-event-source";
@@ -408,5 +408,158 @@ describe("useSessionState", () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(result.current.activeRunId).toBe("run-1"); // 仍然是第一个 run
     });
+  });
+});
+
+describe("cancelRun (standalone)", () => {
+  let queryClient: QueryClient;
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let latestInit: FetchEventSourceInit | null = null;
+
+  function latestSSEInit(): FetchEventSourceInit {
+    if (!latestInit) throw new Error("SSE not yet initialized");
+    return latestInit;
+  }
+
+  beforeEach(() => {
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    fetchMock = vi.fn();
+    global.fetch = fetchMock;
+    fetchEventSourceMock.mockReset();
+    fetchEventSourceMock.mockImplementation((_url, init: FetchEventSourceInit) => {
+      latestInit = init;
+      return new Promise(() => {});
+    });
+  });
+
+  const wrapper = ({ children }: { children: ReactNode }) =>
+    createElement(QueryClientProvider, { client: queryClient }, children);
+
+  it("POST /api/runs/:id/cancel 并把 run 乐观标为 cancelling", async () => {
+    const sessionId = "test-session-cancel";
+    const runId = "run-cancel";
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          code: 0,
+          data: {
+            session: { id: sessionId },
+            messages: [],
+            runs: [
+              {
+                id: runId,
+                status: "running",
+                derivedUiState: "running",
+                liveEvents: [],
+              },
+            ],
+          },
+        }),
+      })
+      // 第二次 fetch 是 cancel API
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          code: 0,
+          data: { run: { id: runId, status: "cancel_requested", derivedUiState: "cancelling" } },
+        }),
+      });
+
+    const { result } = renderHook(() => useSessionState(sessionId), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.activeRunId).toBe(runId);
+    });
+
+    await act(async () => {
+      await result.current.cancelRun(runId);
+    });
+
+    // 调用了 cancel API
+    expect(fetchMock).toHaveBeenCalledWith(`/api/runs/${runId}/cancel`, { method: "POST" });
+    // optimistic 状态：cancelling
+    expect(result.current.isCancelling(runId)).toBe(true);
+  });
+
+  it("cancel API 失败时移除 optimistic 标记并抛错", async () => {
+    const sessionId = "test-session-cancel-fail";
+    const runId = "run-cancel-fail";
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          code: 0,
+          data: {
+            session: { id: sessionId },
+            messages: [],
+            runs: [{ id: runId, status: "running", derivedUiState: "running" }],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ code: 2001, message: "Run 已终态，无法取消" }),
+      });
+
+    const { result } = renderHook(() => useSessionState(sessionId), { wrapper });
+
+    await waitFor(() => expect(result.current.activeRunId).toBe(runId));
+
+    await act(async () => {
+      await expect(result.current.cancelRun(runId)).rejects.toThrow(/终态|取消/);
+    });
+
+    // 失败后乐观标记应被清除
+    expect(result.current.isCancelling(runId)).toBe(false);
+  });
+
+  it("SSE 推 run_cancelled 后 isCancelling 自动清掉", async () => {
+    const sessionId = "test-session-cancel-sse";
+    const runId = "run-cancel-sse";
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          code: 0,
+          data: {
+            session: { id: sessionId },
+            messages: [],
+            runs: [{ id: runId, status: "running", derivedUiState: "running" }],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          code: 0,
+          data: { run: { id: runId, status: "cancel_requested", derivedUiState: "cancelling" } },
+        }),
+      });
+
+    const { result } = renderHook(() => useSessionState(sessionId), { wrapper });
+    await waitFor(() => expect(result.current.activeRunId).toBe(runId));
+
+    await act(async () => {
+      await result.current.cancelRun(runId);
+    });
+    expect(result.current.isCancelling(runId)).toBe(true);
+
+    // 等 SSE 连接建立
+    await waitFor(() => {
+      if (!latestInit) throw new Error("SSE not yet initialized");
+    });
+
+    // SSE 推 cancelled
+    await act(async () => {
+      latestSSEInit().onmessage?.({
+        id: "1",
+        event: "run_cancelled",
+        data: JSON.stringify({ type: "run_cancelled", seq: 1, runId }),
+      });
+      latestSSEInit().onmessage?.({ id: "", event: "done", data: "{}" });
+    });
+
+    expect(result.current.isCancelling(runId)).toBe(false);
   });
 });

@@ -28,7 +28,8 @@ export function derivedUiState(
   if (status === "completed") return "completed";
   if (status === "failed") return "failed";
   if (status === "timeout") return "timeout";
-  if (status === "cancelled" || status === "cancel_requested") return "cancelled";
+  if (status === "cancelled") return "cancelled";
+  if (status === "cancel_requested") return "cancelling";
   if (status === "interrupted") return "interrupted";
   if (status === "created") return "idle";
 

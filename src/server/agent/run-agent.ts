@@ -327,12 +327,48 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
     }
   });
 
-  // 墙钟超时守卫
-  const timer = setTimeout(() => {
+  // 墙钟超时守卫：
+  // 1) timer 触发时同步标记 timedOut + 立刻 fire-and-forget 写 timeout 状态
+  //    （绕开 agent.prompt 可能的 hang —— 这是之前 30+ 分钟 run 仍 status=running 的根因）
+  // 2) 同时调 agent.abort() 让 stream 主动结束（fallback 收到 signal 推 error event）
+  // 3) 后续 await agent.prompt() 正常退出后，finally 不会再覆盖 timeout 状态
+  //    （terminalPersisted 守卫）
+  let watchdogDone = false;
+  const runWatchdog = () => {
+    if (watchdogDone) return;
+    watchdogDone = true;
     timedOut = true;
-    void persistTimeout().catch(() => {});
-    agent.abort();
-  }, maxDurationMs);
+    void persistTimeout().catch((e) => {
+      // watchdog 自身也失败时打印到 stderr，便于诊断
+      console.error("[run-agent] persistTimeout failed in watchdog:", e);
+    });
+    try {
+      agent.abort();
+    } catch {
+      // ignore
+    }
+  };
+  const timer = setTimeout(runWatchdog, maxDurationMs);
+
+  // 独立的 cancel poller：每 500ms 查 DB status，看到 cancel_requested 立刻调 agent.abort()。
+  // 不依赖 prepareNextTurn（那个只在 turn 边界跑，LLM hang 时永远不到 turn 边界）。
+  // 配合 fallback/retry 的 abort handler：abort → outer.end() → agent.prompt 返回 →
+  // 下面 cancelRequested 分支写 run_cancelled + status=cancelled → SSE 推。
+  const CANCEL_POLL_MS = 500;
+  const cancelPollerHandle: ReturnType<typeof setInterval> | undefined = setInterval(async () => {
+    try {
+      const r = await prisma.run.findUnique({
+        where: { id: runId },
+        select: { status: true },
+      });
+      if (r?.status === "cancel_requested" && !cancelRequested) {
+        cancelRequested = true;
+        try { agent.abort(); } catch { /* ignore */ }
+      }
+    } catch {
+      // poller 自身失败时不影响主流程，下一轮继续
+    }
+  }, CANCEL_POLL_MS);
 
   let runError: string | undefined;
   try {
@@ -341,6 +377,7 @@ export async function runAgent(params: RunAgentParams): Promise<void> {
     runError = describeError(err);
   } finally {
     clearTimeout(timer);
+    if (cancelPollerHandle) clearInterval(cancelPollerHandle);
   }
 
   // ── 确定终态 ──────────────────────────────────────────────────────────────────

@@ -15,12 +15,15 @@ function RunTurn({
   assistantContent,
   liveEvents,
   isActiveRun,
+  derivedUiState,
 }: {
   userContent: string;
   runId: string;
   assistantContent?: string;
   liveEvents?: AgentEventDTO[];
   isActiveRun: boolean;
+  /** 派生 UI 状态：cancelling / cancelled / failed / timeout 等用于终态横幅 */
+  derivedUiState?: string;
 }) {
   const isRunning = isActiveRun;
   const events = liveEvents || [];
@@ -40,7 +43,7 @@ function RunTurn({
       </div>
 
       {/* 事件流：平铺显示工具调用、model_step、状态等 */}
-      <RunTimeline events={events} isRunning={isRunning} />
+      <RunTimeline events={events} isRunning={isRunning} derivedUiState={derivedUiState} />
 
       {/* 如果 run 已完成且有 DB 中的 assistant 消息，显示它（兜底） */}
       {!isRunning && assistantContent && events.length === 0 && (
@@ -82,6 +85,8 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
     pendingMessage,
     liveEvents,
     sendMessage,
+    cancelRun,
+    isCancelling,
     isLoading,
   } = useSessionState(sessionId || "");
 
@@ -99,6 +104,15 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
     if (!shouldStickToBottomRef.current) return;
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [runs, messages, pendingMessage, liveEvents]);
+
+  // 取消按钮相关 hook（必须在所有早返回之前注册，否则 React Hooks 顺序会变）
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    };
+  }, []);
 
   if (!sessionId) return null;
 
@@ -155,6 +169,34 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
     const prompt = input.trim();
     setInput("");
     await sendMessage(prompt);
+  }
+
+  /**
+   * 取消当前活动的 run。带二次确认避免误触。
+   * - 第一次点：按钮文案 "确认取消？"，3 秒后自动恢复
+   * - 第二次点：调 cancelRun → 乐观变 cancelling → SSE 推 cancelled
+   * - 失败：alert + 状态回滚由 useSessionState 内部处理
+   */
+  function startCancelConfirm() {
+    if (confirmingCancel) return;
+    setConfirmingCancel(true);
+    confirmTimerRef.current = setTimeout(() => setConfirmingCancel(false), 3000);
+  }
+  async function handleCancel() {
+    if (!activeRunId) return;
+    if (!confirmingCancel) {
+      startCancelConfirm();
+      return;
+    }
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    setConfirmingCancel(false);
+    try {
+      await cancelRun(activeRunId);
+    } catch (err) {
+      console.error("[handleCancel] failed:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      window.alert(`取消失败：${msg}`);
+    }
   }
 
   return (
@@ -217,6 +259,7 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
                     assistantContent={assistantMsg?.content}
                     liveEvents={run.liveEvents}
                     isActiveRun={run.id === activeRunId}
+                    derivedUiState={run.derivedUiState}
                   />
                 );
               })}
@@ -233,6 +276,9 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
                   runs.find((r) => r.id === pendingMessage.runId)?.liveEvents || liveEvents
                 }
                 isActiveRun={activeRunId === pendingMessage.runId}
+                derivedUiState={
+                  runs.find((r) => r.id === pendingMessage.runId)?.derivedUiState
+                }
               />
             )}
             <div ref={bottomRef} aria-hidden="true" />
@@ -264,21 +310,71 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
               className="min-h-[160px] w-full resize-none rounded-xl pr-14"
             />
             <Button
-              type="submit"
-              disabled={isLoading || !!activeRunId || !input.trim()}
+              type={activeRunId ? "button" : "submit"}
+              onClick={activeRunId ? handleCancel : undefined}
+              disabled={
+                isLoading ||
+                (activeRunId ? isCancelling(activeRunId) : false) ||
+                (!activeRunId && !input.trim())
+              }
               size="icon"
-              className="absolute bottom-3 right-3 h-10 w-10 rounded-full"
-              aria-label={activeRunId ? "Agent 正在运行" : "发送"}
+              className={
+                "absolute bottom-3 right-3 h-10 w-10 rounded-full " +
+                (activeRunId && confirmingCancel
+                  ? "ring-2 ring-red-500/70 text-red-400"
+                  : "")
+              }
+              aria-label={
+                isCancelling(activeRunId ?? "")
+                  ? "取消中"
+                  : confirmingCancel
+                    ? "再次点击以确认取消"
+                    : activeRunId
+                      ? "取消当前任务"
+                      : "发送"
+              }
+              title={
+                isCancelling(activeRunId ?? "")
+                  ? "取消中…"
+                  : confirmingCancel
+                    ? "再次点击以确认取消"
+                    : activeRunId
+                      ? "取消"
+                      : "发送"
+              }
             >
               {activeRunId ? (
                 <>
-                  {/* 外围转圈的圆环 */}
+                  {/* 外围圆环：取消中→常规 spinner；二次确认→红环 + 不转；运行中→白灰 spinner */}
                   <span
-                    className="absolute inset-[-4px] rounded-full border-2 border-zinc-700 border-t-zinc-400 animate-spin"
+                    className={
+                      "absolute inset-[-4px] rounded-full border-2 animate-spin " +
+                      (isCancelling(activeRunId)
+                        ? "border-zinc-500 border-t-zinc-300"
+                        : confirmingCancel
+                          ? "border-red-500 border-t-transparent"
+                          : "border-zinc-700 border-t-zinc-400")
+                    }
                     aria-hidden="true"
                   />
-                  {/* 中心的暂停图标或点 */}
-                  <span className="w-2 h-2 rounded-full bg-white" aria-hidden="true" />
+                  {/* 中心：取消中→淡 ✕；二次确认→红 ✕；运行中→小点 */}
+                  {isCancelling(activeRunId) || confirmingCancel ? (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    >
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                  ) : (
+                    <span className="w-2 h-2 rounded-full bg-white" aria-hidden="true" />
+                  )}
                 </>
               ) : (
                 <svg

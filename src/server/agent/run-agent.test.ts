@@ -323,3 +323,50 @@ describe("runAgent orchestration", () => {
     });
   });
 });
+
+describe("cancel poller", () => {
+  it("calls agent.abort() within 500ms when DB status becomes cancel_requested during a stuck LLM stream", async () => {
+    vi.useFakeTimers();
+    const { runAgent } = await import("./run-agent");
+
+    // prompt 永远不返回：模拟 LLM 上游 hang
+    promptImpl = async () => {
+      await new Promise<void>(() => {
+        // never resolve
+      });
+    };
+
+    // 让 prisma.run.findUnique 在 status==='cancel_requested' 时返回
+    const { prisma } = await import("../db/client");
+    const origFindUnique = prisma.run.findUnique;
+    prisma.run.findUnique = vi.fn(async (args: any) => {
+      // run-agent 的 cancel poller 调 findUnique 拿 status
+      // 同时 prepareNextTurn 也调；统一返回 cancel_requested
+      return { status: "cancel_requested" } as any;
+    }) as any;
+
+    let abortCalled = false;
+    // 给 FakeAgent 注入 abort 监听
+    const origAbort = abortImpl;
+    abortImpl = () => {
+      abortCalled = true;
+    };
+
+    try {
+      const runPromise = runAgent({
+        runId: "run-cancel-stuck",
+        sessionId: "session-1",
+        userPrompt: "hello",
+      });
+
+      // 推进 1s 让 poller 跑
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // 看到 agent.abort() 已被调用
+      expect(abortCalled).toBe(true);
+    } finally {
+      prisma.run.findUnique = origFindUnique;
+      abortImpl = origAbort;
+    }
+  });
+});

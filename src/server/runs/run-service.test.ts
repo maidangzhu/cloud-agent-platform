@@ -12,7 +12,7 @@ describe("derivedUiState — 终态", () => {
     ["failed", "failed"],
     ["timeout", "timeout"],
     ["cancelled", "cancelled"],
-    ["cancel_requested", "cancelled"],
+    ["cancel_requested", "cancelling"],
     ["interrupted", "interrupted"],
     ["created", "idle"],
   ] as const)("%s → %s", (status, expected) => {

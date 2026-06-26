@@ -22,6 +22,7 @@ import {
   createFirstResponseRetryingStreamFn,
   DEFAULT_LLM_FIRST_RESPONSE_MAX_RETRIES,
   DEFAULT_LLM_FIRST_RESPONSE_TIMEOUT_MS,
+  DEFAULT_LLM_MAX_ATTEMPT_DURATION_MS,
 } from "./llm-retry";
 import type { ModelChainEntry } from "./model";
 
@@ -42,6 +43,8 @@ export interface FallbackDecisionOptions {
   firstResponseTimeoutMs?: number;
   /** 单 entry 内 first-response 重试次数（透传 llm-retry）。 */
   firstResponseMaxRetries?: number;
+  /** 单次 LLM stream 整体硬上限（透传 llm-retry）。 */
+  maxAttemptDurationMs?: number;
   /** 测试钩子：替换时间源。 */
   now?: () => number;
   recordEvent?: (type: string, opts?: FallbackEventOptions) => void | Promise<void>;
@@ -106,7 +109,7 @@ export function defaultIsRetryable(err: unknown): boolean {
   if (!err) return false;
   // first-response timeout 由 llm-retry 处理；若它依然冒出来，说明单 entry 内 retry 已耗尽，
   // 此时应允许 fallback 切到下一个 entry（不同 channel/model 可能更快）。
-  if (err instanceof Error && err.name === "LlmFirstResponseTimeoutError") {
+  if (err instanceof Error && (err.name === "LlmFirstResponseTimeoutError" || err.name === "LlmAttemptDurationError")) {
     return true;
   }
   // fetch / undici 错误
@@ -146,7 +149,7 @@ export function defaultIsRetryable(err: unknown): boolean {
     }
     if (/\b429\b|rate.?limit/i.test(errorMessage)) return true;
     // first-response timeout 错误（来自 llm-retry 用尽后）
-    if (/LLM stream event within|LLM first response timeout/i.test(errorMessage)) return true;
+    if (/LLM stream event within|LLM first response timeout|LLM attempt duration|max attempt duration/i.test(errorMessage)) return true;
     // pi-ai "Stream ended without finish_reason"：中转站流断开没传 finish_reason，
     // 这是上游/中转站问题，换个 channel/model 可能就好
     if (/Stream ended without finish_reason/i.test(errorMessage)) return true;
@@ -188,6 +191,8 @@ export function createFallbackStreamFn(
   const baseStreamFn = opts.baseStreamFn ?? createFirstResponseRetryingStreamFn({
     firstResponseTimeoutMs: opts.firstResponseTimeoutMs ?? DEFAULT_LLM_FIRST_RESPONSE_TIMEOUT_MS,
     maxRetries: opts.firstResponseMaxRetries ?? DEFAULT_LLM_FIRST_RESPONSE_MAX_RETRIES,
+    maxAttemptDurationMs:
+      opts.maxAttemptDurationMs ?? DEFAULT_LLM_MAX_ATTEMPT_DURATION_MS,
   });
   const maxTotalAttempts = opts.maxTotalAttempts ?? DEFAULT_LLM_FALLBACK_MAX_TOTAL_ATTEMPTS;
   const cooldownMs = opts.cooldownMs ?? DEFAULT_LLM_FALLBACK_COOLDOWN_MS;
@@ -207,8 +212,38 @@ export function createFallbackStreamFn(
       let attempts = 0;
       let lastUsedEntry: ModelChainEntry | undefined;
 
+      // 顶层 abort 处理：signal 触发时主动结束 outer stream 并返回 error event，
+      // 防止 for await 因 signal 检查不及时而 hang（这是之前 30+ 分钟 run 的根因）。
+      let abortHandled = false;
+      const onAbort = () => {
+        if (abortHandled) return;
+        abortHandled = true;
+        const reason = signal?.reason ?? new Error("llm call aborted");
+        const message: AssistantMessage = {
+          role: "assistant",
+          content: [],
+          api: "openai-completions",
+          provider: lastUsedEntry?.model.provider ?? "relay",
+          model: lastUsedEntry?.model.id ?? "unknown",
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, totalTokens: 0 },
+          stopReason: "error",
+          errorMessage: extractErrorMessage(reason),
+          timestamp: Date.now(),
+        };
+        void recordEvent?.("llm_fallback_aborted", { raw: { reason: message.errorMessage } });
+        outer.push({ type: "error", reason: "error", error: message });
+        outer.end(message);
+      };
+      if (signal) {
+        if (signal.aborted) {
+          onAbort();
+          return;
+        }
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+
       for (let i = 0; i < chain.length; i++) {
-        if (signal?.aborted) break;
+        if (signal?.aborted || abortHandled) break;
         const entry = chain[i];
 
         // 冷却检查
@@ -251,7 +286,7 @@ export function createFallbackStreamFn(
 
         try {
           for await (const event of innerStream) {
-            if (signal?.aborted) break;
+            if (signal?.aborted || abortHandled) break;
             if (event.type === "error") {
               // pi-ai 内部已经把 error 包装成 AssistantMessage；记下但不立刻 fallback
               // —— 还要看是否后面有成功 event（理论上不会）。
@@ -348,6 +383,7 @@ export function createFallbackStreamFn(
       }
 
       // chain 走完仍未成功
+      if (abortHandled) return; // abort 路径已自己 end
       const err = lastError ?? new Error("All LLM chain entries failed without explicit error");
       await recordEvent?.("llm_fallback_exhausted", {
         raw: { attempts, maxTotalAttempts, lastError: extractErrorMessage(err) },
@@ -357,12 +393,11 @@ export function createFallbackStreamFn(
         reason: "error",
         error: errorAssistantMessage(lastUsedEntry?.model, err),
       });
+      outer.end(errorAssistantMessage(lastUsedEntry?.model, err));
     })().catch((err) => {
-      outer.push({
-        type: "error",
-        reason: "error",
-        error: errorAssistantMessage(undefined, err),
-      });
+      const message = errorAssistantMessage(undefined, err);
+      outer.push({ type: "error", reason: "error", error: message });
+      outer.end(message);
     });
 
     return outer;

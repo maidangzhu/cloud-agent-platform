@@ -19,6 +19,8 @@ export interface UseSessionStateResult {
 
   // 操作
   sendMessage: (prompt: string) => Promise<void>;
+  cancelRun: (runId: string) => Promise<void>;
+  isCancelling: (runId: string) => boolean;
   isLoading: boolean;
   error: Error | null;
 }
@@ -48,6 +50,8 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
   const [submitting, setSubmitting] = useState(false);
   const [completedRunIds, setCompletedRunIds] = useState<Set<string>>(() => new Set());
   const [eventsCache, setEventsCache] = useState<Record<string, AgentEventDTO[]>>({});
+  // 正在点取消的 run（optimistic：API 调用尚未完成 / SSE 尚未推 cancelled 事件）
+  const [cancellingRunIds, setCancellingRunIds] = useState<Set<string>>(() => new Set());
 
   // 1. DB 数据（初始化 + 降级时轮询）
   const {
@@ -88,6 +92,15 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
   const { events, connected } = useRunSSE(runningRunId, {
     onDone: (finalEvents) => {
       console.log("[useSessionState] SSE onDone triggered for runId:", runningRunId);
+      // run 走到终态（completed/failed/cancelled/timeout），清掉 cancelling 标记
+      if (runningRunId) {
+        setCancellingRunIds((prev) => {
+          if (!prev.has(runningRunId)) return prev;
+          const next = new Set(prev);
+          next.delete(runningRunId);
+          return next;
+        });
+      }
       if (runningRunId && finalEvents.length > 0) {
         setEventsCache((prev) => ({ ...prev, [runningRunId]: finalEvents }));
         console.log(`[useSessionState] 缓存 runId=${runningRunId} 的 events:`, finalEvents.length);
@@ -182,6 +195,43 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
     }
   };
 
+  /**
+   * 取消一个正在进行的 run。
+   * - 乐观把 run 标为 "cancelling"（按钮立刻变 loading）
+   * - 调 POST /api/runs/:id/cancel → DB 写 cancel_requested
+   * - 后端 prepareNextTurn 在下一轮读 DB → agent.abort() → SSE 推 run_cancelled
+   * - 失败时移除乐观标记 + 抛错给 UI 显示
+   */
+  const cancelRun = async (runId: string) => {
+    if (!runId || cancellingRunIds.has(runId)) return;
+    setCancellingRunIds((prev) => new Set(prev).add(runId));
+    try {
+      const res = await fetch(`/api/runs/${runId}/cancel`, { method: "POST" });
+      const body = await res.json();
+      if (res.ok && body.code === 0) {
+        // 触发 refetch，让 derivedUiState 立刻反映 status=cancel_requested → "cancelling"
+        refetch();
+        return;
+      }
+      // 业务错：移除乐观标记，错误抛给 UI
+      setCancellingRunIds((prev) => {
+        const next = new Set(prev);
+        next.delete(runId);
+        return next;
+      });
+      throw new Error(body.message || `HTTP ${res.status}`);
+    } catch (err) {
+      setCancellingRunIds((prev) => {
+        const next = new Set(prev);
+        next.delete(runId);
+        return next;
+      });
+      throw err;
+    }
+  };
+
+  const isCancelling = (runId: string) => cancellingRunIds.has(runId);
+
   return {
     session: dbSnapshot?.data.session || null,
     messages: dbSnapshot?.data.messages || [],
@@ -191,6 +241,8 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
     pendingMessage,
     liveEvents: events, // 直接暴露 SSE 事件流
     sendMessage,
+    cancelRun,
+    isCancelling,
     isLoading,
     error: error as Error | null,
   };

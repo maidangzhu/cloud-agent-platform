@@ -95,6 +95,7 @@ export type DerivedUiState =
   | "completed"
   | "failed"
   | "cancelled"
+  | "cancelling"
   | "timeout";
 
 export interface SessionDTO {

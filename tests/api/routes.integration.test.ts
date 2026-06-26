@@ -308,7 +308,7 @@ describe("POST /api/runs/:runId/cancel", () => {
     expect(res.status).toBe(200);
     const b = await res.json();
     expect(b.data.run.status).toBe("cancel_requested");
-    expect(b.data.run.derivedUiState).toBe("cancelled");
+    expect(b.data.run.derivedUiState).toBe("cancelling");
   });
 
   it.each(["completed", "failed", "timeout", "cancelled"] as const)(
