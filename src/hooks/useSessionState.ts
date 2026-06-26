@@ -1,7 +1,7 @@
 // 前端状态管理核心 hook：合并 DB + SSE 数据
 "use client";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRunSSE } from "./useRunSSE";
 import type { SessionDetailData, RunDTO, AgentEventDTO } from "@/lib/api-contract";
 
@@ -23,6 +23,10 @@ export interface UseSessionStateResult {
   isCancelling: (runId: string) => boolean;
   isLoading: boolean;
   error: Error | null;
+  /** 主动重新拉取 session/messages/runs（例如：编辑 title 后同步服务端）。 */
+  refetch: () => Promise<unknown>;
+  /** 直接更新 session 标题（乐观），失败可回滚。 */
+  setSessionTitle: (title: string) => void;
 }
 
 /**
@@ -42,6 +46,7 @@ function findRunningRun(runs: RunDTO[], completedRunIds: Set<string>): string | 
 }
 
 export function useSessionState(sessionId: string): UseSessionStateResult {
+  const queryClient = useQueryClient();
   const [pendingMessage, setPendingMessage] = useState<{
     prompt: string;
     runId: string;
@@ -245,5 +250,20 @@ export function useSessionState(sessionId: string): UseSessionStateResult {
     isCancelling,
     isLoading,
     error: error as Error | null,
+    refetch,
+    setSessionTitle: (title: string) => {
+      // 乐观改 session.title；调用方负责 PATCH 成功后 refetch 校正。
+      if (!dbSnapshot) return;
+      queryClient.setQueryData<{ code: number; data: SessionDetailData }>(
+        ["session", sessionId],
+        {
+          ...dbSnapshot,
+          data: {
+            ...dbSnapshot.data,
+            session: { ...dbSnapshot.data.session, title },
+          },
+        },
+      );
+    },
   };
 }

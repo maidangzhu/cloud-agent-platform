@@ -12,7 +12,9 @@ vi.mock("@/server/agent/run-agent", () => ({
 // ── 动态导入 route handlers（mock 注册后才导入）────────────────────────
 const { POST: invitePost } = await import("@/app/api/invite/route");
 const { POST: sessionsPost } = await import("@/app/api/sessions/route");
-const { GET: sessionGet } = await import("@/app/api/sessions/[id]/route");
+const { GET: sessionGet, PATCH: sessionPatch } = await import(
+  "@/app/api/sessions/[id]/route"
+);
 const { POST: runsPost } = await import(
   "@/app/api/sessions/[id]/runs/route"
 );
@@ -167,6 +169,99 @@ describe("GET /api/sessions/:id", () => {
     const res = await sessionGet(new Request("http://localhost"), {
       params: Promise.resolve({ id: "nonexistent-id" }),
     });
+    expect(res.status).toBe(404);
+    expect((await res.json()).code).toBe(1003);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// PATCH /api/sessions/:id
+// ══════════════════════════════════════════════════════════════════════
+describe("PATCH /api/sessions/:id", () => {
+  let sid: string;
+
+  beforeEach(async () => {
+    const s = await prisma.session.create({
+      data: { title: "old-title", status: "active" },
+    });
+    sid = s.id;
+    sessionIds.push(sid);
+  });
+
+  it("有效 title → 200 返回更新后的 SessionDTO，且 DB 真的改了", async () => {
+    const res = await sessionPatch(jsonReq("PATCH", { title: "new-title" }), {
+      params: Promise.resolve({ id: sid }),
+    });
+    expect(res.status).toBe(200);
+    const b = await res.json();
+    expect(b.code).toBe(0);
+    expect(b.data.session.id).toBe(sid);
+    expect(b.data.session.title).toBe("new-title");
+
+    const row = await prisma.session.findUnique({ where: { id: sid } });
+    expect(row?.title).toBe("new-title");
+  });
+
+  it("title 前后空白被 trim", async () => {
+    const res = await sessionPatch(
+      jsonReq("PATCH", { title: "   padded   " }),
+      { params: Promise.resolve({ id: sid }) },
+    );
+    const b = await res.json();
+    expect(b.data.session.title).toBe("padded");
+  });
+
+  it("title 超过 100 字符 → 截断到 100", async () => {
+    const longTitle = "x".repeat(150);
+    const res = await sessionPatch(jsonReq("PATCH", { title: longTitle }), {
+      params: Promise.resolve({ id: sid }),
+    });
+    const b = await res.json();
+    expect(b.data.session.title).toHaveLength(100);
+  });
+
+  it("title 为空字符串 → 400 { code:1001 }", async () => {
+    const res = await sessionPatch(jsonReq("PATCH", { title: "" }), {
+      params: Promise.resolve({ id: sid }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe(1001);
+  });
+
+  it("title 全是空白 → 400", async () => {
+    const res = await sessionPatch(jsonReq("PATCH", { title: "    " }), {
+      params: Promise.resolve({ id: sid }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("缺 title 字段 → 400", async () => {
+    const res = await sessionPatch(jsonReq("PATCH", {}), {
+      params: Promise.resolve({ id: sid }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("title 非字符串 → 400", async () => {
+    const res = await sessionPatch(jsonReq("PATCH", { title: 12345 }), {
+      params: Promise.resolve({ id: sid }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("非 JSON body → 400", async () => {
+    const res = await sessionPatch(
+      new Request("http://localhost", { method: "PATCH", body: "not-json" }),
+      { params: Promise.resolve({ id: sid }) },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("session 不存在 → 404 { code:1003 }", async () => {
+    const res = await sessionPatch(
+      jsonReq("PATCH", { title: "whatever" }),
+      { params: Promise.resolve({ id: "nonexistent-id" }) },
+    );
     expect(res.status).toBe(404);
     expect((await res.json()).code).toBe(1003);
   });

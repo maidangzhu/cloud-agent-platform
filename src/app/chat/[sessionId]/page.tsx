@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSessionState } from "@/hooks/useSessionState";
 import { RunTimeline } from "@/components/RunTimeline";
 import { Button } from "@/components/ui/button";
@@ -7,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sidebar } from "@/components/Sidebar";
+import { EditableTitle } from "@/components/EditableTitle";
 import type { AgentEventDTO } from "@/lib/api-contract";
 
 function RunTurn({
@@ -58,8 +60,10 @@ function RunTurn({
 }
 
 export default function ChatPage({ params }: { params: Promise<{ sessionId: string }> }) {
+  const queryClient = useQueryClient();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
@@ -67,6 +71,10 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
   useEffect(() => {
     params.then((p) => setSessionId(p.sessionId));
   }, [params]);
+
+  useEffect(() => {
+    setInviteCode(localStorage.getItem("inviteCode") ?? "");
+  }, []);
 
   function updateStickToBottom() {
     const el = scrollContainerRef.current;
@@ -88,6 +96,8 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
     cancelRun,
     isCancelling,
     isLoading,
+    refetch,
+    setSessionTitle,
   } = useSessionState(sessionId || "");
 
   // 调试：打印 liveEvents 和 activeRunId
@@ -172,6 +182,38 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
   }
 
   /**
+   * 编辑 session 标题：
+   * 1. 乐观改写本地缓存
+   * 2. PATCH /api/sessions/:id
+   * 3. 成功后 refetch session 详情 + 让 Sidebar 失效重新拉取
+   * 4. 失败时抛错，EditTableTitle 内部会把 draft 回滚到原值
+   */
+  async function handleSaveTitle(next: string) {
+    if (!sessionId) return;
+    const previousTitle = session?.title ?? "";
+    setSessionTitle(next);
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: next }),
+      });
+      const body = await res.json();
+      if (!res.ok || body.code !== 0) {
+        throw new Error(body.message || `HTTP ${res.status}`);
+      }
+      await refetch();
+      if (inviteCode) {
+        await queryClient.invalidateQueries({ queryKey: ["sidebar-sessions", inviteCode] });
+      }
+    } catch (err) {
+      // 乐观回滚：恢复到 refetch 拿到的（失败时基本等于原值）服务端真值
+      setSessionTitle(previousTitle);
+      throw err;
+    }
+  }
+
+  /**
    * 取消当前活动的 run。带二次确认避免误触。
    * - 第一次点：按钮文案 "确认取消？"，3 秒后自动恢复
    * - 第二次点：调 cancelRun → 乐观变 cancelling → SSE 推 cancelled
@@ -204,7 +246,10 @@ export default function ChatPage({ params }: { params: Promise<{ sessionId: stri
       <Sidebar />
       <div className="flex-1 flex flex-col">
         <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-          <span className="text-sm font-medium text-zinc-300">{session?.title || "Chat"}</span>
+          <EditableTitle
+            value={session?.title || "Chat"}
+            onSave={handleSaveTitle}
+          />
           <div className="flex items-center gap-3">
             {/* 连接状态指示器 */}
             {activeRunId && (
