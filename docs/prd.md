@@ -1,150 +1,305 @@
-# 产品需求文档 (PRD) — Cloud Agent Platform
+# PRD — Personal Task Workspace Agent
 
-## 1. 背景与目标
+## 1. 产品定义
 
-构建一个 Cloud Agent Platform：用户提交一段自然语言任务，平台启动一个自主 agent，在云端隔离环境中调用 LLM 推理、调用工具（执行命令、读写文件）、循环迭代直至完成，最后返回结果。可类比 Claude Code Cloud / Devin / OpenAI 的 agent 运行平台。
+Personal Task Workspace Agent 是一个云端个人任务助理工作区。
 
-四个考察重点：
+它不是用户的“分身”，不替用户做最终判断，也不自动代表用户对外行动。它是一个在授权边界内工作的助理：理解用户的偏好、工作方式和任务目标，在隔离 sandbox 中搜索资料、阅读内容、整理信息、修改文件，并产出可审计的 artifact。
 
-- Agent 编排与调度
-- 沙箱与隔离执行
-- LLM 集成与工具调用
-- 整体架构与可扩展性
+一句话：
 
-**产品定位**：本期交付一个能跑通端到端主链路、**支持多轮对话**的 MVP，并用架构文档说明生产级演进路径。不追求做成完整的 Devin / Claude Code Cloud。
+> 用户创建一个 task workspace，把任务交给 agent；agent 在云端 sandbox 里执行搜索、读写文件、运行命令和整理内容，最后生成报告、草稿、计划或代码改动等 artifact，并把过程完整同步回浏览器。
 
-**核心场景**：
+## 2. 为什么做
 
-> 用户输入「读取这个仓库，找出所有 TODO，生成一份报告」，平台启动一个云端 agent，在隔离 workspace 中读取文件、搜索内容、必要时执行命令，最后返回结构化报告；用户可在同一会话内继续追问（如「按优先级排序并写入文件」），agent 复用同一 workspace 接着干，离开后再回来仍能继续。
+普通聊天机器人只给回答，但很多真实任务需要一个持续工作区：
 
-## 2. 目标用户
+- 需要搜索和阅读多份资料
+- 需要保存中间 notes
+- 需要生成结构化报告或草稿
+- 需要修改文件或代码
+- 需要看到 agent 做了什么
+- 需要在卡住时取消
+- 需要下次接着同一个任务继续做
 
-| 用户 | 诉求 |
-| --- | --- |
-| 评审者 | 通过一个可运行项目，判断是否理解 Cloud Agent Platform 的核心边界 |
-| Demo 使用者 | 输入自然语言任务，观察云端 agent 如何读仓库、调工具、生成结果 |
-| 开发者本人 | 用最小实现证明 agent runtime、sandbox、事件持久化、UI 主链路 |
+这个产品的核心不是“聊天”，而是“任务执行 + workspace 沉淀 + artifact 交付”。
 
-## 3. 真实目标（评审看三件事）
+## 3. 用户
 
-1. 能把自然语言任务拆成 agent 运行时、工具系统、沙箱、状态流和前后端体验。
-2. 知道哪些是 MVP，哪些是生产级系统才需要的。
-3. 能用代码跑通一条端到端链路，而不是只画大图。
+P0 面向个人高级用户，尤其是开发者、独立创作者、产品/技术从业者。
 
-> 核心主张：LLM 输出不能直接进入危险执行层，中间必须有工具协议、校验器、状态机、快照和可观测日志。模型是规划器，不是无边界执行器。
+典型用户诉求：
 
-## 4. 核心对象
+- 我想让 agent 帮我研究一个主题，并生成报告
+- 我想让 agent 帮我整理资料，输出面试讲解稿
+- 我想让 agent 帮我阅读代码或文档，生成修改建议
+- 我想让 agent 在一个隔离环境里安全执行命令
+- 我想看到它每一步干了什么，而不是只看到最终回答
 
-| 对象 | 含义 | 范围 |
-| --- | --- | --- |
-| `Invite` | 访问门禁，替代登录/计费 | P0 |
-| `Session` | 长期会话容器，支持多轮对话 | P0 |
-| `Workspace` | session 绑定的沙箱引用（命名沙箱 + snapshot，可复用/恢复） | P0 |
-| `Message` | 用户 ↔ agent 的对话消息 | P0 |
-| `Run` | 一次 agent 执行（一条 prompt → 一轮 loop） | P0 |
-| `AgentEvent` | Run 内执行过程中的事件流 | P0 |
-| `ToolCall` | 一次工具调用及结果 | P0 |
-| `Artifact` | 最终报告或生成文件 | P0 |
-| `User / Project` | 多用户、多项目 | P1 |
-| `WorkspaceSnapshot / QueueJob` | 多份历史快照、后台调度 | P1 |
+P0 不面向企业协作场景，不做完整多租户、SSO、RBAC、多人实时协作。
 
-P0 关系：一个有效邀请码可创建多个 Session；一个 Session 绑定一个 Workspace、含多条 Message 和多个 Run；一个 Run 含多个 AgentEvent 与 ToolCall、产出零或多个 Artifact。详见 [`data-model.md`](./data-model.md)。
+## 4. 和 OpenClaw 的区别
 
-## 5. 状态流转
+OpenClaw 更像 personal assistant gateway：接入 WhatsApp、Telegram、邮件、日历等个人渠道，通过 skills 帮用户操作现有应用。
 
-**Session 状态**：`active → archived`
+本产品不是这个方向。
 
-**Run 状态**：
+本产品聚焦 cloud task workspace：
 
-```text
-created → provisioning_workspace → running → completed
-分支：failed / timeout / cancel_requested → cancelled / interrupted
-```
+| 维度 | OpenClaw 类产品 | 本产品 |
+|---|---|---|
+| 主场景 | 多渠道个人自动化 | 明确任务的 workspace 执行 |
+| 入口 | chat app / gateway | browser workspace |
+| 核心能力 | app integrations / skills | sandbox execution / artifact workflow |
+| 输出 | 执行动作、回复消息、处理日程 | 报告、草稿、计划、notes、代码或文档改动 |
+| 安全重点 | 第三方账号权限 | sandbox 隔离、事件审计、取消和超时 |
+| 用户关系 | 像生活/工作管家 | 像任务助理 |
 
-**ToolCall 状态**：
+定位边界：
 
-```text
-pending → running → completed
-                 → failed / timeout / rejected
-```
+- 不替用户发邮件、发消息、提交外部动作
+- 不接管用户账号
+- 不做“AI clone”
+- 高风险动作必须产出草稿或请求确认
 
-**Workspace 状态**：
+## 5. 核心对象
 
-```text
-pending → provisioning → ready → archived
-                       → failed
-（ready 后可被快照，下次会话从 snapshot resume 回到 ready）
-```
+### 5.1 Assistant Profile
 
-## 6. 用户动作与约束
+用户的工作偏好和边界。
 
-| 动作 | 入口 | 约束 |
-| --- | --- | --- |
-| 输入邀请码 | `/invite` | 服务端可信校验；前端缓存不算数，API 二次校验 |
-| 创建会话 | `POST /api/sessions` | 必须有有效邀请码；建 Session + workspace（lazy） |
-| 发送消息（追问） | `POST /api/sessions/:id/runs` | 在会话内追加 user message，触发一次 Run；复用同一 workspace |
-| 查看事件流 | SSE / 轮询 | 实时看 model step、tool call、结果 |
-| 查看报告 | 报告面板 | 展示 Markdown artifact |
-| 取消 run | `POST /api/runs/:id/cancel` | best-effort，至少不再进入下一轮 model step |
-| 继续历史会话 | `GET /api/sessions/:id` | 读对话历史 + 从 snapshot resume workspace，接着对话 |
-| 刷新恢复 | `GET /api/runs/:id` | 从 DB 恢复事件与 artifact，判断 run 存活状态 |
+P0 可以先内置或用配置文件表示，例如：
 
-**工具执行约束**：所有工具经 Tool Registry 与 schema 校验；文件路径限制在 workspace 内；命令执行有 timeout；stdout/stderr 截断；高风险命令默认拒绝；工具结果必须写入事件。
+- 语言偏好：中文，简明直接
+- 工作方式：先方案、再代码
+- 交付偏好：分阶段、可验证
+- 风险边界：不自动对外发送、不删除文件、不执行高危命令
+- 输出偏好：报告要结构化，区分事实、推断和建议
 
-## 7. 副作用与关键原则
+### 5.2 Workspace
 
-| 动作 | 副作用 |
-| --- | --- |
-| 创建会话 | 写 DB、（lazy）准备 workspace |
-| 发送消息 | 建 Run、写 user Message、触发 agent loop |
-| provision/resume workspace | 创建或从 snapshot 恢复 sandbox |
-| agent model step | 消耗 token、产生 reasoning / tool call |
-| tool call | 读写 workspace 文件、执行命令 |
-| write artifact | 写 DB、写 workspace 文件、写 assistant Message、更新 UI |
+一个具体任务或项目的工作台。
 
-> 关键原则：所有副作用都必须进入事件流，否则 UI、debug 和恢复都会断。上下文压缩可以有损，但平台事件流不能有损。
+P0 workspace 包含：
 
-## 8. 范围划分（P0 / P1 / P2）
+- task prompt
+- notes
+- sources
+- artifacts
+- run history
+- sandbox handle
 
-**P0（本期 MVP）做**：邀请码访问、**多轮会话**（Session + Message）、Vercel Function 内跑 agent loop、SSE 事件流、Postgres 持久化、Vercel 沙箱隔离执行、5 个最小工具、demo repo 找 TODO 生成报告、**workspace 会话内复用与 snapshot resume（①persistent 文件延续 + ②显式 snapshot/resume）**。
+### 5.3 Run
 
-**P0 不做**：OAuth、真实多用户、计费、GitHub App、PR、**自动 hibernate 生命周期编排（③）**、durable workflow、独立 worker、subagent、向量记忆。
+一次 agent 执行。
 
-**P1（生产化）**：Queue + worker、run cancel/retry、自动 hibernate/resume 编排（③）、多份历史快照、git repo clone、diff view。触发条件：agent 经常超过 Function duration、需要横向扩展 worker、需要精细的 sandbox 生命周期管理。
+一个 workspace 可以有多个 run，例如：
 
-**P2（完整平台）**：多用户 auth、team/org 权限、GitHub/GitLab 集成、secrets manager、network policy、human approval、subagent、long-term memory、billing、PR / preview。
+1. “研究 OpenClaw 和本项目的区别”
+2. “把报告改成面试讲解稿”
+3. “补充 sandbox 架构 tradeoff”
 
-## 9. 验收 benchmark
+### 5.4 Artifact
 
-P0 是否成立不看功能多少，看这 8 条：
+agent 产出的可交付物。
 
-1. **端到端闭环**：输入任务后能看到事件流和最终报告。
-2. **隔离执行**：文件读写和命令都发生在 workspace/sandbox 中，不污染平台代码。
-3. **事件可观测**：每步 model step、tool call、tool result、final artifact 在 UI 或 DB 可见。
-4. **工具受控**：路径不越出 workspace；命令有 timeout；输出有截断。
-5. **状态可恢复查看**：SSE 断开后刷新仍能从 DB 看到已保存事件与结果。
-6. **多轮会话与会话恢复**：同一 Session 内追问能复用 workspace、看到上一轮文件与对话历史；离开后重新进入，对话历史从 DB 恢复、workspace 从快照 resume。
-7. **架构可演进**：agent loop 独立在 `src/server/agent`，未来可平移到 worker/独立服务。
-8. **范围可解释**：文档明确 P0/P1/P2，说明为什么不做登录、计费、PR、自动 hibernate 编排。
+例子：
 
-## 10. Demo Happy Path
+- `research-report.md`
+- `interview-script.md`
+- `architecture-review.md`
+- `implementation-plan.md`
+- `code-change-summary.md`
 
-输入：`读取这个仓库，找出所有 TODO，生成一份报告`
+Artifact 是产品价值的主要承载物，不是聊天气泡。
 
-期望：
+### 5.5 Source
 
-- 至少发生一次 `search_text` 工具调用。
-- 生成 Markdown artifact。
-- 报告包含 TODO 的文件路径、行号、内容摘要。
-- run 状态为 `completed`。
+研究或分析中引用的来源。
 
-**多轮追问**（同一 Session 第二轮）：
+例子：
 
-输入：`把这些 TODO 按优先级排序，写进 PRIORITY.md`
+- 网页
+- 文档
+- GitHub repo
+- 本地 workspace 文件
+- 命令输出
 
-期望：
+P0 要求 artifact 可以关联 source，至少能说明“这个结论来自哪里”。
 
-- 复用同一 workspace（看得到第一轮的文件和上下文）。
-- 发生 `write_file` 工具调用，在 workspace 内生成 `PRIORITY.md`。
-- agent「记得」第一轮找到的 TODO（对话历史喂给 LLM）。
-- 过两天回来打开此会话，对话历史照常，workspace 从 snapshot 恢复后可继续。
+### 5.6 Approval
+
+高风险动作前的确认。
+
+P0 可以先只做策略约束，不做完整 UI 审批流。规则是：
+
+- 可以生成草稿
+- 可以写 workspace 文件
+- 可以运行低风险命令
+- 不可以自动对外发送
+- 不可以删除大量文件
+- 不可以执行明显危险命令
+
+## 6. P0 用户故事
+
+### Story 1：创建任务 workspace
+
+用户打开网页，输入一个任务：
+
+> “帮我研究 OpenClaw 和我的 Personal Task Workspace Agent 有什么区别，生成一份产品定位报告。”
+
+系统创建 workspace 和 run。
+
+验收：
+
+- workspace 被创建
+- run 进入执行状态
+- UI 能看到任务标题和运行状态
+
+### Story 2：agent 在 sandbox 中执行
+
+agent 在 sandbox 内执行任务，而不是在主服务进程里直接跑。
+
+它可以：
+
+- 搜索或读取网页
+- 读取 workspace 文件
+- 写 notes
+- 生成 artifact
+- 必要时运行安全命令
+
+验收：
+
+- agent loop 运行在 sandbox
+- control plane 不把 DB/Redis 凭证下发给 sandbox
+- sandbox 只能通过 scoped run token 上报事件
+
+### Story 3：生成 artifact 报告
+
+agent 最终生成一个 markdown artifact，例如：
+
+`openclaw-comparison-report.md`
+
+报告包含：
+
+- 任务摘要
+- 关键发现
+- 对比表
+- 建议定位
+- sources
+
+验收：
+
+- artifact 可在 UI 打开
+- artifact 存在于 workspace
+- artifact 能关联 sources 或执行证据
+
+### Story 4：展示执行过程
+
+用户能看到 agent 的执行轨迹。
+
+事件包括：
+
+- run started
+- search started/completed
+- page fetched
+- file read/written
+- artifact created
+- run completed/failed/cancelled
+
+验收：
+
+- UI 通过 SSE 或轮询展示事件
+- 刷新页面后能从数据库恢复历史事件
+
+### Story 5：取消和超时
+
+用户可以取消正在运行的任务。系统也要防止 LLM、网络或 sandbox 卡死导致 run 永远挂住。
+
+验收：
+
+- 用户点击 cancel 后，run 在 1s 左右进入 `cancelled`
+- LLM 首响应超时会 retry 或 fail fast
+- run 超过最大时长后进入 `timeout`
+- orphan run 可以被 sweep 收敛
+
+### Story 6：workspace 继续追问
+
+用户可以在同一个 workspace 继续追问：
+
+> “把报告改成 3 分钟面试口述版。”
+
+agent 能看到已有 artifact、notes 和 run history，并生成新的 artifact 或修改现有 artifact。
+
+验收：
+
+- 同 workspace 的后续 run 可以读取已有文件/artifact
+- warm sandbox 可复用时优先复用
+
+## 7. P0 功能范围
+
+P0 必做：
+
+- 单用户 workspace
+- 创建 run
+- sandbox 内执行 agent
+- 基础工具：search/fetch/read_file/write_file/list_files/run_command
+- event stream
+- artifact 生成和展示
+- source 记录
+- cancel
+- timeout
+- warm sandbox 复用
+
+P0 不做：
+
+- 企业多租户
+- SSO / SAML
+- 多人协作
+- 复杂 RBAC
+- skills marketplace
+- agent 自动对外发消息或发邮件
+- embedding 检索
+- 完整 memory proposal 流
+- freeze/thaw OSS 快照
+- 计费
+
+## 8. P1 / P2
+
+P1：
+
+- Assistant Profile UI
+- Approval UI
+- 更完整的 source citation
+- artifact diff / version history
+- workspace import/export
+- 更稳定的 web browsing
+- freeze/thaw
+
+P2：
+
+- 多用户共享 workspace
+- org / team
+- skill proposal
+- long-term memory
+- embedding search
+- integrations with email/calendar/chat
+
+## 9. 非功能需求
+
+| 项 | P0 目标 |
+|---|---|
+| cancel 响应 | 1s 左右进入取消流程 |
+| run 最大时长 | 默认 30min，可配置 |
+| event 延迟 | UI 侧 1s 内可见 |
+| artifact 可恢复 | 刷新后仍可从数据库/文件恢复 |
+| sandbox 权限 | 无 DB/Redis 凭证 |
+| workspace 复用 | 同 workspace 后续 run 优先复用 warm sandbox |
+| 高风险命令 | 默认拒绝 |
+
+## 10. 面试讲法
+
+可以这样介绍：
+
+> 我做的是一个 Personal Task Workspace Agent。它不是聊天机器人，也不是替我操作所有账号的 AI 分身，而是一个云端任务助理。用户把一个明确任务放进 workspace，agent 在隔离 sandbox 里搜索、读文件、跑命令、写报告，并把完整执行轨迹、sources 和 artifact 同步回浏览器。核心技术点是 agent-in-sandbox、run lifecycle、event ingest、artifact workflow、cancel/timeout 和 workspace 复用。
+
