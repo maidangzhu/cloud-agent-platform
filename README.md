@@ -53,20 +53,34 @@ pnpm dev
 ## 文档
 
 - [`docs/prd.md`](./docs/prd.md) — 产品需求文档（目标、对象、状态流转、范围、验收 benchmark）
-- [`docs/architecture.md`](./docs/architecture.md) — 技术方案（三状态边界、选型、agent loop、沙箱、恢复策略、演进、测试）
-- [`docs/data-model.md`](./docs/data-model.md) — 数据模型（P0 五表完整字段、事件类型、与 Open Agents 表对照、P1 演进）
-- [`docs/sandbox-research.md`](./docs/sandbox-research.md) — Vercel Sandbox 方案调研（SDK API、认证、限制定价、接口设计、安全、落地计划）
-- [`docs/adr/0001-sandbox-as-tool.md`](./docs/adr/0001-sandbox-as-tool.md) — 架构决策：Sandbox as Tool vs Agent in Sandbox，为何 P0 选前者
-- [`docs/adr/0002-multi-turn-session.md`](./docs/adr/0002-multi-turn-session.md) — 架构决策：多轮会话模型（Session + Message）与 workspace 会话内持久（跨请求、跨沙箱实例）
+- [`docs/research-agent-tdd-roadmap.md`](./docs/research-agent-tdd-roadmap.md) — Research Workspace Agent 重构路线（agent-in-sandbox、workspace/artifact、Better Auth、点数、API-first TDD）
+- [`docs/glossary.md`](./docs/glossary.md) — v2 统一名词表（Workspace / Thread / Run / Artifact / Source / Credit 等）
+- [`docs/backend-domain-model.md`](./docs/backend-domain-model.md) — 后端领域模型（对象关系、所有权、服务边界、不变量）
+- [`docs/data-model.md`](./docs/data-model.md) — v2 数据模型规格（表、字段、索引、约束、迁移说明）
+- [`docs/api-contract.md`](./docs/api-contract.md) — API 契约（响应信封、错误码、DTO、权限、ingest/LLM proxy）
+- [`docs/state-machines.md`](./docs/state-machines.md) — 状态机规格（Run、Workspace、Thread、Sandbox、ToolCall、Artifact、Credits、事件顺序）
+- [`docs/agent-runtime-protocol.md`](./docs/agent-runtime-protocol.md) — agent-in-sandbox 协议（runner 启动、ingest、tool、LLM proxy、cancel/timeout）
+- [`docs/testing-strategy.md`](./docs/testing-strategy.md) — API-first TDD 测试策略（单元、路由、集成、fake runner、失败矩阵）
+- [`docs/frontend-vercel-chatbot-reference.md`](./docs/frontend-vercel-chatbot-reference.md) — 前端参考落地方案（Vercel Chatbot 风格、artifact 面板、SSE/API 适配、TDD）
+- [`docs/design-system.md`](./docs/design-system.md) — 产品设计规范（布局、视觉、artifact、文件/source、响应式、无障碍、测试清单）
+- [`docs/technical-design.md`](./docs/technical-design.md) — v1 技术设计参考（实现 v2 时以新规格文档为准）
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — 开发约定（分阶段 / OpenSpec / TDD / 零隐私）
 
 ## 项目结构
 
 ```
 docs/prd.md                                  # 产品需求文档
-docs/architecture.md                         # 技术方案
-docs/data-model.md                           # 数据模型
+docs/research-agent-tdd-roadmap.md           # v2 分阶段路线
+docs/glossary.md                             # v2 统一名词
+docs/backend-domain-model.md                 # v2 后端领域模型
+docs/data-model.md                           # v2 数据模型
+docs/api-contract.md                         # v2 API 契约
+docs/state-machines.md                       # v2 状态机
+docs/agent-runtime-protocol.md               # v2 agent-in-sandbox 协议
+docs/testing-strategy.md                     # v2 API-first TDD 策略
+docs/design-system.md                        # v2 产品设计规范
+docs/frontend-vercel-chatbot-reference.md    # v2 前端参考落地
 openspec/changes/cloud-agent-platform-mvp/   # 规格驱动开发：proposal / design / specs / tasks
-src/server/                                  # 控制面、沙箱、工具、agent 编排（开发中）
-src/app/                                     # Next.js 页面与 API 路由
+src/server/                                  # v1 实现参考；v2 将重建控制面 / ingest / sandbox runner
+src/app/                                     # v1 UI/API 参考；v2 将重建 workspace shell
 ```

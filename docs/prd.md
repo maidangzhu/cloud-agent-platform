@@ -46,14 +46,16 @@ OpenClaw 更像 personal assistant gateway：接入 WhatsApp、Telegram、邮件
 
 本产品聚焦 cloud task workspace：
 
-| 维度 | OpenClaw 类产品 | 本产品 |
-|---|---|---|
-| 主场景 | 多渠道个人自动化 | 明确任务的 workspace 执行 |
-| 入口 | chat app / gateway | browser workspace |
+
+| 维度   | OpenClaw 类产品              | 本产品                                   |
+| ---- | ------------------------- | ------------------------------------- |
+| 主场景  | 多渠道个人自动化                  | 明确任务的 workspace 执行                    |
+| 入口   | chat app / gateway        | browser workspace                     |
 | 核心能力 | app integrations / skills | sandbox execution / artifact workflow |
-| 输出 | 执行动作、回复消息、处理日程 | 报告、草稿、计划、notes、代码或文档改动 |
-| 安全重点 | 第三方账号权限 | sandbox 隔离、事件审计、取消和超时 |
-| 用户关系 | 像生活/工作管家 | 像任务助理 |
+| 输出   | 执行动作、回复消息、处理日程            | 报告、草稿、计划、notes、代码或文档改动                |
+| 安全重点 | 第三方账号权限                   | sandbox 隔离、事件审计、取消和超时                 |
+| 用户关系 | 像生活/工作管家                  | 像任务助理                                 |
+
 
 定位边界：
 
@@ -287,15 +289,17 @@ P2：
 
 ## 9. 非功能需求
 
-| 项 | P0 目标 |
-|---|---|
-| cancel 响应 | 1s 左右进入取消流程 |
-| run 最大时长 | 默认 30min，可配置 |
-| event 延迟 | UI 侧 1s 内可见 |
-| artifact 可恢复 | 刷新后仍可从数据库/文件恢复 |
-| sandbox 权限 | 无 DB/Redis 凭证 |
+
+| 项            | P0 目标                                |
+| ------------ | ------------------------------------ |
+| cancel 响应    | 1s 左右进入取消流程                          |
+| run 最大时长     | 默认 30min，可配置                         |
+| event 延迟     | UI 侧 1s 内可见                          |
+| artifact 可恢复 | 刷新后仍可从数据库/文件恢复                       |
+| sandbox 权限   | 无 DB/Redis 凭证                        |
 | workspace 复用 | 同 workspace 后续 run 优先复用 warm sandbox |
-| 高风险命令 | 默认拒绝 |
+| 高风险命令        | 默认拒绝                                 |
+
 
 ## 10. 面试讲法
 
