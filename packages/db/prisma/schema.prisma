@@ -1,5 +1,13 @@
 generator client {
   provider = "prisma-client-js"
+  // 根本修复（Step 3.1 踩坑）：默认不指定 output 时，Prisma 会把生成产物
+  // 写进共享的 node_modules/.pnpm/@prisma+client@<版本>/... 目录。根目录
+  // prisma/schema.prisma（v1 旧 schema，无 User/AuthSession）和这份 schema
+  // 版本号相同，pnpm 会让两者指向同一个物理目录，谁后跑 generate 谁的
+  // 产物覆盖对方——根目录 `pnpm build`（内含 prisma generate）会静默抹掉
+  // 这里新增的 User/AuthSession 委托，导致 apps/api 报 "Model user does
+  // not exist"（已实测踩坑）。显式指定独立输出路径彻底隔离两份 schema。
+  output   = "../node_modules/.prisma-cap-db/client"
 }
 
 datasource db {
@@ -147,4 +155,67 @@ enum WorkspaceStatus {
   ready
   archived
   failed
+}
+
+model User {
+  id            String        @id
+  name          String
+  email         String
+  emailVerified Boolean       @default(false)
+  image         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  authsessions  AuthSession[]
+  accounts      Account[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model AuthSession {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("AuthSession")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
 }

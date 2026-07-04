@@ -6,7 +6,10 @@
 // 连接串来自 DATABASE_URL。
 
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+// 从独立生成路径导入（见 prisma/schema.prisma 的 generator.output 注释），
+// 不用共享的 "@prisma/client"——根目录 schema 和这里共享同一物理生成目录
+// 会互相覆盖对方产物，已实测踩坑。
+import { PrismaClient } from "../node_modules/.prisma-cap-db/client/index.js";
 
 function createPrismaClient(): PrismaClient {
   const connectionString = process.env.DATABASE_URL;

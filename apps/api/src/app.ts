@@ -1,12 +1,15 @@
 import { Hono } from "hono";
+import { auth } from "./auth";
 
-// 最小 Hono app：目前只有一个 health check 路由，用于验证 Step 2.2
-// 的部署链路（本地 dev server + 路由测试）打通。业务路由从 Group 3
-// （Auth）开始逐个迁移进来，见 docs/implementation-roadmap.md。
+// Hono app。Step 2.2 起了 health check；Step 3.1 挂载 Better Auth
+// （官方 Hono 集成方式：app.on(["POST","GET"], "/api/auth/*", ...)，
+// 见 https://better-auth.com/docs/integrations/hono）。
 export function createApp() {
   const app = new Hono();
 
   app.get("/health", (c) => c.json({ ok: true }));
+
+  app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
   return app;
 }

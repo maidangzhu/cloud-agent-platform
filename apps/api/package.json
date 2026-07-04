@@ -4,9 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@cap/db": "workspace:^",
+    "better-auth": "1.6.23",
     "hono": "4.12.27"
   },
   "devDependencies": {
