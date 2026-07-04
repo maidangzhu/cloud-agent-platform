@@ -30,15 +30,15 @@
 
 本项目采用规范驱动 + 分阶段 + TDD 的开发方式，详见 [`CONTRIBUTING.md`](./CONTRIBUTING.md)：
 
-1. **分阶段交付**：每完成一个阶段就停下，等人工检查通过再继续。
-2. **OpenSpec 记录进度**：变更规格与任务清单在 `openspec/changes/cloud-agent-platform-mvp/`。
+1. **分阶段交付**：每完成一个任务就停下，等人工检查通过再继续。
+2. **OpenSpec 记录进度**：v2 变更规格与任务清单在 `openspec/changes/v2-research-workspace-agent/`（v1 已归档于 `openspec/changes/archive/`）。
 3. **全程 TDD**：先写测试 → 实现 → 跑绿。纯逻辑单元测试离线；业务测试连真实 Vercel 沙箱 + Neon + 真实 LLM，后端全绿才开前端。
 4. **零隐私信息**：仓库内不含任何个人/公司隐私信息。
 
 查看当前进度：
 
 ```bash
-npx @fission-ai/openspec status --change cloud-agent-platform-mvp
+npx @fission-ai/openspec status --change v2-research-workspace-agent
 ```
 
 ## 运行方式
@@ -64,6 +64,9 @@ pnpm dev
 - [`docs/frontend-vercel-chatbot-reference.md`](./docs/frontend-vercel-chatbot-reference.md) — 前端参考落地方案（Vercel Chatbot 风格、artifact 面板、SSE/API 适配、TDD）
 - [`docs/design-system.md`](./docs/design-system.md) — 产品设计规范（布局、视觉、artifact、文件/source、响应式、无障碍、测试清单）
 - [`docs/technical-design.md`](./docs/technical-design.md) — v1 技术设计参考（实现 v2 时以新规格文档为准）
+- [`docs/implementation-roadmap.md`](./docs/implementation-roadmap.md) — v2 逐步执行路线图（21 Group / 45 Step，每步含代码任务/测试断言/验收标准/所需 env 变量）
+- [`docs/decisions/`](./docs/decisions/) — 架构决策记录（ADR-0001~0022），每条含决策内容/背景/被否方案/连锁影响
+- [`openspec/changes/v2-research-workspace-agent/`](./openspec/changes/v2-research-workspace-agent/) — v2 OpenSpec 规格（proposal / design / specs / tasks，tasks 与 implementation-roadmap 的 Group/Step 一一对应）
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — 开发约定（分阶段 / OpenSpec / TDD / 零隐私）
 
 ## 项目结构
@@ -80,7 +83,14 @@ docs/agent-runtime-protocol.md               # v2 agent-in-sandbox 协议
 docs/testing-strategy.md                     # v2 API-first TDD 策略
 docs/design-system.md                        # v2 产品设计规范
 docs/frontend-vercel-chatbot-reference.md    # v2 前端参考落地
-openspec/changes/cloud-agent-platform-mvp/   # 规格驱动开发：proposal / design / specs / tasks
-src/server/                                  # v1 实现参考；v2 将重建控制面 / ingest / sandbox runner
-src/app/                                     # v1 UI/API 参考；v2 将重建 workspace shell
+docs/implementation-roadmap.md               # v2 逐步执行路线图（21 Group / 45 Step）
+docs/decisions/                              # ADR-0001~0022 架构决策记录
+openspec/changes/v2-research-workspace-agent/# v2 规格驱动开发：proposal / design / specs / tasks
+openspec/changes/archive/                    # v1（cloud-agent-platform-mvp）归档
+apps/web/                                    # v2 Next.js 前端（monorepo，逐步接管 src/app）
+apps/api/                                    # v2 Hono Control Plane（monorepo，逐步接管 src/server）
+packages/db/                                 # v2 Prisma schema + client（monorepo）
+packages/shared/                             # v2 前后端共享 DTO/schema（monorepo）
+src/server/                                  # v1 实现参考；内容逐步迁移到 apps/api
+src/app/                                     # v1 UI/API 参考；内容逐步迁移到 apps/web
 ```

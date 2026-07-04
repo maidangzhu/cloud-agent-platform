@@ -5,14 +5,16 @@
 ## 核心规则
 
 1. **分阶段交付，每阶段停下检查**
-   - 实现按阶段推进，阶段划分见 `openspec/changes/cloud-agent-platform-mvp/tasks.md`。
-   - **每完成一个阶段（tasks.md 中的一个 `##` 分组），必须停下来，等人工检查通过后，才进入下一阶段。**
-   - 不允许一次性铺开多个阶段的实现。
-   - **提交（git commit）只能在人工检查通过、且明确同意后进行**；不得在未获批准前主动提交。完成一个阶段后给出改动摘要，等人工 review，得到「可以提交」的明确指令才 `git commit`。
+   - v1（`cloud-agent-platform-mvp`）已归档于 `openspec/changes/archive/2026-07-04-cloud-agent-platform-mvp/`，其状态机/数据模型已被 v2 架构决策推翻，仅作历史存档，不再作为实现参考。
+   - v2 实现按阶段推进，阶段划分见 `openspec/changes/v2-research-workspace-agent/tasks.md`（与 `docs/implementation-roadmap.md` 的 21 个 Group / 45 个 Step 一一对应）。
+   - **每完成一个任务（tasks.md 中的一个 `- [ ]` 条目），必须停下来，等人工检查通过后，才进入下一个任务。**
+   - 不允许一次性铺开多个任务的实现。
+   - **提交（git commit）只能在人工检查通过、且明确同意后进行**；不得在未获批准前主动提交。完成一个任务后给出改动摘要，等人工 review，得到「可以提交」的明确指令才 `git commit`。
 
 2. **进度用 OpenSpec 记录**
    - 采用 [OpenSpec](https://github.com/Fission-AI/OpenSpec) 规范驱动开发。
-   - 变更的 proposal / design / specs / tasks 位于 `openspec/changes/cloud-agent-platform-mvp/`。
+   - v2 变更的 proposal / design / specs / tasks 位于 `openspec/changes/v2-research-workspace-agent/`。
+   - specs 只承载"系统应该做什么"（Requirement/Scenario）；决策论证（为什么这么定、被否方案）在 `docs/decisions/`（ADR），不重复写进 spec.md。
    - 每完成一项任务，在 `tasks.md` 中把对应 `- [ ]` 勾选为 `- [x]`。
    - 阶段完成后用 `openspec status --change <name>` 查看进度。
 
@@ -32,22 +34,27 @@
 
 ```bash
 # 查看当前变更进度
-npx @fission-ai/openspec status --change cloud-agent-platform-mvp
+npx @fission-ai/openspec status --change v2-research-workspace-agent
 
 # 校验变更 artifacts 格式
-npx @fission-ai/openspec validate cloud-agent-platform-mvp --type change --strict
+npx @fission-ai/openspec validate v2-research-workspace-agent --type change --strict
 
 # 实现完成后归档变更（specs 合并进 openspec/specs/）
-npx @fission-ai/openspec archive cloud-agent-platform-mvp
+npx @fission-ai/openspec archive v2-research-workspace-agent
 ```
 
-## 阶段总览
+## v2 Group 总览
 
-| 阶段 | 内容 | 测试层 |
+详细 Step 拆解见 `docs/implementation-roadmap.md`；下表是粗粒度概览。
+
+| Group | 内容 | 测试层 |
 | --- | --- | --- |
-| 0 | 地基（依赖 + 配置） | 构建可跑 |
-| 1 | 纯逻辑层（状态机/path guard/policy/事件序） | unit |
-| 2 | 工具层 + VercelSandbox | integration（真沙箱） |
-| 3 | Agent loop 编排（真实 LLM） | integration |
-| 4 | API 路由 | route tests |
-| 5 | UI + 真实接入 + 部署 + 文档 | e2e + 手测 |
+| 0-1 | PoC + 文档校订（已完成） | 手动验证 / 文档 review |
+| 2 | Monorepo 脚手架（pnpm workspaces + Hono） | 构建可跑 |
+| 3-7 | Auth / Workspace / Thread / Run 状态机 / Scoped Token | unit + route |
+| 8-12 | Ingest 基线 + Fake Runner + Files/Artifacts/Sources | route + integration（fake runner） |
+| 13-15 | Token Stream 转发 + LLM Proxy + Search Proxy/工具协议 | integration（真 Redis / fake provider） |
+| 16 | 真实 Sandbox Agent Loop | integration（真沙箱） |
+| 17-18 | Usage 遥测 + Sweep | integration |
+| 19-20 | UI Shell + Browser E2E | component + e2e |
+| 21 | 部署和运维 | 手测 + 生产验证 |

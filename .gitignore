@@ -1,7 +1,10 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+# monorepo（Step 2.1，ADR-0022）：pnpm 在每个 apps/*、packages/* 子包下都会生成
+# 自己的 node_modules（内容是指向根 node_modules/.pnpm 仓库的符号链接）。
+# 原来的 `/node_modules` 只忽略根目录一层，改成不带前导 `/` 以匹配所有层级。
+node_modules
 /.pnp
 .pnp.*
 .yarn/*
