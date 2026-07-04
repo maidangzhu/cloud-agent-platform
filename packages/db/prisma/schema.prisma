@@ -85,7 +85,7 @@ model Session {
   updatedAt      DateTime
   Message        Message[]
   Run            Run[]
-  Workspace      Workspace?
+  SandboxInstance SandboxInstance?
 
   @@index([status, createdAt])
 }
@@ -107,20 +107,24 @@ model ToolCall {
   @@index([runId, eventSeq])
 }
 
-model Workspace {
-  id                String          @id
-  sessionId         String          @unique
-  provider          String          @default("local")
-  status            WorkspaceStatus @default(pending)
+// 重命名自 v1 的 Workspace（原语义是"单个 sandbox 实例状态"，与 v2 顶层
+// 概念 Workspace——用户拥有的研究工作区，见 docs/data-model.md §3.1——
+// 完全不同，Step 4.1 拷问出的命名冲突，改名规避，不影响根目录 v1
+// schema/代码）。
+model SandboxInstance {
+  id                String        @id
+  sessionId         String        @unique
+  provider          String        @default("local")
+  status            SandboxStatus @default(pending)
   sandboxName       String?
   sandboxState      Json?
   snapshotId        String?
   snapshotExpiresAt DateTime?
   workingDir        String?
   error             String?
-  createdAt         DateTime        @default(now())
+  createdAt         DateTime      @default(now())
   updatedAt         DateTime
-  Session           Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  Session           Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
 enum RunStatus {
@@ -149,12 +153,60 @@ enum ToolCallStatus {
   rejected
 }
 
-enum WorkspaceStatus {
+// 重命名自 v1 的 WorkspaceStatus。枚举值暂不对齐 docs/data-model.md §4
+// 定义的完整 SandboxStatus（warm/stopped 等），留给 Group 9（Fake Sandbox
+// Runner）真正需要时处理，本次只解决命名冲突，不引入本 Step 范围外的
+// 行为变化。
+enum SandboxStatus {
   pending
   provisioning
   ready
   archived
   failed
+}
+
+// v2 顶层概念：用户拥有的研究工作区（docs/data-model.md §3.1，Step 4.1
+// 新增）。ownerUserId 是 Better Auth User.id（纯字段，不建关系约束——
+// P0 下访问控制收敛为字符串比较即可，见 docs/backend-domain-model.md
+// §2；外键 ON DELETE 行为留给后续需要时再补，不在本 Step 范围内）。
+model Workspace {
+  id          String          @id
+  ownerUserId String
+  title       String
+  status      WorkspaceStatus @default(active)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  archivedAt  DateTime?
+
+  @@index([ownerUserId, updatedAt])
+  @@index([status, updatedAt])
+}
+
+enum WorkspaceStatus {
+  active
+  archived
+}
+
+// v2 最小 Thread（docs/data-model.md §3.3）。Step 4.2 提前建这张表——
+// 只为真实验证"归档 workspace 拒绝创建 thread"的并发原子拒绝（ADR-0018），
+// 不在本 Step 实现完整 CRUD/title 派生（留给 Group 5）。字段先只保留
+// 验证所需的最小集合，Group 5 会补齐。
+model Thread {
+  id          String       @id
+  workspaceId String
+  title       String
+  status      ThreadStatus @default(active)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  archivedAt  DateTime?
+
+  @@index([workspaceId, updatedAt])
+  @@index([status, updatedAt])
+}
+
+enum ThreadStatus {
+  active
+  archived
 }
 
 model User {
