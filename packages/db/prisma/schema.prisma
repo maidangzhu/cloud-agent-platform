@@ -1,0 +1,150 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model AgentEvent {
+  id        String   @id
+  runId     String
+  seq       Int
+  type      String
+  role      String?
+  title     String?
+  content   String?
+  raw       Json?
+  createdAt DateTime @default(now())
+  Run       Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, seq])
+  @@index([runId, createdAt])
+}
+
+model Artifact {
+  id        String   @id
+  runId     String
+  kind      String
+  title     String?
+  path      String?
+  content   String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  Run       Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+model Message {
+  id        String   @id
+  sessionId String
+  role      String
+  content   String
+  runId     String?
+  createdAt DateTime @default(now())
+  Session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
+
+model Run {
+  id              String       @id
+  sessionId       String
+  userPrompt      String
+  status          RunStatus    @default(created)
+  maxSteps        Int          @default(60)
+  maxDurationSec  Int          @default(780)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  lastHeartbeatAt DateTime?
+  error           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime
+  AgentEvent      AgentEvent[]
+  Artifact        Artifact[]
+  Session         Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  ToolCall        ToolCall[]
+
+  @@index([sessionId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Session {
+  id             String        @id
+  inviteCodeHash String?
+  title          String
+  status         SessionStatus @default(active)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime
+  Message        Message[]
+  Run            Run[]
+  Workspace      Workspace?
+
+  @@index([status, createdAt])
+}
+
+model ToolCall {
+  id          String         @id
+  runId       String
+  eventSeq    Int
+  name        String
+  status      ToolCallStatus @default(pending)
+  args        Json
+  result      Json?
+  error       String?
+  startedAt   DateTime       @default(now())
+  completedAt DateTime?
+  Run         Run            @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([name, status])
+  @@index([runId, eventSeq])
+}
+
+model Workspace {
+  id                String          @id
+  sessionId         String          @unique
+  provider          String          @default("local")
+  status            WorkspaceStatus @default(pending)
+  sandboxName       String?
+  sandboxState      Json?
+  snapshotId        String?
+  snapshotExpiresAt DateTime?
+  workingDir        String?
+  error             String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime
+  Session           Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+enum RunStatus {
+  created
+  provisioning_workspace
+  running
+  completed
+  failed
+  timeout
+  cancel_requested
+  cancelled
+  interrupted
+}
+
+enum SessionStatus {
+  active
+  archived
+}
+
+enum ToolCallStatus {
+  pending
+  running
+  completed
+  failed
+  timeout
+  rejected
+}
+
+enum WorkspaceStatus {
+  pending
+  provisioning
+  ready
+  archived
+  failed
+}
