@@ -152,7 +152,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 停下来确认。
 
-### Step 3.2：`GET /api/me` + 受保护路由 helper
+### Step 3.2：`GET /api/me` + 受保护路由 helper ✅
 
 要写的东西：
 
@@ -665,6 +665,6 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ## 当前状态
 
-Group 0（PoC）、Group 1（文档校订）、Group 2（Monorepo 脚手架）已完成。Group 3 Step 3.1（Better Auth 接入）已完成。下一步是 Step 3.2：`GET /api/me` + 受保护路由 helper（requireUser）。
+Group 0（PoC）、Group 1（文档校订）、Group 2（Monorepo 脚手架）、Group 3（Auth）已全部完成。下一步是 Group 4 Step 4.1：Workspace 数据模型 + CRUD 路由。
 
 按规矩，每完成一个 Step 就停下来等确认，不会连续做完多个 Step。

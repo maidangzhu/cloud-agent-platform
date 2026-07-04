@@ -27,7 +27,7 @@
 ## 3. Auth（Better Auth 挂 apps/api）
 
 - [x] 3.1 装 Better Auth，接入 Hono，生成 schema tables（真实 Neon 集成测试 7 条通过，含 2 处踩坑修复：modelName 大小写、schema 生成路径隔离）
-- [ ] 3.2 `GET /api/me` + 受保护路由 helper（requireUser）
+- [x] 3.2 `GET /api/me` + 受保护路由 helper（requireUser，真实 Neon 集成测试 3 条通过 + 手动 curl 全流程验证）
 
 ## 4. Workspace
 
