@@ -129,7 +129,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ## Group 3：Auth（Better Auth 挂 `apps/api`）
 
-### Step 3.1：装 Better Auth，接入 Hono
+### Step 3.1：装 Better Auth，接入 Hono ✅
 
 要写的东西：
 
@@ -141,9 +141,14 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 怎么测：
 
-- [testing-strategy.md §4.1](./testing-strategy.md#41-auth) unit 测试 1-3。
+- 按项目规矩（不 mock 数据库/沙箱/Redis），改成真实连 Neon 的集成测试而非 unit test（`apps/api/src/auth.integration.test.ts`），覆盖注册/登录/session 查询/未登录拒绝/错误密码拒绝/重复邮箱拒绝 6 个场景，共 7 条测试，全部真实通过。
 
-验收标准：本地能通过 Better Auth 的 API 完成一次注册/登录（手动验证一次，自动化测试覆盖 helper 逻辑）。
+验收标准：本地能通过 Better Auth 的 API 完成一次注册/登录（已验证）。
+
+**实测踩坑，后续步骤复用 Prisma/Better Auth 时注意：**
+
+1. **modelName 大小写**：`@better-auth/prisma-adapter` 用 `db[modelName]` 原样取 Prisma 委托属性，委托属性名是小写驼峰（如 `authSession`），配置 `modelName` 时必须写小写开头，不是 Prisma model 声明名（`AuthSession`）的原样大小写。
+2. **多份 Prisma schema 共享物理生成目录**：根目录 `prisma/schema.prisma`（v1）和 `packages/db/prisma/schema.prisma`（v2）如果版本号相同且不显式指定 `generator.output`，会写入同一个共享 `.pnpm` 目录，谁后 `generate` 谁覆盖谁——`pnpm build` 会静默抹掉另一份的生成产物。`packages/db` 已加独立 `output` 路径规避，之后任何新增的 Prisma schema 副本都要照此处理。
 
 停下来确认。
 
@@ -660,6 +665,6 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ## 当前状态
 
-Group 0（PoC）、Group 1（文档校订）、Group 2（Monorepo 脚手架，Step 2.1~2.4 全部完成）已完成。下一步是 Group 3 Step 3.1：装 Better Auth，接入 Hono。
+Group 0（PoC）、Group 1（文档校订）、Group 2（Monorepo 脚手架）已完成。Group 3 Step 3.1（Better Auth 接入）已完成。下一步是 Step 3.2：`GET /api/me` + 受保护路由 helper（requireUser）。
 
 按规矩，每完成一个 Step 就停下来等确认，不会连续做完多个 Step。
