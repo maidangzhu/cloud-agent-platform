@@ -31,8 +31,8 @@
 
 ## 4. Workspace
 
-- [ ] 4.1 Workspace 数据模型 + CRUD 路由（含 title 校验、archive 策略）
-- [ ] 4.2 Workspace 归档的原子拒绝（insert-select，ADR-0018）
+- [x] 4.1 Workspace 数据模型 + CRUD 路由（含 title 校验、archive 策略；踩坑：v1 Workspace model 97 条真实数据命名冲突，已安全重命名为 SandboxInstance；踩坑：根 tsconfig 未排除 monorepo 子包）
+- [x] 4.2 Workspace 归档的原子拒绝（insert-select，ADR-0018；提前建最小 Thread 表验证，真实并发集成测试 3 条通过）
 
 ## 5. Thread
 

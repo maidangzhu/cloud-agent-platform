@@ -169,7 +169,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ## Group 4：Workspace
 
-### Step 4.1：Workspace 数据模型 + CRUD 路由
+### Step 4.1：Workspace 数据模型 + CRUD 路由 ✅
 
 要写的东西：
 
@@ -181,9 +181,14 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 验收标准：CRUD 全部通过 API 测试闭环，跨用户访问不可能。
 
+**实测踩坑：**
+
+1. **v1/v2 model 命名冲突且有真实生产数据**：v1 的 `Workspace` model 语义是"沙箱实例状态"，与 v2 顶层概念 Workspace 冲突，且这张表在真实 Neon 数据库里存有 97 条历史数据。险些因为用错表名大小写（PostgreSQL 表名大小写敏感）误判"表无数据"，差点执行 `--force-reset` 丢失数据——被 Prisma 自身的安全校验（拒绝无默认值加必填列）拦下。之后任何 v1/v2 model 重命名，先用 `SELECT count(*) FROM "ExactCaseTableName"`（带双引号原样大小写）确认真实数据量，不要凭直觉判断"应该没数据"。
+2. **根目录 tsconfig.json 未排除 monorepo 子包**：`include: ["**/*.ts", ...]` + `exclude: ["node_modules"]` 会让 Next.js 的 `pnpm build` 类型检查扫描 `apps/`、`packages/` 下的代码，一处子包内的真实类型错误会直接拖挂根目录 build。已在 `exclude` 里加上 `"apps"`、`"packages"`。
+
 停下来确认。
 
-### Step 4.2：Workspace 归档的原子拒绝（[ADR-0018](./decisions/0018-atomic-state-transitions.md)）
+### Step 4.2：Workspace 归档的原子拒绝（[ADR-0018](./decisions/0018-atomic-state-transitions.md)） ✅
 
 要写的东西：
 
@@ -192,6 +197,8 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 怎么测：[testing-strategy.md §4.2](./testing-strategy.md#42-workspace) integration 16-17（并发竞态测试）。
 
 验收标准：并发下只有一种结果，不会出现"先查后建"的窗口。
+
+**范围调整**：与用户确认后，提前建了一张最小 `Thread` 表（只为真实验证并发拒绝，不实现完整 CRUD/title 派生，那些留给 Group 5）——`testing-strategy.md` 的 integration 16-17 断言名字明确要求"rejects run/thread creation"，没有一张表无法真实验证，与本节原计划"先只搭独立函数"的措辞有时序矛盾。
 
 停下来确认：这一步是 ADR-0018 原则第一次真正落地为代码，建议用户重点 review 这个原子 UPDATE helper 的实现，因为后续 Group 6（Run 状态机）会大量复用同一个模式。
 
@@ -665,6 +672,6 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ## 当前状态
 
-Group 0（PoC）、Group 1（文档校订）、Group 2（Monorepo 脚手架）、Group 3（Auth）已全部完成。下一步是 Group 4 Step 4.1：Workspace 数据模型 + CRUD 路由。
+Group 0（PoC）、Group 1（文档校订）、Group 2（Monorepo 脚手架）、Group 3（Auth）、Group 4（Workspace）已全部完成。下一步是 Group 5 Step 5.1：Thread 数据模型 + CRUD 路由（注意 Step 4.2 已提前建了最小 Thread 表，这一步是补齐完整字段/CRUD/title 派生逻辑，不是从零开始）。
 
 按规矩，每完成一个 Step 就停下来等确认，不会连续做完多个 Step。
