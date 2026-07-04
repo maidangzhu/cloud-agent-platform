@@ -21,8 +21,8 @@
 
 - [x] 2.1 建 pnpm workspace 空壳（pnpm-workspace.yaml + apps/web + apps/api + packages/shared + packages/db 四个空壳 package），验证不破坏现有 pnpm test/build
 - [x] 2.2 起最小 Hono app（GET /health），本地 dev 验证 + 路由测试
-- [ ] 2.3 迁移 Prisma 到 packages/db（含用户确认迁移后原 prisma/ 目录如何处理）
-- [ ] 2.4 apps/web 本地开发跨域 cookie 代理（rewrite /api/* 到本地 Hono 端口）
+- [x] 2.3 迁移 Prisma 到 packages/db（新建副本方案，用户确认；根目录 prisma/ 原样保留待 Group 3 收尾）
+- [x] 2.4 本地开发跨域 cookie 代理（next.config.ts rewrite /api/health 到本地 Hono 端口，验证过）
 
 ## 3. Auth（Better Auth 挂 apps/api）
 

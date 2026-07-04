@@ -65,7 +65,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 这是第一个真正改动代码结构的 Group，拆成小步骤，每步独立验证，不一次性搬完。
 
-### Step 2.1：建 pnpm workspace 空壳，不搬任何现有代码
+### Step 2.1：建 pnpm workspace 空壳，不搬任何现有代码 ✅
 
 要写的东西：
 
@@ -79,7 +79,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 停下来确认：用户看到新目录结构和验证结果后确认，再继续。
 
-### Step 2.2：起一个只有 health check 的 Hono app，验证部署链路
+### Step 2.2：起一个只有 health check 的 Hono app，验证部署链路 ✅
 
 要写的东西：
 
@@ -95,7 +95,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 停下来确认：用户本地验证访问到 health check 后确认。
 
-### Step 2.3：迁移 Prisma 到 `packages/db`
+### Step 2.3：迁移 Prisma 到 `packages/db` ✅
 
 要写的东西：
 
@@ -113,7 +113,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 停下来确认：这一步涉及"移动"而不是"新建"，需要用户确认迁移后原 `prisma/` 目录内容如何处理（保留作参考还是删除）——按规矩，删除操作要停下来问，不能自己决定删。
 
-### Step 2.4：本地开发跨域 cookie 代理
+### Step 2.4：本地开发跨域 cookie 代理 ✅
 
 要写的东西：
 
@@ -660,6 +660,6 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ## 当前状态
 
-Group 0（PoC）和 Group 1（文档校订）已完成。下一步是 Group 2 Step 2.1：建 pnpm workspace 空壳。
+Group 0（PoC）、Group 1（文档校订）、Group 2（Monorepo 脚手架，Step 2.1~2.4 全部完成）已完成。下一步是 Group 3 Step 3.1：装 Better Auth，接入 Hono。
 
 按规矩，每完成一个 Step 就停下来等确认，不会连续做完多个 Step。
