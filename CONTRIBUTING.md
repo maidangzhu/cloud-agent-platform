@@ -32,16 +32,29 @@
 
 ## OpenSpec 常用命令
 
+不需要全局安装（不用 `npm install -g`，不写进 `package.json`），直接用 `npx @fission-ai/openspec` 按需调用；npx 会自动缓存（`~/.npm/_npx/`），每次仍是独立解析，不是装好的全局命令，这是预期行为。
+
 ```bash
-# 查看当前变更进度
+# 查看所有 change 的进度总览（含已完成/总任务数）
+npx @fission-ai/openspec list
+
+# 查看当前变更的 artifact 完成状态 + 任务勾选进度
 npx @fission-ai/openspec status --change v2-research-workspace-agent
 
 # 校验变更 artifacts 格式
 npx @fission-ai/openspec validate v2-research-workspace-agent --type change --strict
 
+# 查看变更的完整结构化内容（含每条 Requirement/Scenario）
+npx @fission-ai/openspec change show v2-research-workspace-agent
+
+# 交互式仪表盘（浏览 specs/changes 更直观）
+npx @fission-ai/openspec view
+
 # 实现完成后归档变更（specs 合并进 openspec/specs/）
 npx @fission-ai/openspec archive v2-research-workspace-agent
 ```
+
+日常检查进度用 `list`/`status` 就够——`list` 返回的已完成/总任务数直接对应 `tasks.md` 里 `- [x]` 的勾选数，是判断"做到哪了"最可信的信号源。
 
 ## v2 Group 总览
 
