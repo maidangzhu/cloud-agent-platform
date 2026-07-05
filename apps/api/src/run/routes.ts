@@ -4,13 +4,14 @@
 // fake runner），这是预期行为，不是 bug。
 
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import { prisma } from "@cap/db";
 import { requireUser } from "../require-user";
 import { createRunIfThreadActive } from "./create";
 import { cancelRun } from "./cancel";
 import { validateRunPrompt } from "./validation";
 import { deriveUiState } from "./derive-ui-state";
-import type { RunStatus } from "./transitions";
+import { isTerminalStatus, type RunStatus } from "./transitions";
 
 type RunDTO = {
   id: string;
@@ -19,6 +20,7 @@ type RunDTO = {
   status: RunStatus;
   prompt: string;
   derivedUiState: string;
+  waitingForInput?: { question: string; options?: string[] };
   startedAt?: string;
   completedAt?: string;
   lastHeartbeatAt?: string;
@@ -27,19 +29,22 @@ type RunDTO = {
   updatedAt: string;
 };
 
-function toDTO(row: {
-  id: string;
-  workspaceId: string;
-  threadId: string;
-  status: string;
-  prompt: string;
-  startedAt: Date | null;
-  completedAt: Date | null;
-  lastHeartbeatAt: Date | null;
-  error: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}): RunDTO {
+function toDTO(
+  row: {
+    id: string;
+    workspaceId: string;
+    threadId: string;
+    status: string;
+    prompt: string;
+    startedAt: Date | null;
+    completedAt: Date | null;
+    lastHeartbeatAt: Date | null;
+    error: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  waitingForInput?: { question: string; options?: string[] },
+): RunDTO {
   const status = row.status as RunStatus;
   return {
     id: row.id,
@@ -53,6 +58,7 @@ function toDTO(row: {
       new Date(),
       row.createdAt,
     ),
+    ...(waitingForInput ? { waitingForInput } : {}),
     ...(row.startedAt ? { startedAt: row.startedAt.toISOString() } : {}),
     ...(row.completedAt ? { completedAt: row.completedAt.toISOString() } : {}),
     ...(row.lastHeartbeatAt
@@ -62,6 +68,76 @@ function toDTO(row: {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+type RunEventDTO = {
+  seq: number;
+  type: string;
+  role?: string;
+  title?: string;
+  content?: string;
+  payload: unknown;
+  createdAt: string;
+};
+
+const SSE_POLL_INTERVAL_MS = 100;
+const SSE_PING_INTERVAL_MS = 15_000;
+
+function toEventDTO(row: {
+  seq: number;
+  type: string;
+  role: string | null;
+  title: string | null;
+  content: string | null;
+  raw: unknown;
+  createdAt: Date;
+}): RunEventDTO {
+  return {
+    seq: row.seq,
+    type: row.type,
+    role: row.role ?? undefined,
+    title: row.title ?? undefined,
+    content: row.content ?? undefined,
+    payload: row.raw ?? null,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function parseWaitingForInputPayload(
+  payload: unknown,
+): { question: string; options?: string[] } | undefined {
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    Array.isArray(payload)
+  ) {
+    return undefined;
+  }
+  const record = payload as Record<string, unknown>;
+  if (typeof record.question !== "string") return undefined;
+  if (
+    record.options !== undefined &&
+    (!Array.isArray(record.options) ||
+      !record.options.every((option) => typeof option === "string"))
+  ) {
+    return undefined;
+  }
+  return {
+    question: record.question,
+    ...(record.options ? { options: record.options as string[] } : {}),
+  };
+}
+
+async function getWaitingForInput(runId: string) {
+  const event = await prisma.runEvent.findFirst({
+    where: { runId, type: "run_waiting_for_input" },
+    orderBy: { seq: "desc" },
+  });
+  return event ? parseWaitingForInputPayload(event.raw) : undefined;
+}
+
+function shouldCloseSse(status: RunStatus): boolean {
+  return isTerminalStatus(status) || status === "waiting_for_input";
 }
 
 export const runRoutes = new Hono();
@@ -119,15 +195,7 @@ runRoutes.get("/api/runs/:runId", async (c) => {
     message: "ok",
     data: {
       run: toDTO(run),
-      events: events.map((e) => ({
-        seq: e.seq,
-        type: e.type,
-        role: e.role ?? undefined,
-        title: e.title ?? undefined,
-        content: e.content ?? undefined,
-        payload: e.raw ?? null,
-        createdAt: e.createdAt.toISOString(),
-      })),
+      events: events.map(toEventDTO),
       toolCalls: toolCalls.map((tc) => ({
         id: tc.id,
         runId: tc.runId,
@@ -145,6 +213,85 @@ runRoutes.get("/api/runs/:runId", async (c) => {
       artifacts: [],
       sources: [],
     },
+  });
+});
+
+runRoutes.get("/api/runs/:runId/events", async (c) => {
+  const user = await requireUser(c);
+  if (user instanceof Response) return user;
+
+  const runId = c.req.param("runId");
+  const run = await prisma.agentRun.findUnique({ where: { id: runId } });
+  if (!run || run.userId !== user.id) {
+    return c.json({ code: 1004, message: "not found", data: null }, 404);
+  }
+
+  return streamSSE(c, async (stream) => {
+    const [snapshotEvents, waitingForInput] = await Promise.all([
+      prisma.runEvent.findMany({ where: { runId }, orderBy: { seq: "asc" } }),
+      getWaitingForInput(runId),
+    ]);
+    let lastSeq = snapshotEvents.at(-1)?.seq ?? 0;
+    let currentRun = run;
+    let currentStatus = currentRun.status as RunStatus;
+
+    await stream.writeSSE({
+      event: "snapshot",
+      data: JSON.stringify({
+        run: toDTO(currentRun, waitingForInput),
+        events: snapshotEvents.map(toEventDTO),
+      }),
+    });
+
+    if (shouldCloseSse(currentStatus)) {
+      await stream.writeSSE({
+        event: "done",
+        data: JSON.stringify({ runId, status: currentStatus }),
+      });
+      return;
+    }
+
+    let lastPingAt = Date.now();
+    while (!stream.aborted && !c.req.raw.signal.aborted) {
+      await stream.sleep(SSE_POLL_INTERVAL_MS);
+
+      const [freshRun, newEvents] = await Promise.all([
+        prisma.agentRun.findUnique({ where: { id: runId } }),
+        prisma.runEvent.findMany({
+          where: { runId, seq: { gt: lastSeq } },
+          orderBy: { seq: "asc" },
+        }),
+      ]);
+      if (!freshRun) return;
+      currentRun = freshRun;
+      currentStatus = currentRun.status as RunStatus;
+
+      for (const event of newEvents) {
+        lastSeq = event.seq;
+        await stream.writeSSE({
+          id: String(event.seq),
+          event: event.type,
+          data: JSON.stringify(toEventDTO(event)),
+        });
+      }
+
+      if (shouldCloseSse(currentStatus)) {
+        await stream.writeSSE({
+          event: "done",
+          data: JSON.stringify({ runId, status: currentStatus }),
+        });
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastPingAt >= SSE_PING_INTERVAL_MS) {
+        await stream.writeSSE({
+          event: "ping",
+          data: JSON.stringify({ now: new Date(now).toISOString() }),
+        });
+        lastPingAt = now;
+      }
+    }
   });
 });
 
