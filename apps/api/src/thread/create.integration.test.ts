@@ -1,20 +1,22 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@cap/db";
-import { createThreadIfWorkspaceActive } from "./atomic-create";
+import { createThreadIfWorkspaceActive } from "./create";
 
-// 连真实 Neon Postgres，不 mock。对应 docs/testing-strategy.md §4.2
-// integration 16-17、docs/implementation-roadmap.md Step 4.2。
+// 连真实 Neon Postgres，不 mock。对应 docs/testing-strategy.md §4.3
+// route 13、Step 4.2 integration 16-17（迁移到 thread/ 目录，Step 5.1
+// 补齐 ownerUserId 归属校验）。
 const HAS_DB = !!process.env.DATABASE_URL;
 
 describe.skipIf(!HAS_DB)(
-  "Workspace 归档的原子拒绝（真实 Neon，ADR-0018，见 Step 4.2）",
+  "Thread 创建的原子拒绝（真实 Neon，ADR-0018，见 Step 4.2/5.1）",
   () => {
     const testOwnerId = `it-atomic-${Date.now()}`;
+    const otherOwnerId = `it-atomic-other-${Date.now()}`;
 
     afterAll(async () => {
       const workspaces = await prisma.workspace.findMany({
-        where: { ownerUserId: testOwnerId },
+        where: { ownerUserId: { in: [testOwnerId, otherOwnerId] } },
       });
       const ids = workspaces.map((w) => w.id);
       if (ids.length > 0) {
@@ -35,7 +37,11 @@ describe.skipIf(!HAS_DB)(
         },
       });
 
-      const result = await createThreadIfWorkspaceActive(ws.id, "hello");
+      const result = await createThreadIfWorkspaceActive(
+        ws.id,
+        "hello",
+        testOwnerId,
+      );
 
       expect(result.created).toBe(true);
     });
@@ -57,6 +63,7 @@ describe.skipIf(!HAS_DB)(
         const result = await createThreadIfWorkspaceActive(
           ws.id,
           "should not exist",
+          testOwnerId,
         );
 
         expect(result.created).toBe(false);
@@ -69,6 +76,29 @@ describe.skipIf(!HAS_DB)(
         expect(threads.length).toBe(0);
       },
     );
+
+    it("cannot create thread inside another user's workspace（0 行）", async () => {
+      const ws = await prisma.workspace.create({
+        data: {
+          id: randomUUID(),
+          ownerUserId: testOwnerId,
+          title: "IT-Atomic-OwnedByA",
+        },
+      });
+
+      const result = await createThreadIfWorkspaceActive(
+        ws.id,
+        "should not exist",
+        otherOwnerId,
+      );
+
+      expect(result.created).toBe(false);
+
+      const threads = await prisma.thread.findMany({
+        where: { workspaceId: ws.id },
+      });
+      expect(threads.length).toBe(0);
+    });
 
     it(
       "concurrent archive + create-thread race: only one outcome wins, " +
@@ -89,9 +119,9 @@ describe.skipIf(!HAS_DB)(
             where: { id: ws.id, status: "active" },
             data: { status: "archived", archivedAt: new Date() },
           }),
-          createThreadIfWorkspaceActive(ws.id, "race-1"),
-          createThreadIfWorkspaceActive(ws.id, "race-2"),
-          createThreadIfWorkspaceActive(ws.id, "race-3"),
+          createThreadIfWorkspaceActive(ws.id, "race-1", testOwnerId),
+          createThreadIfWorkspaceActive(ws.id, "race-2", testOwnerId),
+          createThreadIfWorkspaceActive(ws.id, "race-3", testOwnerId),
         ]);
 
         // 归档请求本身也是条件原子 UPDATE（Step 4.1 已用的模式），必然

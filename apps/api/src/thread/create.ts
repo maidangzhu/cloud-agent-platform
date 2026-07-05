@@ -1,16 +1,14 @@
-// Workspace 归档的原子拒绝（Step 4.2，ADR-0018）。
+// Thread 创建的原子拒绝（Step 4.2 提前搭好骨架，Step 5.1 补齐真实字段/
+// 归属校验，ADR-0018）。
 //
-// "检查 workspace 是否 active"和"创建子资源（thread/run）"不能是两次
+// "检查 workspace 是否 active + 属于当前用户"和"创建 thread"不能是两次
 // 独立请求之间留窗口的操作（check-then-act）。用 insert-select：
-// INSERT ... SELECT ... FROM Workspace WHERE status='active'，让数据库
-// 在一条语句里同时完成条件检查和写入，插入 0 行即代表 workspace 不是
-// active（已被并发的归档请求抢先），不存在"先查到 active、再创建成功
-// 但 workspace 实际已被归档"的中间状态。
-//
-// 这是一个可复用的原子模式：本 Step 先用 Thread 验证（thread/run 表都
-// 还没进入正式 CRUD 阶段，Thread 是 Step 4.2 为验证而提前建的最小表，
-// 见 packages/db/prisma/schema.prisma 注释），Group 5/6 的 Thread/Run
-// 完整 CRUD 落地时复用同一模式。
+// INSERT ... SELECT ... FROM Workspace WHERE status='active' AND
+// ownerUserId=$ownerUserId，让数据库在一条语句里同时完成鉴权、状态检查
+// 和写入——插入 0 行代表"workspace 不存在/不是当前用户的/已被归档"三种
+// 情况之一（路由层统一按 404 处理，不区分，避免探测，同 workspace 路由
+// 的约定），不存在"先查到 active、再创建成功但 workspace 实际已被归档"
+// 的中间状态。
 
 import { randomUUID } from "node:crypto";
 import { prisma } from "@cap/db";
@@ -22,6 +20,7 @@ export type CreateThreadIfWorkspaceActiveResult =
 export async function createThreadIfWorkspaceActive(
   workspaceId: string,
   title: string,
+  ownerUserId: string,
 ): Promise<CreateThreadIfWorkspaceActiveResult> {
   const threadId = randomUUID();
 
@@ -32,7 +31,7 @@ export async function createThreadIfWorkspaceActive(
     INSERT INTO "Thread" (id, "workspaceId", title, status, "createdAt", "updatedAt")
     SELECT ${threadId}, w.id, ${title}, 'active', now(), now()
     FROM "Workspace" w
-    WHERE w.id = ${workspaceId} AND w.status = 'active'
+    WHERE w.id = ${workspaceId} AND w.status = 'active' AND w."ownerUserId" = ${ownerUserId}
   `;
 
   if (rowCount === 0) {

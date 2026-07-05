@@ -209,6 +209,144 @@ enum ThreadStatus {
   archived
 }
 
+// v2 Thread 消息（docs/data-model.md §3.4，原文档里模型名是"Message"）。
+// packages/db 这份 schema 已经有一个 v1 遗留的同名 Message model（上面，
+// 未加 @@map，物理表名默认为 "Message"），它和根目录 v1 app 自己的
+// Message model 共享同一张真实表——真实查过 Neon，这张表有 301 行生产
+// 数据，被 v1 agent 主循环/event store/sessions 路由等 10+ 处活代码读写。
+// 为避免重演 Step 4.1 的 Workspace/SandboxInstance 撞名险情（那次是空表，
+// 这次是有数据且被活代码依赖的表，风险更高），v2 版本改名为
+// ThreadMessage，映射到全新物理表，不碰 v1 现有数据/代码路径。TS 层的
+// DTO 命名仍按 docs/api-contract.md 用 MessageDTO——那是纯 API 契约层
+// 命名，和这里的 Prisma model 标识符是两件独立的事，不需要一致。
+model ThreadMessage {
+  id          String      @id
+  workspaceId String
+  threadId    String
+  runId       String?
+  role        MessageRole
+  content     String
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+
+  @@index([threadId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@index([runId])
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+// v2 AgentRun（docs/data-model.md §3.5，原文档里模型名是"Run"）。
+// packages/db 这份 schema 已经有一个 v1 遗留的同名 Run model（下面），
+// 真实查过 Neon，这张表有 183 行生产数据，被 v1 run-agent 主循环/4 个
+// /api/runs 路由/5+ 处集成测试依赖——是目前撞名影响面最大的一次。v2
+// 版本改名为 AgentRun/AgentRunStatus，映射到全新物理表，不碰 v1 现有
+// 数据/代码路径。TS 层 DTO 命名仍按 docs/api-contract.md 用 RunDTO。
+//
+// Step 6.2 先建最小字段集验证 transitionRun 原子 UPDATE 本身，Step 6.3
+// 补齐完整字段。不含 data-model.md §3.5 列出的 creditReserved/
+// creditDebited——那两个字段属于 ADR-0015 已废弃的 reserve/debit 强制
+// 执行机制，ADR-0015 落地后 Run 侧这两个字段就是死字段，文档本身没同步
+// 清理（ADR-0015"连锁影响"只提到 CreditLedger/CreditBalance 改名，漏了
+// Run 表这两个字段），这里不引入没有存在意义的列。
+model AgentRun {
+  id              String         @id
+  workspaceId     String
+  threadId        String
+  userId          String
+  prompt          String
+  status          AgentRunStatus @default(created)
+  maxSteps        Int            @default(60)
+  maxDurationSec  Int            @default(780)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  lastHeartbeatAt DateTime?
+  error           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([workspaceId, createdAt])
+  @@index([threadId, createdAt])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+// 对应 docs/state-machines.md §1，含 ADR-0019 新增的 waiting_for_input；
+// provisioning_sandbox 命名对齐 docs（v1 的等价状态叫
+// provisioning_workspace，命名不同不是笔误，是 v1/v2 概念本来就不同）。
+enum AgentRunStatus {
+  created
+  provisioning_sandbox
+  running
+  waiting_for_input
+  cancel_requested
+  completed
+  failed
+  timeout
+  cancelled
+  interrupted
+}
+
+// v2 RunEvent（docs/data-model.md §3.6，原文档里模型名是"AgentEvent"）。
+// packages/db 已有 v1 遗留的同名 AgentEvent model（上面），真实查过
+// Neon 有 5965 行生产数据，通过外键关联 v1 Run 并被 v1 event-store.ts/
+// /api/runs 路由读写。同 Message/Run 的处理，v2 换名为 RunEvent，不碰
+// v1 现有数据/代码路径。
+model RunEvent {
+  id          String   @id
+  workspaceId String
+  threadId    String
+  runId       String
+  seq         Int
+  type        String
+  role        String?
+  title       String?
+  content     String?
+  raw         Json?
+  createdAt   DateTime @default(now())
+
+  @@unique([runId, seq])
+  @@index([runId, seq])
+  @@index([workspaceId, createdAt])
+  @@index([threadId, createdAt])
+  @@index([type, createdAt])
+}
+
+// v2 RunToolCall（docs/data-model.md §3.7，原文档里模型名是"ToolCall"）。
+// packages/db 已有 v1 遗留的同名 ToolCall model（上面），真实查过 Neon
+// 有 1559 行生产数据，同样通过外键关联 v1 Run。同上，v2 换名为
+// RunToolCall，枚举换名为 RunToolCallStatus（v1 已占用 ToolCallStatus）。
+model RunToolCall {
+  id          String            @id
+  workspaceId String
+  runId       String
+  eventSeq    Int
+  name        String
+  status      RunToolCallStatus @default(pending)
+  args        Json
+  result      Json?
+  error       String?
+  startedAt   DateTime          @default(now())
+  completedAt DateTime?
+
+  @@index([runId, eventSeq])
+  @@index([workspaceId, startedAt])
+  @@index([name, status])
+}
+
+enum RunToolCallStatus {
+  pending
+  running
+  completed
+  failed
+  timeout
+  rejected
+}
+
 model User {
   id            String        @id
   name          String

@@ -36,13 +36,13 @@
 
 ## 5. Thread
 
-- [ ] 5.1 Thread 数据模型 + CRUD 路由（含 title 派生逻辑）
+- [x] 5.1 Thread 数据模型 + CRUD 路由（含 title 派生逻辑；踩坑：v2 Message model 与 v1 遗留 Message model 撞名共享同一张 301 行生产表，改名为 ThreadMessage 规避）
 
 ## 6. Run 状态机 + Event Store（ADR-0018/0019 核心落地）
 
-- [ ] 6.1 RunStatus 纯函数状态机（isLegalTransition + deriveUiState，不接数据库）
-- [ ] 6.2 transitionRun 原子 UPDATE 封装
-- [ ] 6.3 Run + AgentEvent 数据模型 + 创建/查询/取消路由（含 waiting_for_input 收尾逻辑）
+- [x] 6.1 RunStatus 纯函数状态机（isLegalTransition + deriveUiState，不接数据库）
+- [x] 6.2 transitionRun 原子 UPDATE 封装（真实并发集成测试通过；踩坑：v2 Run model 与 v1 遗留 Run model 撞名，183 行生产数据 + 14 处活代码依赖，改名为 AgentRun 规避）
+- [x] 6.3 Run + AgentEvent 数据模型 + 创建/查询/取消路由（含 waiting_for_input 收尾逻辑；踩坑：v2 AgentEvent/ToolCall 与 v1 同名 model 撞名，改名为 RunEvent/RunToolCall 规避；用户明确表示 v1 旧数据不重要，此后撞名不再需要先证明数据量，直接换名或清空 v1 表即可）
 - [ ] 6.4 Event Store（seq 唯一性、幂等、payload schema 校验）
 - [ ] 6.5 SSE 基础（snapshot + 推送 + done，暂不接 stream-chunk）
 
