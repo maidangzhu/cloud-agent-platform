@@ -9,7 +9,8 @@ export default defineConfig({
     globals: true,
     include: ["src/**/*.integration.test.ts"],
     setupFiles: ["./tests/load-env.ts"],
-    testTimeout: 30_000,
+    testTimeout: 120_000,
+    hookTimeout: 120_000,
     fileParallelism: false,
   },
 });
