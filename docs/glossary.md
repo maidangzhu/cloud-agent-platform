@@ -293,7 +293,7 @@ Control Plane 提供的 LLM 代理端点，让 sandbox 不需要拿长期 provid
 
 ### Search Proxy（新增，见 ADR-0020）
 
-Control Plane 提供的 search 代理端点，让 sandbox 不需要拿 search provider key（如 Brave）就能搜索。
+Control Plane 提供的 search 代理端点，让 sandbox 不需要拿 search provider key（如 Exa）就能搜索。
 
 规则：
 
@@ -410,4 +410,3 @@ token 逐字转发的独立通道，走 `POST /api/ingest/stream-chunk` → Redi
 ### Stage 1 / Stage 2（两阶段交互）
 
 机制深挖的两段式流程：Stage 1 产出广度概览（该产品有哪些开源平替、各自主打什么），用户从中挑一个感兴趣的具体机制；Stage 2 才针对该机制去 3+ 个开源实现的源码里交叉验证。不是一次性生成报告，是"报告 → 追问 → 深挖"的多轮对话。见 ADR-0013。
-

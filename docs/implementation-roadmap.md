@@ -514,15 +514,15 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 怎么测：[testing-strategy.md §4.11](./testing-strategy.md#411-search-proxy) 全部 8 条。
 
-验收标准：fake provider 模式全部通过，重试逻辑用可控的 fake 网络层验证（不依赖真实 Brave API 的不确定性）。
+验收标准：fake provider 模式全部通过，重试逻辑用可控的 fake 网络层验证（不依赖真实 Exa API 的不确定性）。
 
 停下来确认。
 
 ### Step 15.2：真实 search provider 接入
 
-要写的东西：接入真实 search API（如 Brave）。
+要写的东西：接入真实 search API（Exa）。
 
-需要用户补的 env 变量：search provider 的 API key（如 `BRAVE_SEARCH_API_KEY`，具体到时候确认用哪家）。
+需要用户补的 env 变量：`EXA_API_KEY`。
 
 验收标准：真实调用能返回结果（smoke test，缺 key 自动 skip）。
 

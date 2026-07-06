@@ -9,6 +9,7 @@ import {
   type LlmMessage,
   type LlmProviderResult,
 } from "./provider";
+import { recordLLMUsage } from "../usage/store";
 
 type AuthenticatedRun = {
   id: string;
@@ -63,6 +64,7 @@ llmRoutes.post("/api/llm-proxy", async (c) => {
   if (!result.ok) {
     return jsonResponse(result.code, result.message, result.status);
   }
+  await recordUsageBestEffort(run.id, result.result);
 
   if (parsed.stream) {
     return streamSSE(c, async (stream) => {
@@ -141,6 +143,30 @@ function parseLlmProxyBody(
     stream: body.stream === true,
     tools: Array.isArray(body.tools) ? body.tools : [],
   };
+}
+
+async function recordUsageBestEffort(
+  runId: string,
+  result: LlmProviderResult,
+): Promise<void> {
+  try {
+    await recordLLMUsage({
+      runId,
+      provider: result.provider,
+      model: result.model,
+      promptTokens: result.usage.inputTokens,
+      completionTokens: result.usage.outputTokens,
+      totalTokens: result.usage.totalTokens,
+      durationMs: result.durationMs,
+    });
+  } catch (err) {
+    console.warn("[llm-proxy] failed to record usage", {
+      runId,
+      provider: result.provider,
+      model: result.model,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 async function writeLlmStream(

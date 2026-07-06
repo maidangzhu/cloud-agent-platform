@@ -916,7 +916,7 @@ type SearchProxyData = {
 规则：
 
 - Token 必须匹配 active run。
-- Control Plane 持有 provider key（如 Brave），key 不进沙箱。
+- Control Plane 持有 provider key（如 Exa），key 不进沙箱。
 - Control Plane 记录用量（`LLMUsageRecord` 同构记录，`provider` 字段标注为 search provider）。
 - 超时 10s；网络失败/5xx 最多重试 2 次，指数退避（500ms/1500ms）；4xx 不重试，直接返回 `SEARCH_PROXY_FAILED`。
 - HTML 清洗放在 sandbox runner 侧，本端点只返回归一化的结果列表（url/title/snippet）。
@@ -929,4 +929,3 @@ type SearchProxyData = {
 - retries on 5xx up to 2 times
 - does not retry on 4xx
 - records usage
-

@@ -68,7 +68,7 @@ type AgentEventDTO<T extends keyof AgentEventPayloadMap = keyof AgentEventPayloa
 
 ### 3. web_search 工具协议（新增 agent-runtime-protocol.md §8.4；解决 [DQ-3](./OPEN-QUESTIONS.md)）
 
-必须经 Control Plane 代理，provider key（如 Brave）不进沙箱：
+必须经 Control Plane 代理，provider key（如 Exa）不进沙箱：
 
 ```text
 build query params

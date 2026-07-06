@@ -264,7 +264,7 @@ Root：
 
 - verify scoped run token
 - check run status
-- 持有 search provider key（如 Brave），调用真实 search API
+- 持有 search provider key（如 Exa），调用真实 search API
 - 失败重试（5xx 重试 2 次，4xx 不重试）
 - record usage
 - 返回归一化结果列表
@@ -334,4 +334,3 @@ P0 不实现：
 - 长期语义记忆
 - 外部账号集成
 - 自动创建 PR
-

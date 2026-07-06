@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { webSearchTool } from "../tools/web-search";
 
 export type FakeRunnerMode =
   | "complete"
@@ -7,7 +8,8 @@ export type FakeRunnerMode =
   | "cancel-aware"
   | "file-write"
   | "artifact-create"
-  | "source-record";
+  | "source-record"
+  | "web-search";
 
 export type FakeRunnerRequest = (
   path: string,
@@ -23,6 +25,7 @@ export type FakeRunnerOptions = {
   sourceKind?: "url" | "file" | "command" | "search_result" | "manual";
   sourceUri?: string;
   sourceTitle?: string;
+  searchQuery?: string;
   env?: Record<string, string | undefined>;
   signal?: AbortSignal;
   stepDelayMs?: number;
@@ -168,6 +171,42 @@ export async function runFakeRunner(
       title: options.sourceTitle ?? "Example",
       ...(options.artifactId ? { artifactId: options.artifactId } : {}),
       eventSeq: 3,
+    });
+  }
+
+  if (options.mode === "web-search") {
+    const searchToolCallId = `fake-web-search-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const query = options.searchQuery ?? "redis streams";
+    await post("/api/ingest/tool-calls", {
+      id: searchToolCallId,
+      eventSeq: 3,
+      name: "web_search",
+      status: "running",
+      args: { query, limit: 2 },
+    });
+    const searchResult = await webSearchTool({
+      query,
+      limit: 2,
+      runToken: options.runToken,
+      request: async (path, init) => {
+        const response = await options.request(path, init);
+        calls.push({ path, status: response.status });
+        return response;
+      },
+      backoffMs: [0, 0],
+      sleep: async () => undefined,
+    });
+    await post("/api/ingest/tool-calls", {
+      id: searchToolCallId,
+      eventSeq: 3,
+      name: "web_search",
+      status: searchResult.status,
+      args: { query, limit: 2 },
+      ...(searchResult.status === "completed"
+        ? { result: searchResult.result }
+        : { error: searchResult.error }),
     });
   }
 

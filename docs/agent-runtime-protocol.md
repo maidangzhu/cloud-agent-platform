@@ -378,7 +378,7 @@ record tool call
 
 ### 8.4 web_search（[ADR-0020](./decisions/0020-agent-event-payload-schema-and-tool-retry.md)，解决 DQ-3）
 
-必须经 Control Plane 代理，provider key（如 Brave）不进沙箱。
+必须经 Control Plane 代理，provider key（如 Exa）不进沙箱。
 
 行为：
 
@@ -543,4 +543,3 @@ Sweep 同时负责清理孤儿资源（[ADR-0015](./decisions/0015-usage-telemet
 - event snapshot 可以从 DB 恢复
 - 并发状态转移只有一次生效（ADR-0018）
 - token stream 转发不落库、SSE 重连从 Last-Event-ID 续读不丢失（ADR-0021）
-

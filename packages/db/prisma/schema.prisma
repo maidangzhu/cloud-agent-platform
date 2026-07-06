@@ -452,6 +452,26 @@ enum SourceKind {
   manual
 }
 
+// LLM/Search proxy 用量遥测（docs/data-model.md §3.15，ADR-0015）。
+// 这是 append-only 观测记录，不参与额度/余额判断，也不阻止 run 执行。
+model LLMUsageRecord {
+  id               String   @id
+  runId            String
+  provider         String
+  model            String
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  ttfbMs           Int?
+  durationMs       Int?
+  cost             Float?
+  createdAt        DateTime @default(now())
+
+  @@index([runId, createdAt])
+  @@index([provider, createdAt])
+  @@index([model, createdAt])
+}
+
 // v2 WorkspaceSandboxInstance（docs/data-model.md §3.13，原文档里模型名是
 // SandboxInstance）。packages/db 已有一个旧语义 SandboxInstance model
 //（上面，session 级 sandbox 状态），这里沿用 ThreadMessage/AgentRun/

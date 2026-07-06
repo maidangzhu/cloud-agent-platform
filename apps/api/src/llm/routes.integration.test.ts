@@ -76,6 +76,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         });
         const runIds = runs.map((r) => r.id);
         if (runIds.length > 0) {
+          await prisma.lLMUsageRecord.deleteMany({
+            where: { runId: { in: runIds } },
+          });
           await prisma.runEvent.deleteMany({
             where: { runId: { in: runIds } },
           });
@@ -226,6 +229,42 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       );
       expect(body.data.finishReason).toBe("stop");
       expect(body.data.usage.totalTokens).toBeGreaterThan(0);
+    });
+
+    it("records usage as LLMUsageRecord without changing run status", async () => {
+      const run = await createRun("llm usage record", "running");
+
+      const res = await app.request("/api/llm-proxy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${tokenFor(run)}`,
+        },
+        body: JSON.stringify({
+          messages: [{ role: "user", content: "count usage" }],
+          modelHint: "research-default",
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const record = await prisma.lLMUsageRecord.findFirst({
+        where: { runId: run.id },
+        orderBy: { createdAt: "desc" },
+      });
+      expect(record).toMatchObject({
+        runId: run.id,
+        provider: "fake",
+        model: "fake-research-default",
+        promptTokens: 2,
+        completionTokens: 10,
+        totalTokens: 12,
+      });
+      expect(record?.durationMs).toBeGreaterThanOrEqual(0);
+
+      const stillRunning = await prisma.agentRun.findUniqueOrThrow({
+        where: { id: run.id },
+      });
+      expect(stillRunning.status).toBe("running");
     });
 
     it("streaming response chunks are forwarded to sandbox in order", async () => {
