@@ -51,6 +51,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | RUN-U-001 | unit | Run | legal/illegal transitions and derived UI state | done |
 | RUN-I-001 | integration | Run | create/read/cancel route behavior | done |
 | RUN-I-002 | integration | Run | transition race and terminal overwrite prevention | done |
+| RUN-I-003 | integration | Run sweep | stale running/provisioning/cancel convergence and race safety | done |
 | EVENT-U-001 | unit | Events | payload validation and ordering helpers | done |
 | EVENT-I-001 | integration | Events | ingest events, seq idempotency/conflict | done |
 | REDIS-I-001 | integration | Redis | stream-chunk writes Redis and does not create RunEvent | done |
@@ -66,6 +67,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | SRC-I-001 | integration | Sources | URL/search_result source ingest and artifact references | done |
 | SEARCH-I-001 | integration | Search | fake/http provider, retry, 4xx no retry, usage | done |
 | SEARCH-S-001 | smoke | Search | real Exa provider returns normalized results | partial |
+| USAGE-I-001 | integration | Usage | records listing, filters, pagination, no balance rejection | done |
 | TOOL-I-001 | integration | fetch_url | SSRF guard, retry, failed/rejected status, source recording | done |
 | TOOL-I-002 | integration | web_search | tool result -> Source records | done |
 | LLM-U-001 | unit | LLM | model config, finish_reason normalization | done |

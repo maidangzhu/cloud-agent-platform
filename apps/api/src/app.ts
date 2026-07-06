@@ -10,6 +10,7 @@ import { artifactRoutes } from "./artifacts/routes";
 import { sourceRoutes } from "./sources/routes";
 import { llmRoutes } from "./llm/routes";
 import { searchRoutes } from "./search/routes";
+import { usageRoutes } from "./usage/routes";
 
 // Hono app。Step 2.2 起了 health check；Step 3.1 挂载 Better Auth
 // （官方 Hono 集成方式：app.on(["POST","GET"], "/api/auth/*", ...)，
@@ -25,6 +26,7 @@ import { searchRoutes } from "./search/routes";
 // Step 12.1 新增 Source ingest + 查询路由。
 // Step 14.1 新增 LLM proxy fake provider 路由。
 // Step 15.1 新增 Search proxy fake provider 路由。
+// Step 17.1 新增 usage telemetry 查询路由。
 export function createApp() {
   const app = new Hono();
 
@@ -47,6 +49,7 @@ export function createApp() {
   app.route("/", ingestRoutes);
   app.route("/", llmRoutes);
   app.route("/", searchRoutes);
+  app.route("/", usageRoutes);
 
   return app;
 }

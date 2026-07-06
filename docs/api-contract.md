@@ -653,13 +653,18 @@ Response：
 ```ts
 type UsageRecordsData = {
   records: LLMUsageRecordDTO[];
+  pagination: {
+    limit: number;
+    offset: number;
+    nextOffset?: number;
+  };
 };
 ```
 
 规则：
 
 - 用户只能看到自己 workspace 下 run 产生的用量记录。
-- List 需要分页（支持按 `runId`/`provider`/`model` 过滤）。
+- List 用 `limit`/`offset` 分页（默认 `limit=50`，最大 100），支持按 `runId`/`provider`/`model` 过滤。
 - 不产生任何"拒绝执行"的业务后果——纯观测记录，不是余额/额度。
 
 测试：
