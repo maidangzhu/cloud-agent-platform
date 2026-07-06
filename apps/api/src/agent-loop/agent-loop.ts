@@ -12,10 +12,17 @@ export type AgentLoopConfig = {
   request: AgentLoopRequest;
   modelHint?: string;
   stream?: boolean;
+  waitForInput?: {
+    question: string;
+    options?: string[];
+  };
+  updateArtifactId?: string;
 };
 
 export type AgentLoopResult = {
   completed: boolean;
+  waitingForInput: boolean;
+  cancelled: boolean;
   llmToolCalls: number;
   calls: Array<{ path: string; status: number }>;
 };
@@ -66,7 +73,27 @@ export async function runAgentLoop(
     return response.json().catch(() => ({})) as Promise<JsonRecord>;
   };
 
+  const checkCancel = async (): Promise<boolean> => {
+    const control = await getRunControl({
+      runId: config.runId,
+      runToken: config.runToken,
+      request: config.request,
+    });
+    calls.push(...control.calls);
+    if (!control.cancelRequested) return false;
+
+    await post("/api/ingest/events", {
+      seq: seq++,
+      type: "run_cancelled",
+      payload: null,
+    });
+    return true;
+  };
+
   await post("/api/ingest/heartbeat", { status: "running", phase: "boot" });
+  if (await checkCancel()) {
+    return cancelledResult(calls);
+  }
   await post("/api/ingest/events", {
     seq: seq++,
     type: "run_created",
@@ -86,6 +113,9 @@ export async function runAgentLoop(
     type: "agent_started",
     payload: null,
   });
+  if (await checkCancel()) {
+    return cancelledResult(calls);
+  }
 
   const llmResponse = await callLlmProxy({
     runId: config.runId,
@@ -96,6 +126,9 @@ export async function runAgentLoop(
     stream: config.stream === true,
   });
   calls.push(...llmResponse.calls);
+  if (await checkCancel()) {
+    return cancelledResult(calls);
+  }
 
   if (config.stream === true && llmResponse.output.reasoning) {
     await post("/api/ingest/events", {
@@ -120,8 +153,15 @@ export async function runAgentLoop(
 
   const toolCalls = output.toolCalls;
   for (const toolCall of toolCalls) {
+    if (await checkCancel()) {
+      return cancelledResult(calls, toolCalls.length);
+    }
+
     const toolCallId = `${config.runId}-${toolCall.id}`;
     const args = parseToolArgs(toolCall.arguments);
+    if (toolCall.name === "create_artifact" && config.updateArtifactId) {
+      args.artifactId = config.updateArtifactId;
+    }
     await post("/api/ingest/tool-calls", {
       id: toolCallId,
       eventSeq: seq,
@@ -152,13 +192,38 @@ export async function runAgentLoop(
         type: "run_failed",
         payload: { errorCode: result.error },
       });
-      return { completed: false, llmToolCalls: toolCalls.length, calls };
+      return {
+        completed: false,
+        waitingForInput: false,
+        cancelled: false,
+        llmToolCalls: toolCalls.length,
+        calls,
+      };
     }
 
     await post("/api/ingest/heartbeat", {
       status: "running",
       phase: "agent_loop",
     });
+    if (await checkCancel()) {
+      return cancelledResult(calls, toolCalls.length);
+    }
+  }
+
+  if (config.waitForInput) {
+    await post("/api/ingest/events", {
+      seq: seq++,
+      type: "run_waiting_for_input",
+      payload: config.waitForInput,
+    });
+
+    return {
+      completed: false,
+      waitingForInput: true,
+      cancelled: false,
+      llmToolCalls: toolCalls.length,
+      calls,
+    };
   }
 
   await post("/api/ingest/events", {
@@ -167,7 +232,26 @@ export async function runAgentLoop(
     payload: { durationMs: Date.now() - startedAt },
   });
 
-  return { completed: true, llmToolCalls: toolCalls.length, calls };
+  return {
+    completed: true,
+    waitingForInput: false,
+    cancelled: false,
+    llmToolCalls: toolCalls.length,
+    calls,
+  };
+}
+
+function cancelledResult(
+  calls: AgentLoopResult["calls"],
+  llmToolCalls = 0,
+): AgentLoopResult {
+  return {
+    completed: false,
+    waitingForInput: false,
+    cancelled: true,
+    llmToolCalls,
+    calls,
+  };
 }
 
 async function callLlmProxy(params: {
@@ -289,6 +373,36 @@ async function postStreamChunk(
   }
 }
 
+async function getRunControl(params: {
+  runId: string;
+  runToken: string;
+  request: AgentLoopRequest;
+}): Promise<{
+  cancelRequested: boolean;
+  status?: string;
+  calls: AgentLoopResult["calls"];
+}> {
+  const response = await params.request(`/api/runs/${params.runId}/control`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${params.runToken}`,
+    },
+  });
+  const calls = [{ path: `/api/runs/${params.runId}/control`, status: response.status }];
+  if (!response.ok) {
+    throw new Error(
+      `/api/runs/${params.runId}/control -> ${response.status} ${await response.text()}`,
+    );
+  }
+  const body = (await response.json().catch(() => ({}))) as JsonRecord;
+  const data = asRecord(body.data);
+  return {
+    cancelRequested: data.cancelRequested === true,
+    status: stringField(data.status),
+    calls,
+  };
+}
+
 async function readSseRecords(response: Response): Promise<SseRecord[]> {
   const text = await response.text();
   return text
@@ -353,6 +467,9 @@ async function executeCreateArtifact(
     return { ok: false, error: "create_artifact requires title and kind" };
   }
   const artifactResponse = await post("/api/ingest/artifacts", {
+    ...(stringField(args.artifactId)
+      ? { artifactId: stringField(args.artifactId) }
+      : {}),
     title,
     kind,
     ...(stringField(args.path) ? { path: stringField(args.path) } : {}),

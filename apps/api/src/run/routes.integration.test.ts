@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { createApp } from "../app";
 import { prisma } from "@cap/db";
+import { issueRunToken } from "./run-token";
 
 // 连真实 Neon Postgres + 真实 Better Auth，不 mock。对应
 // docs/testing-strategy.md §4.4 route 15-22、docs/implementation-roadmap.md
@@ -161,6 +162,56 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.data.run.status).toBe("cancel_requested");
+    });
+
+    it("run control endpoint reflects cancel_requested for scoped runner token", async () => {
+      const createRes = await app.request(`/api/threads/${threadId}/runs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie: cookieA },
+        body: JSON.stringify({ prompt: "runner control check" }),
+      });
+      const runId = (await createRes.json()).data.run.id;
+      const run = await prisma.agentRun.update({
+        where: { id: runId },
+        data: { status: "running" },
+      });
+      const runToken = issueRunToken({
+        userId: run.userId,
+        workspaceId: run.workspaceId,
+        threadId: run.threadId,
+        runId: run.id,
+      });
+
+      const before = await app.request(`/api/runs/${runId}/control`, {
+        headers: { authorization: `Bearer ${runToken}` },
+      });
+      expect(before.status).toBe(200);
+      expect((await before.json()).data).toMatchObject({
+        runId,
+        status: "running",
+        cancelRequested: false,
+        terminal: false,
+      });
+
+      const cancelRes = await app.request(`/api/runs/${runId}/cancel`, {
+        method: "POST",
+        headers: { cookie: cookieA },
+      });
+      expect(cancelRes.status).toBe(200);
+
+      const after = await app.request(`/api/runs/${runId}/control`, {
+        headers: { authorization: `Bearer ${runToken}` },
+      });
+      expect(after.status).toBe(200);
+      expect((await after.json()).data).toMatchObject({
+        runId,
+        status: "cancel_requested",
+        cancelRequested: true,
+        terminal: false,
+      });
+
+      const unauthorized = await app.request(`/api/runs/${runId}/control`);
+      expect(unauthorized.status).toBe(401);
     });
 
     it("cancel provisioning_sandbox run", async () => {

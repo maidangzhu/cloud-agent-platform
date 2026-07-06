@@ -15,6 +15,7 @@ import { isTerminalStatus, type RunStatus } from "./transitions";
 import { toArtifactDTO } from "../artifacts/store";
 import { toSourceDTO } from "../sources/store";
 import { readRunStream, type RunStreamEntry } from "../redis/streams";
+import { extractBearerRunToken, verifyRunToken } from "./run-token";
 
 type RunDTO = {
   id: string;
@@ -242,6 +243,42 @@ runRoutes.get("/api/runs/:runId", async (c) => {
       })),
       artifacts: artifacts.map(toArtifactDTO),
       sources: sources.map(toSourceDTO),
+    },
+  });
+});
+
+runRoutes.get("/api/runs/:runId/control", async (c) => {
+  const runId = c.req.param("runId");
+  const token = extractBearerRunToken(c.req.header("authorization"));
+  if (!token) {
+    return c.json({ code: 1002, message: "unauthorized", data: null }, 401);
+  }
+
+  const verified = verifyRunToken(token, { expected: { runId } });
+  if (!verified.ok) {
+    return c.json({ code: 2002, message: "run token invalid", data: null }, 401);
+  }
+
+  const run = await prisma.agentRun.findUnique({ where: { id: runId } });
+  if (
+    !run ||
+    run.userId !== verified.claims.userId ||
+    run.workspaceId !== verified.claims.workspaceId ||
+    run.threadId !== verified.claims.threadId
+  ) {
+    return c.json({ code: 2002, message: "run token invalid", data: null }, 401);
+  }
+
+  return c.json({
+    code: 0,
+    message: "ok",
+    data: {
+      runId: run.id,
+      status: run.status,
+      cancelRequested: run.status === "cancel_requested",
+      terminal: isTerminalStatus(run.status as RunStatus),
+      maxDurationSec: run.maxDurationSec,
+      updatedAt: run.updatedAt.toISOString(),
     },
   });
 });

@@ -441,6 +441,122 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(records.at(-1)?.event).toBe("done");
     });
 
+    it("runs Stage1 -> waiting_for_input -> Stage2 artifact update through the backend workflow", async () => {
+      const stage1 = await createRun("stage1 overview before mechanism choice");
+
+      const stage1Result = await runAgentLoop({
+        runId: stage1.id,
+        prompt: stage1.prompt,
+        runToken: tokenFor(stage1),
+        waitForInput: {
+          question: "Which mechanism should Stage2 investigate?",
+          options: ["pricing", "distribution"],
+        },
+        request: (path, init) => Promise.resolve(app.request(path, init)),
+      });
+
+      expect(stage1Result.completed).toBe(false);
+      expect(stage1Result.waitingForInput).toBe(true);
+
+      const waitingRun = await prisma.agentRun.findUniqueOrThrow({
+        where: { id: stage1.id },
+      });
+      expect(waitingRun.status).toBe("waiting_for_input");
+
+      const waitingEvent = await prisma.runEvent.findFirst({
+        where: { runId: stage1.id, type: "run_waiting_for_input" },
+        orderBy: { seq: "desc" },
+      });
+      expect(waitingEvent?.raw).toMatchObject({
+        question: "Which mechanism should Stage2 investigate?",
+        options: ["pricing", "distribution"],
+      });
+
+      const stage1Artifact = await prisma.workspaceArtifact.findFirstOrThrow({
+        where: { runId: stage1.id, title: "Agent Loop Report" },
+      });
+      expect(stage1Artifact.version).toBe(1);
+
+      const stage2 = await createRun("stage2 deep dive into pricing mechanism");
+      const completedStage1 = await prisma.agentRun.findUniqueOrThrow({
+        where: { id: stage1.id },
+      });
+      expect(completedStage1.status).toBe("completed");
+
+      const stage2Result = await runAgentLoop({
+        runId: stage2.id,
+        prompt: stage2.prompt,
+        runToken: tokenFor(stage2),
+        updateArtifactId: stage1Artifact.id,
+        request: (path, init) => Promise.resolve(app.request(path, init)),
+      });
+
+      expect(stage2Result.completed).toBe(true);
+      expect(stage2Result.waitingForInput).toBe(false);
+
+      const updatedArtifact = await prisma.workspaceArtifact.findUniqueOrThrow({
+        where: { id: stage1Artifact.id },
+      });
+      expect(updatedArtifact.runId).toBe(stage2.id);
+      expect(updatedArtifact.version).toBe(2);
+      expect(updatedArtifact.contentSnapshot).toContain(
+        "stage2 deep dive into pricing mechanism",
+      );
+
+      const stage2Events = await prisma.runEvent.findMany({
+        where: { runId: stage2.id },
+        orderBy: { seq: "asc" },
+      });
+      expect(stage2Events.map((event) => event.type)).toContain(
+        "artifact_updated",
+      );
+    });
+
+    it("stops the backend agent loop when control polling sees cancel_requested", async () => {
+      const run = await createRun("cancel after llm response");
+      let cancelIssued = false;
+
+      const result = await runAgentLoop({
+        runId: run.id,
+        prompt: run.prompt,
+        runToken: tokenFor(run),
+        request: async (path, init) => {
+          const response = await app.request(path, init);
+          if (path === "/api/llm-proxy" && !cancelIssued) {
+            cancelIssued = true;
+            const cancelRes = await app.request(`/api/runs/${run.id}/cancel`, {
+              method: "POST",
+              headers: { cookie },
+            });
+            expect(cancelRes.status).toBe(200);
+          }
+          return response;
+        },
+      });
+
+      expect(result.completed).toBe(false);
+      expect(result.cancelled).toBe(true);
+      expect(result.calls.map((call) => call.path)).toContain(
+        `/api/runs/${run.id}/control`,
+      );
+
+      const updated = await prisma.agentRun.findUniqueOrThrow({
+        where: { id: run.id },
+      });
+      expect(updated.status).toBe("cancelled");
+
+      const events = await prisma.runEvent.findMany({
+        where: { runId: run.id },
+        orderBy: { seq: "asc" },
+      });
+      expect(events.map((event) => event.type)).toEqual([
+        "run_created",
+        "runner_started",
+        "agent_started",
+        "run_cancelled",
+      ]);
+    });
+
     it.skipIf(!HAS_VERCEL || !PUBLIC_API_BASE_URL)(
       "runs the same agent loop script inside real Vercel Sandbox",
       async () => {
@@ -476,6 +592,195 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         expect(updated.status).toBe("completed");
       },
       180_000,
+    );
+
+    it.skipIf(!HAS_VERCEL || !PUBLIC_API_BASE_URL)(
+      "stops the real Vercel Sandbox agent loop after cancel_requested",
+      async () => {
+        const run = await createRun("cancel sandbox agent loop");
+        const claim = await getOrCreateWorkspaceSandbox({
+          workspaceId,
+          runId: run.id,
+          timeoutMs: 60_000,
+        });
+        trackedSandboxes.push(claim.sandbox);
+
+        const cancelRes = await app.request(`/api/runs/${run.id}/cancel`, {
+          method: "POST",
+          headers: { cookie },
+        });
+        expect(cancelRes.status).toBe(200);
+
+        const result = await runAgentLoopScriptInSandbox({
+          sandbox: claim.sandbox,
+          apiBaseUrl: PUBLIC_API_BASE_URL!,
+          runToken: tokenFor(run),
+          runId: run.id,
+          prompt: run.prompt,
+        });
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toBe("");
+        expect(result.stdout).toContain('"insideSandbox":true');
+        expect(result.stdout).toContain('"cancelled":true');
+        expect(result.stdout).toContain('"llmToolCalls":0');
+        expect(result.stdout).not.toContain("/api/llm-proxy");
+
+        const updated = await prisma.agentRun.findUniqueOrThrow({
+          where: { id: run.id },
+        });
+        expect(updated.status).toBe("cancelled");
+
+        const released = await prisma.workspaceSandboxInstance.findUniqueOrThrow({
+          where: { id: claim.instance.id },
+        });
+        expect(released.status).toBe("warm");
+        expect(released.currentRunId).toBeNull();
+      },
+      180_000,
+    );
+
+    it.skipIf(!HAS_VERCEL || !PUBLIC_API_BASE_URL)(
+      "maps real Vercel Sandbox agent loop exec timeout to run timeout",
+      async () => {
+        const run = await createRun("timeout sandbox agent loop");
+        const claim = await getOrCreateWorkspaceSandbox({
+          workspaceId,
+          runId: run.id,
+          timeoutMs: 60_000,
+        });
+        trackedSandboxes.push(claim.sandbox);
+
+        const result = await runAgentLoopScriptInSandbox({
+          sandbox: claim.sandbox,
+          apiBaseUrl: PUBLIC_API_BASE_URL!,
+          runToken: tokenFor(run),
+          runId: run.id,
+          prompt: run.prompt,
+          execTimeoutMs: 1,
+        });
+
+        expect(result.exitCode).toBe(124);
+        expect(result.stderr).toMatch(/timeout|timed out|abort/i);
+
+        const updated = await prisma.agentRun.findUniqueOrThrow({
+          where: { id: run.id },
+        });
+        expect(updated.status).toBe("timeout");
+
+        const released = await prisma.workspaceSandboxInstance.findUniqueOrThrow({
+          where: { id: claim.instance.id },
+        });
+        expect(released.status).toBe("warm");
+        expect(released.currentRunId).toBeNull();
+      },
+      180_000,
+    );
+
+    it.skipIf(!HAS_VERCEL || !PUBLIC_API_BASE_URL)(
+      "runs Stage1 -> waiting_for_input -> Stage2 artifact update through real Vercel Sandbox",
+      async () => {
+        const stage1 = await createRun("stage1 overview before mechanism choice");
+        const stage1Claim = await getOrCreateWorkspaceSandbox({
+          workspaceId,
+          runId: stage1.id,
+          timeoutMs: 60_000,
+        });
+        trackedSandboxes.push(stage1Claim.sandbox);
+
+        const stage1Result = await runAgentLoopScriptInSandbox({
+          sandbox: stage1Claim.sandbox,
+          apiBaseUrl: PUBLIC_API_BASE_URL!,
+          runToken: tokenFor(stage1),
+          runId: stage1.id,
+          prompt: stage1.prompt,
+          waitForInput: {
+            question: "Which mechanism should Stage2 investigate?",
+            options: ["pricing", "distribution"],
+          },
+        });
+
+        expect(stage1Result.exitCode).toBe(0);
+        expect(stage1Result.stderr).toBe("");
+        expect(stage1Result.stdout).toContain('"waitingForInput":true');
+
+        const waitingRun = await prisma.agentRun.findUniqueOrThrow({
+          where: { id: stage1.id },
+        });
+        expect(waitingRun.status).toBe("waiting_for_input");
+
+        const waitingEvent = await prisma.runEvent.findFirst({
+          where: { runId: stage1.id, type: "run_waiting_for_input" },
+          orderBy: { seq: "desc" },
+        });
+        expect(waitingEvent?.raw).toMatchObject({
+          question: "Which mechanism should Stage2 investigate?",
+          options: ["pricing", "distribution"],
+        });
+
+        const stage1Artifact = await prisma.workspaceArtifact.findFirstOrThrow({
+          where: { runId: stage1.id, title: "Agent Loop Report" },
+        });
+        expect(stage1Artifact.version).toBe(1);
+
+        const released = await prisma.workspaceSandboxInstance.findUniqueOrThrow({
+          where: { id: stage1Claim.instance.id },
+        });
+        expect(released.status).toBe("warm");
+        expect(released.currentRunId).toBeNull();
+
+        const stage2 = await createRun("stage2 deep dive into pricing mechanism");
+        const completedStage1 = await prisma.agentRun.findUniqueOrThrow({
+          where: { id: stage1.id },
+        });
+        expect(completedStage1.status).toBe("completed");
+
+        const stage2Claim = await getOrCreateWorkspaceSandbox({
+          workspaceId,
+          runId: stage2.id,
+          timeoutMs: 60_000,
+        });
+        trackedSandboxes.push(stage2Claim.sandbox);
+        expect(stage2Claim.reused).toBe(true);
+        expect(stage2Claim.instance.id).toBe(stage1Claim.instance.id);
+        expect(stage2Claim.instance.currentRunId).toBe(stage2.id);
+
+        const stage2Result = await runAgentLoopScriptInSandbox({
+          sandbox: stage2Claim.sandbox,
+          apiBaseUrl: PUBLIC_API_BASE_URL!,
+          runToken: tokenFor(stage2),
+          runId: stage2.id,
+          prompt: stage2.prompt,
+          updateArtifactId: stage1Artifact.id,
+        });
+
+        expect(stage2Result.exitCode).toBe(0);
+        expect(stage2Result.stderr).toBe("");
+        expect(stage2Result.stdout).toContain('"waitingForInput":false');
+
+        const completedStage2 = await prisma.agentRun.findUniqueOrThrow({
+          where: { id: stage2.id },
+        });
+        expect(completedStage2.status).toBe("completed");
+
+        const updatedArtifact = await prisma.workspaceArtifact.findUniqueOrThrow({
+          where: { id: stage1Artifact.id },
+        });
+        expect(updatedArtifact.runId).toBe(stage2.id);
+        expect(updatedArtifact.version).toBe(2);
+        expect(updatedArtifact.contentSnapshot).toContain(
+          "stage2 deep dive into pricing mechanism",
+        );
+
+        const stage2Events = await prisma.runEvent.findMany({
+          where: { runId: stage2.id },
+          orderBy: { seq: "asc" },
+        });
+        expect(stage2Events.map((event) => event.type)).toContain(
+          "artifact_updated",
+        );
+      },
+      240_000,
     );
 
     it.skipIf(!HAS_VERCEL)(

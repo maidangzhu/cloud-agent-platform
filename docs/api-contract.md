@@ -438,6 +438,7 @@ type ThreadDetailData = {
 POST /api/threads/:threadId/runs
 GET /api/runs/:runId
 POST /api/runs/:runId/cancel
+GET /api/runs/:runId/control
 GET /api/runs/:runId/events
 ```
 
@@ -477,6 +478,8 @@ type RunDetailData = {
 - 创建 `created` 状态的 run。
 - Orchestrator 可以异步启动 sandbox runner。
 - 只有非终态 run（含 `waiting_for_input`）可以 cancel。
+- `GET /api/runs/:runId/control` 只接受 scoped run token，供 sandbox runner polling cancel；不接受用户 cookie 作为 runner 身份。
+- control response 包含 `status`、`cancelRequested`、`terminal`、`maxDurationSec`、`updatedAt`；`cancelRequested` 仅在 run status 为 `cancel_requested` 时为 true。
 
 测试：
 
@@ -486,6 +489,7 @@ type RunDetailData = {
 - cancel running run
 - cancel waiting_for_input run
 - cancel terminal run rejected
+- runner control endpoint reflects cancel_requested for scoped runner token
 - get run detail
 
 ### 5.5 SSE Run Events

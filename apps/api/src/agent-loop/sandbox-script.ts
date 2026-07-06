@@ -26,6 +26,40 @@ async function post(path, body) {
   return response.json().catch(() => ({}));
 }
 
+async function getControl() {
+  const path = "/api/runs/" + manifest.runId + "/control";
+  const response = await fetch(manifest.apiBaseUrl + path, {
+    method: "GET",
+    headers: {
+      Authorization: "Bearer " + manifest.runToken
+    }
+  });
+  calls.push({ path, status: response.status });
+  if (!response.ok) {
+    throw new Error(path + " -> " + response.status + " " + await response.text());
+  }
+  return response.json().catch(() => ({}));
+}
+
+async function stopIfCancelled(llmToolCalls = 0) {
+  const control = await getControl();
+  if (!control?.data?.cancelRequested) return false;
+  await post("/api/ingest/events", {
+    seq: seq++,
+    type: "run_cancelled",
+    payload: null
+  });
+  console.log(JSON.stringify({
+    insideSandbox: true,
+    forbiddenEnvPresent,
+    waitingForInput: false,
+    cancelled: true,
+    llmToolCalls,
+    calls
+  }));
+  return true;
+}
+
 function asRecord(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -68,6 +102,7 @@ async function executeWriteFile(args, eventSeq) {
 
 async function executeCreateArtifact(args, eventSeq) {
   const artifactResponse = await post("/api/ingest/artifacts", {
+    ...(args.artifactId ? { artifactId: args.artifactId } : {}),
     title: args.title,
     kind: args.kind,
     ...(args.path ? { path: args.path } : {}),
@@ -79,10 +114,12 @@ async function executeCreateArtifact(args, eventSeq) {
 }
 
 await post("/api/ingest/heartbeat", { status: "running", phase: "boot" });
+if (await stopIfCancelled()) process.exit(0);
 await post("/api/ingest/events", { seq: seq++, type: "run_created", payload: null });
 await post("/api/ingest/events", { seq: seq++, type: "runner_started", payload: null });
 await post("/api/ingest/heartbeat", { status: "running", phase: "agent_loop" });
 await post("/api/ingest/events", { seq: seq++, type: "agent_started", payload: null });
+if (await stopIfCancelled()) process.exit(0);
 
 const llm = await post("/api/llm-proxy", {
   runId: manifest.runId,
@@ -101,6 +138,7 @@ const llm = await post("/api/llm-proxy", {
     { type: "function", function: { name: "create_artifact" } }
   ]
 });
+if (await stopIfCancelled()) process.exit(0);
 
 const output = asRecord(asRecord(llm.data).output);
 await post("/api/ingest/events", {
@@ -113,8 +151,12 @@ await post("/api/ingest/events", {
 
 const toolCalls = Array.isArray(output.toolCalls) ? output.toolCalls : [];
 for (const call of toolCalls) {
+  if (await stopIfCancelled(toolCalls.length)) process.exit(0);
   const toolCallId = manifest.runId + "-" + call.id;
   const args = parseToolArgs(call.arguments ?? "{}");
+  if (call.name === "create_artifact" && manifest.updateArtifactId) {
+    args.artifactId = manifest.updateArtifactId;
+  }
   await post("/api/ingest/tool-calls", {
     id: toolCallId,
     eventSeq: seq,
@@ -141,17 +183,28 @@ for (const call of toolCalls) {
     result
   });
   await post("/api/ingest/heartbeat", { status: "running", phase: "agent_loop" });
+  if (await stopIfCancelled(toolCalls.length)) process.exit(0);
 }
 
-await post("/api/ingest/events", {
-  seq: seq++,
-  type: "run_completed",
-  payload: { durationMs: Date.now() - startedAt }
-});
+if (manifest.waitForInput) {
+  await post("/api/ingest/events", {
+    seq: seq++,
+    type: "run_waiting_for_input",
+    payload: manifest.waitForInput
+  });
+} else {
+  await post("/api/ingest/events", {
+    seq: seq++,
+    type: "run_completed",
+    payload: { durationMs: Date.now() - startedAt }
+  });
+}
 
 console.log(JSON.stringify({
   insideSandbox: true,
   forbiddenEnvPresent,
+  waitingForInput: Boolean(manifest.waitForInput),
+  cancelled: false,
   llmToolCalls: toolCalls.length,
   calls
 }));

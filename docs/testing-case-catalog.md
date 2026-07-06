@@ -119,14 +119,14 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | SBX-I-106 | integration | concurrent claim only one winner | Vercel/DB/Auth | done |
 | SBX-I-107 | integration | no DB/Auth/LLM/Search secrets inside sandbox | Vercel | done |
 | SBX-I-108 | integration | write agent loop script and manifest into sandbox | Vercel | done |
-| SBX-I-109 | integration | exec timeout maps to sandbox timeout error | Vercel | planned |
+| SBX-I-109 | integration | exec timeout maps to sandbox timeout error | Vercel | done |
 | SBX-I-110 | integration | stdout/stderr truncation works | Vercel | planned |
 | SBX-I-111 | integration | path traversal rejected by sandbox wrapper | none/Vercel | planned |
 | SBX-W-101 | workflow | sandbox script calls deployed ingest and completes run | Deployed API/Vercel | partial |
 | SBX-W-102 | workflow | sandbox script calls deployed LLM proxy and stream-chunk | Deployed API/Vercel/Redis | planned |
 | SBX-W-103 | workflow | sandbox script calls deployed search proxy | Deployed API/Vercel/Exa or fake | planned |
-| SBX-W-104 | workflow | cancel request stops sandbox runner | Deployed API/Vercel | planned |
-| SBX-W-105 | workflow | waiting_for_input releases sandbox warm and Stage2 reuses it | Deployed API/Vercel | planned |
+| SBX-W-104 | workflow | cancel request stops sandbox runner | Deployed API/Vercel | done |
+| SBX-W-105 | workflow | waiting_for_input releases sandbox warm and Stage2 reuses it | Deployed API/Vercel | done |
 | SBX-L-101 | live | cold start duration and ready latency telemetry | Deployed API/Vercel | planned |
 | SBX-L-102 | live | snapshot/write-file stability before future snapshot migration | Vercel | planned |
 | SBX-L-103 | live | dangerous command/path/network attempts are contained | Vercel | planned |
@@ -139,8 +139,8 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | WF-002 | workflow | reason/content Redis stream -> SSE cursor `0` replay | done |
 | WF-003 | workflow | SSE Last-Event-ID resume no duplicate/no lost chunks | done |
 | WF-004 | workflow | tool calls complete-object path | done |
-| WF-005 | workflow | Stage1 -> waiting_for_input -> Stage2 artifact update | planned |
-| WF-006 | workflow | cancel running run and release sandbox | planned |
+| WF-005 | workflow | Stage1 -> waiting_for_input -> Stage2 artifact update | done |
+| WF-006 | workflow | cancel running run and release sandbox | done |
 | WF-007 | workflow | tool failure marks run failed and persists error | planned |
 | WF-008 | workflow | tool rejected by policy/SSRF creates rejected tool call | planned |
 | WF-009 | workflow | stale heartbeat sweep interrupts run | planned |
@@ -175,4 +175,3 @@ Before UI work starts for a workflow:
 
 1. The workflow test must already prove the backend state can be recovered from API/SSE.
 2. Browser E2E should only verify UI interaction/rendering, not discover backend behavior for the first time.
-

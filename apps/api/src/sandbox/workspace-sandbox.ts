@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { prisma, type SandboxStatus } from "@cap/db";
 import { AGENT_LOOP_SANDBOX_SCRIPT } from "../agent-loop/sandbox-script";
+import { transitionRun } from "../run/transition-run";
 
 type WorkspaceSandboxRow = Awaited<
   ReturnType<typeof prisma.workspaceSandboxInstance.findUniqueOrThrow>
@@ -216,12 +217,18 @@ export async function installAgentLoopScriptInSandbox(params: {
   runToken: string;
   runId: string;
   prompt: string;
+  waitForInput?: { question: string; options?: string[] };
+  updateArtifactId?: string;
 }): Promise<void> {
   const manifest = {
     apiBaseUrl: params.apiBaseUrl.replace(/\/$/, ""),
     runToken: params.runToken,
     runId: params.runId,
     prompt: params.prompt,
+    ...(params.waitForInput ? { waitForInput: params.waitForInput } : {}),
+    ...(params.updateArtifactId
+      ? { updateArtifactId: params.updateArtifactId }
+      : {}),
   };
   await params.sandbox.writeFile(
     "agent-loop-manifest.json",
@@ -236,9 +243,34 @@ export async function runAgentLoopScriptInSandbox(params: {
   runToken: string;
   runId: string;
   prompt: string;
+  waitForInput?: { question: string; options?: string[] };
+  updateArtifactId?: string;
+  execTimeoutMs?: number;
 }): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   await installAgentLoopScriptInSandbox(params);
-  return params.sandbox.exec("node agent-loop.mjs", { timeoutMs: 90_000 });
+  try {
+    return await params.sandbox.exec("node agent-loop.mjs", {
+      timeoutMs: params.execTimeoutMs ?? 90_000,
+    });
+  } catch (error) {
+    if (!isSandboxExecTimeoutError(error)) throw error;
+    await transitionRun(params.runId, "timeout", [
+      "provisioning_sandbox",
+      "running",
+      "cancel_requested",
+    ]);
+    await releaseWorkspaceSandboxForRun(params.runId, "warm");
+    return {
+      exitCode: 124,
+      stdout: "",
+      stderr: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function isSandboxExecTimeoutError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /timeout|timed out|abort/i.test(message);
 }
 
 async function claimExistingWorkspaceSandbox(
