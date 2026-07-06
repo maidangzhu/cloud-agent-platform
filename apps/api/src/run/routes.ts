@@ -12,6 +12,8 @@ import { cancelRun } from "./cancel";
 import { validateRunPrompt } from "./validation";
 import { deriveUiState } from "./derive-ui-state";
 import { isTerminalStatus, type RunStatus } from "./transitions";
+import { toArtifactDTO } from "../artifacts/store";
+import { toSourceDTO } from "../sources/store";
 
 type RunDTO = {
   id: string;
@@ -182,11 +184,19 @@ runRoutes.get("/api/runs/:runId", async (c) => {
     return c.json({ code: 1004, message: "not found", data: null }, 404);
   }
 
-  const [events, toolCalls] = await Promise.all([
+  const [events, toolCalls, artifacts, sources] = await Promise.all([
     prisma.runEvent.findMany({ where: { runId }, orderBy: { seq: "asc" } }),
     prisma.runToolCall.findMany({
       where: { runId },
       orderBy: { eventSeq: "asc" },
+    }),
+    prisma.workspaceArtifact.findMany({
+      where: { runId },
+      orderBy: { updatedAt: "desc" },
+    }),
+    prisma.source.findMany({
+      where: { runId },
+      orderBy: { createdAt: "desc" },
     }),
   ]);
 
@@ -208,10 +218,8 @@ runRoutes.get("/api/runs/:runId", async (c) => {
         startedAt: tc.startedAt.toISOString(),
         completedAt: tc.completedAt?.toISOString(),
       })),
-      // Artifact/Source 表还没进入 v2 CRUD 阶段（Group 11/12），run detail
-      // 的这两个字段暂时固定为空数组。
-      artifacts: [],
-      sources: [],
+      artifacts: artifacts.map(toArtifactDTO),
+      sources: sources.map(toSourceDTO),
     },
   });
 });

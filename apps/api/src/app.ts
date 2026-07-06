@@ -6,6 +6,8 @@ import { threadRoutes } from "./thread/routes";
 import { runRoutes } from "./run/routes";
 import { ingestRoutes } from "./ingest/routes";
 import { fileRoutes } from "./files/routes";
+import { artifactRoutes } from "./artifacts/routes";
+import { sourceRoutes } from "./sources/routes";
 
 // Hono app。Step 2.2 起了 health check；Step 3.1 挂载 Better Auth
 // （官方 Hono 集成方式：app.on(["POST","GET"], "/api/auth/*", ...)，
@@ -17,6 +19,8 @@ import { fileRoutes } from "./files/routes";
 // 还没有真实 sandbox，run 会一直停在 created，Group 9 才接 fake runner）；
 // Step 8.1 新增 ingest events/heartbeat（scoped run token 认证）。
 // Step 10.1 新增 WorkspaceFile ingest + 查询路由。
+// Step 11.1 新增 Artifact 首次创建 ingest + 查询路由。
+// Step 12.1 新增 Source ingest + 查询路由。
 export function createApp() {
   const app = new Hono();
 
@@ -34,6 +38,8 @@ export function createApp() {
   app.route("/", threadRoutes);
   app.route("/", runRoutes);
   app.route("/", fileRoutes);
+  app.route("/", artifactRoutes);
+  app.route("/", sourceRoutes);
   app.route("/", ingestRoutes);
 
   return app;

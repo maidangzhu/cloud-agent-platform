@@ -10,7 +10,8 @@
   "dependencies": {
     "@cap/db": "workspace:^",
     "better-auth": "1.6.23",
-    "hono": "4.12.27"
+    "hono": "4.12.27",
+    "ioredis": "5.11.1"
   },
   "devDependencies": {
     "@hono/node-server": "2.0.8",

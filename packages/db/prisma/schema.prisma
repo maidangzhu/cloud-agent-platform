@@ -379,6 +379,79 @@ enum WorkspaceFileKind {
   directory
 }
 
+// v2 WorkspaceArtifact（docs/data-model.md §3.10，原文档里模型名是
+// Artifact）。packages/db 已有 v1 Artifact model（上面，关联 v1 Run），
+// 因此 v2 版本按当前分支约定换名，不复用旧表。
+model WorkspaceArtifact {
+  id              String       @id
+  workspaceId     String
+  threadId        String?
+  runId           String
+  title           String
+  kind            ArtifactKind
+  path            String?
+  contentSnapshot String?
+  storageKey      String?
+  version         Int          @default(1)
+  metadata        Json?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([workspaceId, updatedAt])
+  @@index([threadId, updatedAt])
+  @@index([runId, createdAt])
+  @@index([kind, updatedAt])
+}
+
+model WorkspaceArtifactVersion {
+  id              String   @id
+  artifactId      String
+  workspaceId     String
+  runId           String
+  version         Int
+  contentSnapshot String?
+  storageKey      String?
+  createdAt       DateTime @default(now())
+
+  @@unique([artifactId, version])
+  @@index([artifactId, version])
+  @@index([workspaceId, createdAt])
+  @@index([runId, createdAt])
+}
+
+enum ArtifactKind {
+  text
+  code
+  sheet
+  image
+}
+
+model Source {
+  id          String     @id
+  workspaceId String
+  runId       String?
+  artifactId  String?
+  kind        SourceKind
+  uri         String?
+  title       String?
+  contentHash String?
+  metadata    Json?
+  createdAt   DateTime   @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([runId, createdAt])
+  @@index([artifactId, createdAt])
+  @@index([kind, createdAt])
+}
+
+enum SourceKind {
+  url
+  file
+  command
+  search_result
+  manual
+}
+
 // v2 WorkspaceSandboxInstance（docs/data-model.md §3.13，原文档里模型名是
 // SandboxInstance）。packages/db 已有一个旧语义 SandboxInstance model
 //（上面，session 级 sandbox 状态），这里沿用 ThreadMessage/AgentRun/

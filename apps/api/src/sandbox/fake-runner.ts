@@ -18,6 +18,11 @@ export type FakeRunnerOptions = {
   request: FakeRunnerRequest;
   runToken: string;
   mode: FakeRunnerMode;
+  artifactId?: string;
+  artifactContent?: string;
+  sourceKind?: "url" | "file" | "command" | "search_result" | "manual";
+  sourceUri?: string;
+  sourceTitle?: string;
   env?: Record<string, string | undefined>;
   signal?: AbortSignal;
   stepDelayMs?: number;
@@ -47,6 +52,9 @@ export async function runFakeRunner(
 ): Promise<FakeRunnerResult> {
   const calls: Array<{ path: string; status: number }> = [];
   const stepDelayMs = options.stepDelayMs ?? 25;
+  const toolCallId = `fake-tool-${options.mode}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
   let sentCookieHeader = false;
 
   const post = async (path: string, body: Record<string, unknown>) => {
@@ -143,41 +151,36 @@ export async function runFakeRunner(
   }
 
   if (options.mode === "artifact-create") {
-    await post("/api/ingest/events", {
-      seq: 3,
-      type: "artifact_created",
-      payload: {
-        artifactId: "fake-artifact-1",
-        title: "Fake Runner Report",
-        kind: "text",
-        version: 1,
-      },
+    await post("/api/ingest/artifacts", {
+      ...(options.artifactId ? { artifactId: options.artifactId } : {}),
+      title: "Fake Runner Report",
+      kind: "text",
+      contentSnapshot:
+        options.artifactContent ?? "fake runner artifact content\n",
+      eventSeq: 3,
     });
   }
 
   if (options.mode === "source-record") {
-    await post("/api/ingest/events", {
-      seq: 3,
-      type: "source_recorded",
-      payload: {
-        sourceId: "fake-source-1",
-        kind: "url",
-        uri: "https://example.com",
-        title: "Example",
-      },
+    await post("/api/ingest/sources", {
+      kind: options.sourceKind ?? "url",
+      uri: options.sourceUri ?? "https://example.com",
+      title: options.sourceTitle ?? "Example",
+      ...(options.artifactId ? { artifactId: options.artifactId } : {}),
+      eventSeq: 3,
     });
   }
 
   const terminalSeq = options.mode === "complete" ? 3 : 4;
   await post("/api/ingest/tool-calls", {
-    id: `fake-tool-${options.mode}`,
+    id: toolCallId,
     eventSeq: terminalSeq,
     name: "fake_tool",
     status: "running",
     args: { mode: options.mode },
   });
   await post("/api/ingest/tool-calls", {
-    id: `fake-tool-${options.mode}`,
+    id: toolCallId,
     eventSeq: terminalSeq,
     name: "fake_tool",
     status: "completed",

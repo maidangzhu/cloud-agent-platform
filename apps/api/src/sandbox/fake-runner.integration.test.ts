@@ -51,6 +51,15 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
           where: { threadId: { in: threadIds } },
         });
         const runIds = runs.map((r) => r.id);
+        await prisma.source.deleteMany({
+          where: { workspaceId: { in: workspaceIds } },
+        });
+        await prisma.workspaceArtifactVersion.deleteMany({
+          where: { workspaceId: { in: workspaceIds } },
+        });
+        await prisma.workspaceArtifact.deleteMany({
+          where: { workspaceId: { in: workspaceIds } },
+        });
         if (runIds.length > 0) {
           await prisma.runToolCall.deleteMany({
             where: { runId: { in: runIds } },
@@ -286,6 +295,127 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         size: file?.size,
         contentHash: file?.contentHash,
       });
+    });
+
+    it("fake runner creates and updates the same artifact with readable versions", async () => {
+      const artifactId = `fake-runner-artifact-${Date.now()}`;
+      const firstRun = await createRun("fake runner artifact create");
+      const first = await runFakeRunner({
+        mode: "artifact-create",
+        artifactId,
+        artifactContent: "first artifact version\n",
+        runToken: tokenFor(firstRun),
+        env: { PATH: "/usr/bin" },
+        request: (path, init) => Promise.resolve(app.request(path, init)),
+        stepDelayMs: 1,
+      });
+      expect(first.completed).toBe(true);
+      expect(first.calls.map((call) => call.path)).toContain(
+        "/api/ingest/artifacts",
+      );
+
+      const secondRun = await createRun("fake runner artifact update");
+      const second = await runFakeRunner({
+        mode: "artifact-create",
+        artifactId,
+        artifactContent: "second artifact version\n",
+        runToken: tokenFor(secondRun),
+        env: { PATH: "/usr/bin" },
+        request: (path, init) => Promise.resolve(app.request(path, init)),
+        stepDelayMs: 1,
+      });
+      expect(second.completed).toBe(true);
+
+      const artifact = await prisma.workspaceArtifact.findUnique({
+        where: { id: artifactId },
+      });
+      expect(artifact?.version).toBe(2);
+      expect(artifact?.contentSnapshot).toBe("second artifact version\n");
+
+      const versionsRes = await app.request(
+        `/api/artifacts/${artifactId}/versions`,
+        { headers: { cookie } },
+      );
+      expect(versionsRes.status).toBe(200);
+      const versionsBody = await versionsRes.json();
+      expect(
+        versionsBody.data.versions.map((v: { contentSnapshot: string }) => v.contentSnapshot),
+      ).toEqual(["first artifact version\n", "second artifact version\n"]);
+
+      const updateEvent = await prisma.runEvent.findUnique({
+        where: { runId_seq: { runId: secondRun.id, seq: 3 } },
+      });
+      expect(updateEvent?.type).toBe("artifact_updated");
+      expect(updateEvent?.raw).toMatchObject({
+        artifactId,
+        version: 2,
+        previousVersion: 1,
+      });
+    });
+
+    it("fake runner records URL and search_result sources through ingest", async () => {
+      const artifactId = `fake-runner-source-artifact-${Date.now()}`;
+      const artifactRun = await createRun("fake runner source artifact");
+      await runFakeRunner({
+        mode: "artifact-create",
+        artifactId,
+        artifactContent: "source backed artifact\n",
+        runToken: tokenFor(artifactRun),
+        env: { PATH: "/usr/bin" },
+        request: (path, init) => Promise.resolve(app.request(path, init)),
+        stepDelayMs: 1,
+      });
+
+      const urlRun = await createRun("fake runner url source");
+      const urlResult = await runFakeRunner({
+        mode: "source-record",
+        artifactId,
+        sourceKind: "url",
+        sourceUri: "HTTPS://Example.COM/source/",
+        sourceTitle: "Example Source",
+        runToken: tokenFor(urlRun),
+        env: { PATH: "/usr/bin" },
+        request: (path, init) => Promise.resolve(app.request(path, init)),
+        stepDelayMs: 1,
+      });
+      expect(urlResult.calls.map((call) => call.path)).toContain(
+        "/api/ingest/sources",
+      );
+
+      const searchRun = await createRun("fake runner search source");
+      await runFakeRunner({
+        mode: "source-record",
+        sourceKind: "search_result",
+        sourceUri: "https://search.example.com/result/",
+        sourceTitle: "Search Result",
+        runToken: tokenFor(searchRun),
+        env: { PATH: "/usr/bin" },
+        request: (path, init) => Promise.resolve(app.request(path, init)),
+        stepDelayMs: 1,
+      });
+
+      const artifactSources = await prisma.source.findMany({
+        where: { artifactId },
+      });
+      expect(artifactSources).toHaveLength(1);
+      expect(artifactSources[0]?.uri).toBe("https://example.com/source");
+
+      const searchSources = await prisma.source.findMany({
+        where: { runId: searchRun.id, kind: "search_result" },
+      });
+      expect(searchSources).toHaveLength(1);
+      expect(searchSources[0]?.uri).toBe(
+        "https://search.example.com/result",
+      );
+
+      const detail = await app.request(`/api/artifacts/${artifactId}`, {
+        headers: { cookie },
+      });
+      expect(detail.status).toBe(200);
+      const detailBody = await detail.json();
+      expect(
+        detailBody.data.sources.map((source: { uri: string }) => source.uri),
+      ).toContain("https://example.com/source");
     });
   },
 );

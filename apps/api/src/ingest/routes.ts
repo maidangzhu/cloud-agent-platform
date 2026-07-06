@@ -16,6 +16,22 @@ import {
   upsertWorkspaceFile,
   validateWorkspaceFileInput,
 } from "../files/store";
+import {
+  createFirstArtifact,
+  resolveArtifactContentFromPath,
+  toArtifactDTO,
+  updateArtifactVersion,
+  validateArtifactInput,
+} from "../artifacts/store";
+import {
+  createSource,
+  toSourceDTO,
+  validateSourceInput,
+} from "../sources/store";
+import {
+  addRunStreamChunk,
+  type StreamChunkType,
+} from "../redis/streams";
 
 type AuthenticatedRun = {
   id: string;
@@ -23,6 +39,7 @@ type AuthenticatedRun = {
   threadId: string;
   userId: string;
   status: RunStatus;
+  maxDurationSec: number;
 };
 
 const HEARTBEAT_PHASES = new Set([
@@ -47,6 +64,8 @@ const TERMINAL_TOOL_CALL_STATUSES = new Set<RunToolCallStatus>([
   "timeout",
   "rejected",
 ]);
+
+const STREAM_CHUNK_TYPES = new Set<StreamChunkType>(["thinking", "content"]);
 
 export const ingestRoutes = new Hono();
 
@@ -273,6 +292,224 @@ ingestRoutes.post("/api/ingest/files", async (c) => {
   });
 });
 
+ingestRoutes.post("/api/ingest/artifacts", async (c) => {
+  const body = await readJsonObject(c.req.raw);
+  if (!body) {
+    return c.json({ code: 1001, message: "bad request", data: null }, 400);
+  }
+
+  const run = await authenticateRunToken(c.req.header("authorization"), body);
+  if (run instanceof Response) return run;
+
+  if (isTerminalStatus(run.status)) {
+    return c.json({ code: 2003, message: "run is terminal", data: null }, 409);
+  }
+  if (run.status === "waiting_for_input") {
+    return c.json(
+      { code: 2005, message: "run is not accepting artifacts", data: null },
+      409,
+    );
+  }
+
+  const parsed = validateArtifactInput(body);
+  if (!parsed.ok) {
+    return c.json({ code: 1006, message: parsed.message, data: null }, 400);
+  }
+
+  const existing = parsed.input.artifactId
+    ? await prisma.workspaceArtifact.findUnique({
+        where: { id: parsed.input.artifactId },
+      })
+    : null;
+  if (existing && existing.workspaceId !== run.workspaceId) {
+    return c.json({ code: 2002, message: "run token invalid", data: null }, 401);
+  }
+
+  const resolved = await resolveArtifactContentFromPath({
+    workspaceId: run.workspaceId,
+    input: parsed.input,
+  });
+  if (!resolved.ok) {
+    return c.json({ code: 1006, message: resolved.message, data: null }, 400);
+  }
+
+  const artifact = existing
+    ? await updateArtifactVersion({
+        artifactId: existing.id,
+        workspaceId: run.workspaceId,
+        threadId: run.threadId,
+        runId: run.id,
+        input: resolved.input,
+      })
+    : await createFirstArtifact({
+        workspaceId: run.workspaceId,
+        threadId: run.threadId,
+        runId: run.id,
+        input: resolved.input,
+      });
+
+  if (resolved.input.eventSeq !== undefined) {
+    const eventResult = await insertRunEvent({
+      runId: run.id,
+      seq: resolved.input.eventSeq,
+      type: existing ? "artifact_updated" : "artifact_created",
+      payload: existing
+        ? {
+            artifactId: artifact.id,
+            title: artifact.title,
+            kind: artifact.kind,
+            version: artifact.version,
+            previousVersion: artifact.version - 1,
+          }
+        : {
+            artifactId: artifact.id,
+            title: artifact.title,
+            kind: artifact.kind,
+            version: artifact.version,
+          },
+    });
+    if (!eventResult.ok) {
+      if (eventResult.code === INGEST_SEQ_CONFLICT) {
+        return c.json(
+          { code: 2004, message: eventResult.message, data: null },
+          409,
+        );
+      }
+      return c.json(
+        { code: 1006, message: eventResult.message, data: null },
+        400,
+      );
+    }
+  }
+
+  return c.json({
+    code: 0,
+    message: "ok",
+    data: { artifact: toArtifactDTO(artifact) },
+  });
+});
+
+ingestRoutes.post("/api/ingest/sources", async (c) => {
+  const body = await readJsonObject(c.req.raw);
+  if (!body) {
+    return c.json({ code: 1001, message: "bad request", data: null }, 400);
+  }
+
+  const run = await authenticateRunToken(c.req.header("authorization"), body);
+  if (run instanceof Response) return run;
+
+  if (isTerminalStatus(run.status)) {
+    return c.json({ code: 2003, message: "run is terminal", data: null }, 409);
+  }
+  if (run.status === "waiting_for_input") {
+    return c.json(
+      { code: 2005, message: "run is not accepting sources", data: null },
+      409,
+    );
+  }
+
+  const parsed = validateSourceInput(body);
+  if (!parsed.ok) {
+    return c.json({ code: 1006, message: parsed.message, data: null }, 400);
+  }
+
+  if (parsed.input.artifactId) {
+    const artifact = await prisma.workspaceArtifact.findUnique({
+      where: { id: parsed.input.artifactId },
+    });
+    if (!artifact || artifact.workspaceId !== run.workspaceId) {
+      return c.json(
+        { code: 1006, message: "artifactId does not exist", data: null },
+        400,
+      );
+    }
+  }
+
+  const source = await createSource({
+    workspaceId: run.workspaceId,
+    runId: run.id,
+    input: parsed.input,
+  });
+
+  if (parsed.input.eventSeq !== undefined) {
+    const eventResult = await insertRunEvent({
+      runId: run.id,
+      seq: parsed.input.eventSeq,
+      type: "source_recorded",
+      payload: {
+        sourceId: source.id,
+        kind: source.kind,
+        ...(source.uri ? { uri: source.uri } : {}),
+        ...(source.title ? { title: source.title } : {}),
+      },
+    });
+    if (!eventResult.ok) {
+      if (eventResult.code === INGEST_SEQ_CONFLICT) {
+        return c.json(
+          { code: 2004, message: eventResult.message, data: null },
+          409,
+        );
+      }
+      return c.json(
+        { code: 1006, message: eventResult.message, data: null },
+        400,
+      );
+    }
+  }
+
+  return c.json({
+    code: 0,
+    message: "ok",
+    data: { source: toSourceDTO(source) },
+  });
+});
+
+ingestRoutes.post("/api/ingest/stream-chunk", async (c) => {
+  const body = await readJsonObject(c.req.raw);
+  if (!body) {
+    return c.json({ code: 1001, message: "bad request", data: null }, 400);
+  }
+
+  const run = await authenticateRunToken(c.req.header("authorization"), body);
+  if (run instanceof Response) return run;
+
+  if (isTerminalStatus(run.status)) {
+    return c.json({ code: 2003, message: "run is terminal", data: null }, 409);
+  }
+  if (run.status === "waiting_for_input") {
+    return c.json(
+      { code: 2005, message: "run is not accepting stream chunks", data: null },
+      409,
+    );
+  }
+
+  if (typeof body.chunk !== "string" || body.chunk.length === 0) {
+    return c.json({ code: 1006, message: "chunk is required", data: null }, 400);
+  }
+  if (
+    typeof body.streamType !== "string" ||
+    !STREAM_CHUNK_TYPES.has(body.streamType as StreamChunkType)
+  ) {
+    return c.json(
+      { code: 1006, message: "streamType must be thinking or content", data: null },
+      400,
+    );
+  }
+
+  const entryId = await addRunStreamChunk({
+    runId: run.id,
+    chunk: body.chunk,
+    streamType: body.streamType as StreamChunkType,
+    ttlSeconds: run.maxDurationSec + 300,
+  });
+
+  return c.json({
+    code: 0,
+    message: "ok",
+    data: { streamEntryId: entryId },
+  });
+});
+
 async function authenticateRunToken(
   authorizationHeader: string | undefined,
   body: Record<string, unknown>,
@@ -308,6 +545,7 @@ async function authenticateRunToken(
     threadId: run.threadId,
     userId: run.userId,
     status: run.status as RunStatus,
+    maxDurationSec: run.maxDurationSec,
   };
 }
 
