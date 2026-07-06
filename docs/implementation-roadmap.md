@@ -660,7 +660,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ## Group 20：Browser E2E
 
-覆盖 [testing-strategy.md §1.5](./testing-strategy.md#15-browser-e2e) 和 §4.14 E2E 部分：login → create workspace → create thread → start run → 观察 waiting_for_input → 用户选择 → Stage2 深挖 → open artifact → cancel run。到达这个 Group 时展开具体子步骤。
+覆盖 [testing-strategy.md §1.7](./testing-strategy.md#17-browser-e2e) 和 §4.14 E2E 部分：login → create workspace → create thread → start run → 观察 waiting_for_input → 用户选择 → Stage2 深挖 → open artifact → cancel run。到达这个 Group 时展开具体子步骤。
 
 ---
 

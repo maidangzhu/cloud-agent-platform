@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:workflow": "vitest run --config vitest.workflow.config.ts --passWithNoTests",
+    "test:live": "vitest run --config vitest.live.config.ts --passWithNoTests"
   },
   "dependencies": {
     "@cap/db": "workspace:^",

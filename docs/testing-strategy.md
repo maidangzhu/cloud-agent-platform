@@ -1,12 +1,14 @@
 # 测试策略 — API-First TDD
 
-这份文档定义 v2 的测试驱动开发方式。
+这份文档定义 v2 的测试驱动开发方式和测试套件组织方式。测试理念、覆盖原则和方法论见 [testing-philosophy.md](./testing-philosophy.md)。
 
 规则：
 
 每个 workflow 都必须先通过 API 和测试闭环，再实现 UI。
 
 ## 1. 测试分层
+
+测试按“离产品真实路径有多近”分层。越往下越稳定、越便宜、越适合 PR；越往上越接近真实用户路径、越贵、越适合 nightly/manual release gate。
 
 ### 1.1 Unit Tests
 
@@ -45,7 +47,7 @@ pnpm test
 
 目的：
 
-验证 API 行为。
+验证单个 API 的契约行为。Route tests 可以在进程内调用 Hono app，不要求启动公网服务；它们关注请求/响应、鉴权、ownership、错误码和 DTO shape，不证明跨模块真实路径。
 
 可以使用：
 
@@ -64,11 +66,11 @@ Route tests 不验证 sandbox 行为；凡是测试名或验收点涉及 sandbox
 - error codes
 - DTO shape
 
-### 1.3 Integration Tests
+### 1.3 Component Integration Tests
 
 目的：
 
-验证真实组件边界。
+验证单个模块和真实外部依赖的边界。它比 route tests 更真实，但仍然以“一个组件/一个边界”为单位，不负责覆盖完整产品主流程。
 
 可以使用：
 
@@ -81,13 +83,81 @@ Route tests 不验证 sandbox 行为；凡是测试名或验收点涉及 sandbox
 
 - flaky real LLM
 
+典型覆盖：
+
+- Redis Streams：XADD/XREAD、cursor 续读、过期清理。
+- Vercel Sandbox：创建、复用、写文件、exec、环境隔离。
+- LLM Proxy：fake provider、流式协议、usage 记录。
+- Search Proxy：fake/http/Exa provider、retry、usage 记录。
+- Ingest：scoped run token、事件幂等、文件/artifact/source 落库。
+
 命令：
 
 ```bash
 pnpm test:integration
 ```
 
-### 1.4 Real Provider Smoke Tests
+### 1.4 Workflow / Scenario Tests
+
+目的：
+
+不开浏览器，但走完整产品主路径。Workflow tests 是“真实路径的无 UI 端到端测试”：从创建用户/workspace/thread/run 开始，真实 provision sandbox，sandbox 内 agent loop 调 LLM/Search proxy、执行工具、写 Redis stream、调用 ingest，最后通过 API/SSE 验证状态、事件、文件、artifact、source、usage。
+
+规则：
+
+- 可以使用 fake/deterministic LLM provider 来稳定断言协议，但 sandbox 必须是真实 Vercel Sandbox。
+- 同一条 workflow 应覆盖状态机上的关键分支，而不是只测 happy path。
+- 断言重点是协议和状态：事件顺序、状态转移、cursor 不丢不重、tool call 完整对象、artifact version、source linkage、usage telemetry、最终收敛。
+- Workflow tests 默认不打开浏览器；UI 只由 Browser E2E 验证。
+
+典型 workflow：
+
+- happy path：run -> sandbox -> LLM stream -> stream-chunk -> tool calls -> files/artifact/source -> completed。
+- waiting path：Stage1 -> run_waiting_for_input -> sandbox 退出 -> Stage2 new run -> artifact update。
+- cancel path：running/cancel_requested -> sandbox 停止 -> cancelled，不覆盖 terminal。
+- failure path：tool failed/rejected、LLM timeout、search failure、sandbox exec failure、sweep 收敛。
+- reconnect path：SSE Last-Event-ID + Redis cursor 续读，无丢失/重复。
+
+命令：
+
+```bash
+pnpm test:workflow
+```
+
+### 1.5 Live / Expensive Tests
+
+目的：
+
+允许烧钱、允许慢、允许使用真实 provider 和线上部署，专门验证真实世界边界。这里不是 smoke，而是高价值、高覆盖的 release/nightly gate。
+
+可以使用：
+
+- deployed API base URL（如 `CAP_API_BASE_URL`）
+- real Vercel Sandbox
+- real LLM providers
+- real Exa
+- real Redis/Postgres
+- long context fixtures
+- paid token budget
+
+必须覆盖的风险类型：
+
+- 多 provider 选择、fallback、retry、backoff。
+- 首 token 超时切 provider。
+- thinking/no-thinking、content/no-content、tool/no-tool。
+- tool call 完整对象和 malformed tool call。
+- 超大上下文、上下文截断/压缩/拒绝策略。
+- LLM/Search 429、5xx、timeout、断流。
+- sandbox 冷启动、复用、exec 超时、危险命令隔离。
+- SSE 断线重连、Redis cursor 空洞、重复 chunk 去重。
+
+命令：
+
+```bash
+pnpm test:live
+```
+
+### 1.6 Real Provider Smoke Tests
 
 目的：
 
@@ -105,7 +175,12 @@ pnpm test:integration
 - 断言保持最小。
 - 不要求每次本地运行都执行。
 
-### 1.5 Browser E2E
+Smoke tests 和 Live / Expensive tests 的区别：
+
+- smoke 只证明 wiring 没坏，断言少，成本低。
+- live-expensive 主动打复杂边界和失败路径，断言多，成本可控但可以高。
+
+### 1.7 Browser E2E
 
 目的：
 
@@ -126,24 +201,94 @@ pnpm test:integration
 - open artifact
 - cancel run
 
-## 2. TDD 工作流
+Browser E2E 不替代 Workflow tests。Workflow tests 证明后端真实路径正确；Browser E2E 证明 UI 能正确驱动和呈现这些路径。
+
+## 2. 测试环境维度
+
+每条非 unit 测试都应该能被标到一个环境维度，避免“本地进程内过了”等同于“线上真实路径过了”。
+
+### 2.1 Local API
+
+服务器在本地或测试进程内运行，但可以连接真实 Neon、Redis、Vercel Sandbox、LLM/Search provider。
+
+适合：
+
+- 开发阶段快速验证。
+- component integration。
+- workflow 的主要开发入口。
+
+### 2.2 Deployed API
+
+测试打公网 API base URL，例如 preview/staging/prod-like deployment。sandbox 内回调 Control Plane 必须使用这个维度，不能依赖本地进程内 Hono app。
+
+适合：
+
+- sandbox -> Control Plane HTTP 回调。
+- auth/cookie/CORS/SSE/Vercel runtime。
+- release gate。
+
+### 2.3 Real Provider
+
+真实 LLM/Search/Sandbox provider。可以和 Local API 或 Deployed API 组合。
+
+适合：
+
+- provider wiring。
+- 延迟、限流、fallback、retry。
+- usage telemetry。
+
+### 2.4 Cost / Frequency
+
+每条 expensive 测试应声明运行频率：
+
+```text
+pr          cheap, deterministic, required
+nightly     paid, broader matrix
+manual      expensive, release/incident/debug gate
+```
+
+每条 paid/live 测试应声明大致成本等级：
+
+```text
+cheap       negligible
+paid        expected cents/dollars
+expensive   allowed to spend real budget for coverage
+```
+
+## 3. 测试文件命名
+
+默认按文件名进入对应套件：
+
+```text
+*.test.ts               unit / route / cheap local tests
+*.integration.test.ts   component integration with real infrastructure
+*.workflow.test.ts      no-browser full workflow / scenario tests
+*.live.test.ts          deployed API / real provider / expensive tests
+*.e2e.ts                browser E2E tests（后续 Playwright 阶段）
+```
+
+`pnpm test` 必须排除 `*.integration.test.ts`、`*.workflow.test.ts`、`*.live.test.ts`，避免默认本地测试误跑外部资源或昂贵 provider。
+
+## 4. TDD 工作流
 
 每个 feature：
 
 1. 新增或更新 API contract。
 2. 写纯逻辑 unit tests。
 3. 写 API route tests。
-4. 如果跨 sandbox/DB/LLM 边界，写 integration test。
-5. 实现最小代码。
-6. 跑测试。
-7. 重构。
-8. 最后再做 UI。
+4. 如果跨 sandbox/DB/Redis/LLM/Search 边界，写 component integration test。
+5. 如果该 feature 影响主流程或状态机分支，写 workflow/scenario test。
+6. 如果该 feature 依赖真实 provider 行为，补 real provider smoke 或 live-expensive test。
+7. 实现最小代码。
+8. 跑测试。
+9. 重构。
+10. 最后再做 UI。
 
 不要让 UI 依赖“想象中的后端行为”。
 
-## 3. 必需测试基础设施
+## 5. 必需测试基础设施
 
-### 3.1 Test User Helpers
+### 5.1 Test User Helpers
 
 Helpers：
 
@@ -161,7 +306,7 @@ createRunFor(thread)
 - 测试后清理。
 - fixtures 不含个人信息。
 
-### 3.2 Auth Test Helper
+### 5.2 Auth Test Helper
 
 Route tests 需要一种不依赖真实浏览器登录的 protected API 测试方式。
 
@@ -175,7 +320,7 @@ Route tests 需要一种不依赖真实浏览器登录的 protected API 测试�
 - route tests 可以 mock auth helper。
 - E2E tests 使用真实登录。
 
-### 3.3 Deterministic Sandbox Runner
+### 5.3 Deterministic Sandbox Runner
 
 在真实 agent runtime 前必须先有 deterministic runner。它可以使用固定脚本和固定输出，但必须在真实 Vercel Sandbox 内运行；纯 Node 测试进程里的 helper 只能作为 ingest route fixture，不能被记为 sandbox 覆盖。
 
@@ -198,7 +343,7 @@ Deterministic runner 必须：
 - 使用 scoped run token。
 - 永远不直接访问数据库。
 
-### 3.4 Fake LLM Proxy
+### 5.4 Fake LLM Proxy
 
 Fake LLM proxy 用于稳定的 agent integration tests。
 
@@ -211,7 +356,7 @@ timeout
 error
 ```
 
-### 3.5 Fixtures
+### 5.5 Fixtures
 
 必需 fixtures：
 
@@ -229,9 +374,11 @@ Fixture 规则：
 - 无私有 URL。
 - 小而确定。
 
-## 4. 按领域划分的测试矩阵
+## 6. 按领域划分的测试矩阵
 
 本节从"每个领域测哪几类"的提纲升级为具体测试名清单（[ADR-0018~0022](./decisions/README.md) 校订后的完整版本）。每条测试名都是可以直接拿去写 `it("...")`/`test("...")` 的断言点，不是话题标签。
+
+注意：本节小标题继续保留 `4.x` 编号，以兼容 `implementation-roadmap.md` 中已有的锚点链接。
 
 ### 4.1 Auth
 
@@ -610,7 +757,7 @@ E2E：
 19. cancel path
 20. reconnect after network drop resumes without visible data loss
 
-## 5. API Happy Path Test
+## 7. API Happy Path Test
 
 必须有一个 integration test 证明：
 
@@ -641,7 +788,7 @@ E2E：
 
 这条测试是 UI 开发前的后端契约。
 
-## 6. Failure Path Tests
+## 8. Failure Path Tests
 
 必测失败流程：
 
@@ -671,7 +818,7 @@ terminal run ingest
 stream-chunk on terminal run
 ```
 
-## 7. 测试命名
+## 9. 测试命名
 
 使用描述性测试名：
 
@@ -694,7 +841,7 @@ handles error
 test run
 ```
 
-## 8. 质量门禁
+## 10. 质量门禁
 
 monorepo 重构后（[ADR-0022](./decisions/0022-monorepo-hono-backend.md)），以下命令默认在仓库根用 pnpm workspace 过滤器按需跑单个 app/package（如 `pnpm --filter api test`），也可以在根目录跑全量。具体脚本命名留给 Phase 0.5 落地时定义，这里给出的是命令意图，不是最终精确 flag。
 
@@ -713,6 +860,13 @@ pnpm test:integration
 pnpm build
 ```
 
+Workflow / live suite 落地后：
+
+```bash
+pnpm test:workflow
+pnpm test:live
+```
+
 UI phase merge 前：
 
 ```bash
@@ -729,7 +883,7 @@ pnpm lint
 
 如果 lint 暂时不干净，必须记录明确的已知失败和修复计划，不要让 lint failure 保持模糊。
 
-## 9. Skip 测试规则
+## 11. Skip 测试规则
 
 允许 skip 的原因：
 
@@ -744,7 +898,7 @@ pnpm lint
 - skip deterministic unit 或 route tests
 - 因为实现麻烦而 skip
 
-## 10. 测试数据清理
+## 12. 测试数据清理
 
 规则：
 

@@ -15,6 +15,11 @@ export default defineConfig({
     include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
     // 集成测试（连真实 DB / 沙箱）单独走 vitest.integration.config.ts，
     // 默认单元套件必须零外部依赖，故排除。
-    exclude: ["**/node_modules/**", "**/*.integration.test.ts"],
+    exclude: [
+      "**/node_modules/**",
+      "**/*.integration.test.ts",
+      "**/*.workflow.test.ts",
+      "**/*.live.test.ts",
+    ],
   },
 });

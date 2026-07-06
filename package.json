@@ -10,6 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:workflow": "pnpm --dir apps/api test:workflow",
+    "test:live": "pnpm --dir apps/api test:live",
     "db:generate": "prisma generate",
     "db:push": "prisma db push"
   },
