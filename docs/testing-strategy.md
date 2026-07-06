@@ -1,6 +1,6 @@
 # 测试策略 — API-First TDD
 
-这份文档定义 v2 的测试驱动开发方式和测试套件组织方式。测试理念、覆盖原则和方法论见 [testing-philosophy.md](./testing-philosophy.md)。
+这份文档定义 v2 的测试驱动开发方式和测试套件组织方式。测试理念、覆盖原则和方法论见 [testing-philosophy.md](./testing-philosophy.md)，具体用例目录见 [testing-case-catalog.md](./testing-case-catalog.md)。
 
 规则：
 

@@ -1,6 +1,6 @@
 # 测试理念 — 状态空间、真实边界和风险驱动
 
-这份文档说明我们为什么这样设计测试。具体测试分层、命令和用例清单见 [testing-strategy.md](./testing-strategy.md)。
+这份文档说明我们为什么这样设计测试。具体测试分层和命令见 [testing-strategy.md](./testing-strategy.md)，用例目录和落地状态见 [testing-case-catalog.md](./testing-case-catalog.md)。
 
 ## 1. 核心目标
 
@@ -227,4 +227,3 @@ Manual release gate:
 ```
 
 本项目可以接受 paid/nightly/manual 测试成本。成本不是跳过关键边界测试的理由；成本只决定运行频率。
-
