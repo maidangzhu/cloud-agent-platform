@@ -8,7 +8,7 @@
 - **每个 Step 做完必须停下来，等用户明确确认后才进入下一个 Step。** 不允许因为"看起来很清楚"就连续做完多个 Step 不停顿。
 - 每个 Step 都必须有对应的自动化测试（PoC 类步骤除外，PoC 用手动跑脚本验证，不计入正式测试套件）。
 - 测试用例的具体断言清单见 [testing-strategy.md](./testing-strategy.md) §4（按领域标注了序号，Step 执行时按需引用对应编号，不重复罗列）。
-- 涉及数据库/沙箱/Redis 的步骤，优先用 fake/mock 让默认 `pnpm test` 保持零外部依赖；需要真实外部资源的测试标注为 integration，单独跑。
+- 涉及数据库/沙箱/Redis 的步骤，默认 `pnpm test` 仍保持零外部依赖；需要真实外部资源的测试按范围标注为 component integration / workflow / live，单独跑。
 
 ## 总览：Step 分组
 
@@ -556,7 +556,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 要写的东西：sandbox 内的 agent loop 主循环（[agent-runtime-protocol.md](./agent-runtime-protocol.md) §5.3），先用非流式（一次性拿完整响应）跑通"调 LLM proxy → 解析工具调用 → 执行 → ingest"的基本循环，暂不接流式攒批。
 
-怎么测：integration test——真实 agent loop（用 fake LLM proxy 返回预设的工具调用序列）跑一个简单任务，验证能写文件、创建 artifact、完成 run。
+怎么测：workflow test——真实 agent loop（用 fake LLM proxy 返回预设的工具调用序列）跑一个简单任务，验证能写文件、创建 artifact、完成 run。
 
 验收标准：对应原 roadmap Phase 13 的核心验收——"real run 可以研究一个主题，agent 写 workspace files，agent 创建 markdown artifact"，但这一步先用 fake LLM 驱动，不要求真实智能程度。
 
@@ -566,7 +566,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 要写的东西：把 Step 16.1 的非流式改造成流式，实现 `accumulatedText` 内存攒批、语义边界触发落库、同时转发 chunk 到 Group 13 的 stream-chunk 端点。
 
-怎么测：[testing-strategy.md §4.10](./testing-strategy.md#410-llm-proxy) integration 10-12。
+怎么测：[testing-strategy.md §4.10](./testing-strategy.md#410-llm-proxy) workflow 10-12。
 
 验收标准：token 逐字通过 SSE 可见（前端此时还没做，用测试脚本订阅 SSE 验证），落库次数只和语义边界次数成正比（不是 token 数量）。
 

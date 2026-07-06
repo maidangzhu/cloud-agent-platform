@@ -55,7 +55,7 @@ pnpm test
 - mocked auth helper
 - fake search/LLM proxy provider
 
-Route tests 不验证 sandbox 行为；凡是测试名或验收点涉及 sandbox 创建、复用、runner 启动、sandbox 内工具执行，都必须放到 integration tests 并使用真实 Vercel Sandbox。
+Route tests 不验证 sandbox 行为；凡是测试名或验收点涉及 sandbox 创建、复用、runner 启动、sandbox 内工具执行，都必须放到 component integration 或 workflow tests，并使用真实 Vercel Sandbox。
 
 必须覆盖：
 
@@ -221,6 +221,29 @@ Browser E2E 不替代 Workflow tests。Workflow tests 证明后端真实路径�
 
 测试打公网 API base URL，例如 preview/staging/prod-like deployment。sandbox 内回调 Control Plane 必须使用这个维度，不能依赖本地进程内 Hono app。
 
+Base URL 读取顺序：
+
+```text
+CAP_API_BASE_URL
+API_BASE_URL
+PUBLIC_API_BASE_URL
+PUBLIC_AGENT_LOOP_BASE_URL
+```
+
+公网写入类 live tests 不自动注册新用户，避免每次运行都在 deployed 环境留下新账号。需要预先准备专用测试账号：
+
+```text
+CAP_LIVE_TEST_EMAIL
+CAP_LIVE_TEST_PASSWORD
+```
+
+兼容旧/短变量名：
+
+```text
+LIVE_TEST_EMAIL
+LIVE_TEST_PASSWORD
+```
+
 适合：
 
 - sandbox -> Control Plane HTTP 回调。
@@ -338,7 +361,7 @@ source-record
 
 Deterministic runner 必须：
 
-- 在 sandbox 内运行，用于 integration tests。
+- 在 sandbox 内运行，用于 component integration / workflow tests。
 - 调用 ingest APIs。
 - 使用 scoped run token。
 - 永远不直接访问数据库。
@@ -663,7 +686,7 @@ Route：
 8. usage recorded as LLMUsageRecord (provider/model/tokens/durationMs)（不是 credit debit，见 ADR-0015）
 9. streaming response chunks forwarded to sandbox in order
 
-Integration：
+Workflow：
 
 10. sandbox runner calls fake LLM proxy, receives streamed tokens
 11. sandbox runner forwards tokens via stream-chunk while accumulating in memory（ADR-0017 攒批路径验证）
@@ -759,7 +782,7 @@ E2E：
 
 ## 7. API Happy Path Test
 
-必须有一个 integration test 证明：
+必须有一个 workflow test 证明：
 
 ```text
 1. create/authenticate user
@@ -784,6 +807,9 @@ E2E：
 20. GET usage/records returns LLMUsageRecord entries（不是 credits ledger，见 ADR-0015）
 21. SSE snapshot can recover final state
 22. SSE reconnect with Last-Event-ID resumes token stream without loss（ADR-0021）
+23. Agent loop workflow writes reason/content chunks to Redis and SSE replays them from cursor "0"
+24. Agent loop workflow reconnects SSE from Last-Event-ID without duplicate/lost chunks
+25. Agent loop workflow keeps tool calls as complete objects in run detail, not stream chunks
 ```
 
 这条测试是 UI 开发前的后端契约。
@@ -904,6 +930,6 @@ pnpm lint
 
 - 测试记录使用确定性 prefix。
 - 测试清理自己创建的记录。
-- integration tests 不删除无关远端数据。
+- integration/workflow/live tests 不删除无关远端数据。
 - test user identity 使用中性信息。
 - fixtures 不包含个人信息。

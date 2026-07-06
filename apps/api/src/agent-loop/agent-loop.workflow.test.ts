@@ -17,6 +17,12 @@ import {
 } from "../sandbox/workspace-sandbox";
 import { runAgentLoop } from "./agent-loop";
 
+type SseRecord = {
+  event?: string;
+  id?: string;
+  data: string;
+};
+
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 const HAS_SECRET = Boolean(process.env.BETTER_AUTH_SECRET);
 const HAS_REDIS = Boolean(process.env.REDIS_URL);
@@ -47,8 +53,28 @@ async function signUpAndGetCookie(
   return cookie;
 }
 
+function parseSseRecords(text: string): SseRecord[] {
+  return text
+    .trim()
+    .split(/\n\n+/)
+    .filter(Boolean)
+    .map((chunk) => {
+      const record: SseRecord = { data: "" };
+      for (const line of chunk.split(/\n/)) {
+        if (line.startsWith("event: ")) record.event = line.slice(7);
+        if (line.startsWith("id: ")) record.id = line.slice(4);
+        if (line.startsWith("data: ")) {
+          record.data = record.data
+            ? `${record.data}\n${line.slice(6)}`
+            : line.slice(6);
+        }
+      }
+      return record;
+    });
+}
+
 describe.skipIf(!HAS_DB || !HAS_SECRET)(
-  "Agent loop Step 16.1/16.2（真实 Neon + fake LLM proxy + ingest/Redis）",
+  "Agent loop workflow Step 16.1/16.2（真实 Neon + fake LLM proxy + ingest/Redis/Sandbox）",
   () => {
     const app = createApp();
     const suiteId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
@@ -285,6 +311,134 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       ]);
       expect(semanticEvents[0]?.content).toBe(streamEntries[0]?.chunk);
       expect(semanticEvents[1]?.content).toBe(streamEntries[1]?.chunk);
+
+      const detailRes = await app.request(`/api/runs/${run.id}`, {
+        headers: { cookie },
+      });
+      expect(detailRes.status).toBe(200);
+      const detail = await detailRes.json();
+      expect(
+        detail.data.toolCalls.map(
+          (tool: { name: string; status: string }) =>
+            `${tool.name}:${tool.status}`,
+        ).sort(),
+      ).toEqual(["create_artifact:completed", "write_file:completed"]);
+      const writeFile = detail.data.toolCalls.find(
+        (tool: { name: string }) => tool.name === "write_file",
+      );
+      expect(writeFile.args).toMatchObject({
+        path: "reports/agent-loop-report.md",
+        mimeType: "text/markdown",
+      });
+      expect(writeFile.result).toMatchObject({
+        path: "reports/agent-loop-report.md",
+      });
+      const createArtifact = detail.data.toolCalls.find(
+        (tool: { name: string }) => tool.name === "create_artifact",
+      );
+      expect(createArtifact.args).toMatchObject({
+        title: "Agent Loop Report",
+        kind: "text",
+        path: "reports/agent-loop-report.md",
+      });
+      expect(createArtifact.result).toMatchObject({
+        title: "Agent Loop Report",
+        version: 1,
+      });
+    });
+
+    it.skipIf(!HAS_REDIS)("replays streamed agent loop chunks through run SSE from cursor 0", async () => {
+      const run = await createRun("stream and replay through sse");
+
+      const result = await runAgentLoop({
+        runId: run.id,
+        prompt: run.prompt,
+        runToken: tokenFor(run),
+        stream: true,
+        request: (path, init) => Promise.resolve(app.request(path, init)),
+      });
+      expect(result.completed).toBe(true);
+
+      const res = await app.request(`/api/runs/${run.id}/events`, {
+        headers: { cookie },
+      });
+
+      expect(res.status).toBe(200);
+      const records = parseSseRecords(await res.text());
+      const streamChunks = records.filter(
+        (record) => record.event === "stream_chunk",
+      );
+      expect(streamChunks).toHaveLength(2);
+      expect(streamChunks.map((record) => record.id)).toEqual([
+        expect.stringMatching(/^\d+-\d+$/),
+        expect.stringMatching(/^\d+-\d+$/),
+      ]);
+      expect(
+        streamChunks.map((record) => JSON.parse(record.data)),
+      ).toMatchObject([
+        {
+          runId: run.id,
+          streamType: "thinking",
+          chunk: "fake reasoning for: stream and replay through sse",
+        },
+        {
+          runId: run.id,
+          streamType: "content",
+          chunk: "fake response for: stream and replay through sse",
+        },
+      ]);
+      expect(records.at(-1)?.event).toBe("done");
+      expect(JSON.parse(records.at(-1)?.data ?? "{}")).toMatchObject({
+        runId: run.id,
+        status: "completed",
+      });
+    });
+
+    it.skipIf(!HAS_REDIS)("reconnects run SSE from Last-Event-ID without duplicate or lost streamed chunks", async () => {
+      const run = await createRun("stream and reconnect through sse");
+
+      const result = await runAgentLoop({
+        runId: run.id,
+        prompt: run.prompt,
+        runToken: tokenFor(run),
+        stream: true,
+        request: (path, init) => Promise.resolve(app.request(path, init)),
+      });
+      expect(result.completed).toBe(true);
+
+      const streamEntries = await readRunStream({
+        runId: run.id,
+        cursor: "0",
+        blockMs: 100,
+      });
+      expect(streamEntries.map((entry) => entry.streamType)).toEqual([
+        "thinking",
+        "content",
+      ]);
+
+      const res = await app.request(`/api/runs/${run.id}/events`, {
+        headers: {
+          cookie,
+          "Last-Event-ID": streamEntries[0]?.id ?? "",
+        },
+      });
+
+      expect(res.status).toBe(200);
+      const records = parseSseRecords(await res.text());
+      const streamChunks = records.filter(
+        (record) => record.event === "stream_chunk",
+      );
+      expect(streamChunks).toHaveLength(1);
+      expect(streamChunks[0]?.id).toBe(streamEntries[1]?.id);
+      expect(JSON.parse(streamChunks[0]?.data ?? "{}")).toMatchObject({
+        runId: run.id,
+        streamType: "content",
+        chunk: "fake response for: stream and reconnect through sse",
+      });
+      expect(
+        streamChunks.some((record) => record.id === streamEntries[0]?.id),
+      ).toBe(false);
+      expect(records.at(-1)?.event).toBe("done");
     });
 
     it.skipIf(!HAS_VERCEL || !PUBLIC_API_BASE_URL)(
