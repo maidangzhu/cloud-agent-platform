@@ -4,7 +4,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
 import { createApp } from "../app";
 import { issueRunToken } from "../run/run-token";
-import { runFakeRunner } from "../sandbox/fake-runner";
+import { runScriptedIngestFixture } from "../sandbox/scripted-ingest-fixture";
 
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 const HAS_SECRET = Boolean(process.env.BETTER_AUTH_SECRET);
@@ -308,10 +308,10 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       }
     });
 
-    it("sandbox runner calls fake search proxy via web_search tool", async () => {
-      const run = await createRun("fake runner web search", "running");
+    it("scripted ingest fixture calls fake search proxy via web_search tool", async () => {
+      const run = await createRun("scripted ingest fixture web search", "running");
 
-      const result = await runFakeRunner({
+      const result = await runScriptedIngestFixture({
         mode: "web-search",
         searchQuery: "agent runtime",
         runToken: tokenFor(run),

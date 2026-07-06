@@ -797,7 +797,7 @@ UsageDetails
 - usage details rendering
 - error and loading states
 
-UI tests mock API data。E2E tests 可以使用 fake runner mode。
+UI tests mock API data。E2E tests 可以使用 scripted runner mode。
 
 ## 21. Design Review Checklist
 

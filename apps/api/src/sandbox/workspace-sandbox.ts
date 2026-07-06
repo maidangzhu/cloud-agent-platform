@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { prisma, type SandboxStatus } from "@cap/db";
+import { AGENT_LOOP_SANDBOX_SCRIPT } from "../agent-loop/sandbox-script";
 
 type WorkspaceSandboxRow = Awaited<
   ReturnType<typeof prisma.workspaceSandboxInstance.findUniqueOrThrow>
@@ -185,7 +186,7 @@ export async function sweepOrphanWorkspaceSandboxes(params: {
   return stopped;
 }
 
-export async function runFakeRunnerScriptInSandbox(params: {
+export async function runScriptedIngestRunnerInSandbox(params: {
   sandbox: VercelSandboxHandle;
   ingestBaseUrl: string;
   runToken: string;
@@ -197,11 +198,47 @@ export async function runFakeRunnerScriptInSandbox(params: {
     mode: params.mode ?? "complete",
   };
   await params.sandbox.writeFile(
-    "fake-runner-manifest.json",
+    "scripted-ingest-runner-manifest.json",
     JSON.stringify(manifest),
   );
-  await params.sandbox.writeFile("fake-runner.mjs", FAKE_RUNNER_SCRIPT);
-  return params.sandbox.exec("node fake-runner.mjs", { timeoutMs: 60_000 });
+  await params.sandbox.writeFile(
+    "scripted-ingest-runner.mjs",
+    SCRIPTED_INGEST_RUNNER_SCRIPT,
+  );
+  return params.sandbox.exec("node scripted-ingest-runner.mjs", {
+    timeoutMs: 60_000,
+  });
+}
+
+export async function installAgentLoopScriptInSandbox(params: {
+  sandbox: VercelSandboxHandle;
+  apiBaseUrl: string;
+  runToken: string;
+  runId: string;
+  prompt: string;
+}): Promise<void> {
+  const manifest = {
+    apiBaseUrl: params.apiBaseUrl.replace(/\/$/, ""),
+    runToken: params.runToken,
+    runId: params.runId,
+    prompt: params.prompt,
+  };
+  await params.sandbox.writeFile(
+    "agent-loop-manifest.json",
+    JSON.stringify(manifest),
+  );
+  await params.sandbox.writeFile("agent-loop.mjs", AGENT_LOOP_SANDBOX_SCRIPT);
+}
+
+export async function runAgentLoopScriptInSandbox(params: {
+  sandbox: VercelSandboxHandle;
+  apiBaseUrl: string;
+  runToken: string;
+  runId: string;
+  prompt: string;
+}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  await installAgentLoopScriptInSandbox(params);
+  return params.sandbox.exec("node agent-loop.mjs", { timeoutMs: 90_000 });
 }
 
 async function claimExistingWorkspaceSandbox(
@@ -273,12 +310,12 @@ async function stopVercelSandboxByName(sandboxName: string): Promise<void> {
   await sandbox.stop();
 }
 
-const FAKE_RUNNER_SCRIPT = `
+const SCRIPTED_INGEST_RUNNER_SCRIPT = `
 import fs from "node:fs/promises";
 
 const forbidden = ["DATABASE_URL", "DIRECT_URL", "BETTER_AUTH_SECRET", "RUN_TOKEN_SECRET"];
 const forbiddenEnvPresent = forbidden.some((key) => Boolean(process.env[key]));
-const manifest = JSON.parse(await fs.readFile("fake-runner-manifest.json", "utf8"));
+const manifest = JSON.parse(await fs.readFile("scripted-ingest-runner-manifest.json", "utf8"));
 
 async function post(path, body) {
   const response = await fetch(manifest.ingestBaseUrl + path, {

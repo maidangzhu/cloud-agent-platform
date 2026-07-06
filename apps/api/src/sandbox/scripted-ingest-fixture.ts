@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { webSearchTool } from "../tools/web-search";
 
-export type FakeRunnerMode =
+export type ScriptedIngestFixtureMode =
   | "complete"
   | "fail"
   | "timeout"
@@ -11,15 +11,15 @@ export type FakeRunnerMode =
   | "source-record"
   | "web-search";
 
-export type FakeRunnerRequest = (
+export type ScriptedIngestFixtureRequest = (
   path: string,
   init: RequestInit,
 ) => Promise<Response>;
 
-export type FakeRunnerOptions = {
-  request: FakeRunnerRequest;
+export type ScriptedIngestFixtureOptions = {
+  request: ScriptedIngestFixtureRequest;
   runToken: string;
-  mode: FakeRunnerMode;
+  mode: ScriptedIngestFixtureMode;
   artifactId?: string;
   artifactContent?: string;
   sourceKind?: "url" | "file" | "command" | "search_result" | "manual";
@@ -31,8 +31,8 @@ export type FakeRunnerOptions = {
   stepDelayMs?: number;
 };
 
-export type FakeRunnerResult = {
-  mode: FakeRunnerMode;
+export type ScriptedIngestFixtureResult = {
+  mode: ScriptedIngestFixtureMode;
   completed: boolean;
   cancelled: boolean;
   forbiddenEnvPresent: boolean;
@@ -47,15 +47,15 @@ const FORBIDDEN_ENV_KEYS = [
   "RUN_TOKEN_SECRET",
 ] as const;
 
-const FAKE_FILE_CONTENT = "fake runner workspace note\n";
-const FAKE_FILE_PATH = "notes/fake-runner.md";
+const FIXTURE_FILE_CONTENT = "scripted ingest fixture workspace note\n";
+const FIXTURE_FILE_PATH = "notes/scripted-ingest-fixture.md";
 
-export async function runFakeRunner(
-  options: FakeRunnerOptions,
-): Promise<FakeRunnerResult> {
+export async function runScriptedIngestFixture(
+  options: ScriptedIngestFixtureOptions,
+): Promise<ScriptedIngestFixtureResult> {
   const calls: Array<{ path: string; status: number }> = [];
   const stepDelayMs = options.stepDelayMs ?? 25;
-  const toolCallId = `fake-tool-${options.mode}-${Date.now()}-${Math.random()
+  const toolCallId = `fixture-tool-${options.mode}-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
   let sentCookieHeader = false;
@@ -73,7 +73,7 @@ export async function runFakeRunner(
     });
     calls.push({ path, status: response.status });
     if (!response.ok) {
-      throw new Error(`fake runner call failed: ${path} -> ${response.status}`);
+      throw new Error(`scripted ingest fixture call failed: ${path} -> ${response.status}`);
     }
     return response;
   };
@@ -122,7 +122,7 @@ export async function runFakeRunner(
     await post("/api/ingest/events", {
       seq: 3,
       type: "run_failed",
-      payload: { errorCode: "FAKE_RUNNER_FAILED" },
+      payload: { errorCode: "SCRIPTED_INGEST_FIXTURE_FAILED" },
     });
     return buildResult(options, calls, sentCookieHeader, {
       completed: false,
@@ -132,12 +132,12 @@ export async function runFakeRunner(
 
   if (options.mode === "file-write") {
     const fileResponse = await post("/api/ingest/files", {
-      path: FAKE_FILE_PATH,
+      path: FIXTURE_FILE_PATH,
       kind: "text",
       mimeType: "text/markdown",
-      size: byteLength(FAKE_FILE_CONTENT),
-      contentHash: sha256(FAKE_FILE_CONTENT),
-      content: FAKE_FILE_CONTENT,
+      size: byteLength(FIXTURE_FILE_CONTENT),
+      contentHash: sha256(FIXTURE_FILE_CONTENT),
+      content: FIXTURE_FILE_CONTENT,
       eventSeq: 3,
     });
     const file = (await fileResponse.json()).data.file;
@@ -156,10 +156,10 @@ export async function runFakeRunner(
   if (options.mode === "artifact-create") {
     await post("/api/ingest/artifacts", {
       ...(options.artifactId ? { artifactId: options.artifactId } : {}),
-      title: "Fake Runner Report",
+      title: "Scripted Ingest Fixture Report",
       kind: "text",
       contentSnapshot:
-        options.artifactContent ?? "fake runner artifact content\n",
+        options.artifactContent ?? "scripted ingest fixture artifact content\n",
       eventSeq: 3,
     });
   }
@@ -175,7 +175,7 @@ export async function runFakeRunner(
   }
 
   if (options.mode === "web-search") {
-    const searchToolCallId = `fake-web-search-${Date.now()}-${Math.random()
+    const searchToolCallId = `fixture-web-search-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
     const query = options.searchQuery ?? "redis streams";
@@ -239,11 +239,11 @@ export async function runFakeRunner(
 }
 
 function buildResult(
-  options: FakeRunnerOptions,
+  options: ScriptedIngestFixtureOptions,
   calls: Array<{ path: string; status: number }>,
   sentCookieHeader: boolean,
-  result: Pick<FakeRunnerResult, "completed" | "cancelled">,
-): FakeRunnerResult {
+  result: Pick<ScriptedIngestFixtureResult, "completed" | "cancelled">,
+): ScriptedIngestFixtureResult {
   return {
     mode: options.mode,
     ...result,

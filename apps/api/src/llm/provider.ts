@@ -152,16 +152,24 @@ export function fakeComplete(
   const prompt = lastUserMessage?.content.trim() || "empty prompt";
   const reasoning = `fake reasoning for: ${prompt}`;
   const content = `fake response for: ${prompt}`;
+  const toolCalls =
+    modelHint === "agent-loop-step16"
+      ? fakeAgentLoopToolCalls(prompt)
+      : [];
   const inputTokens = estimateTokens(messages.map((message) => message.content));
-  const outputTokens = estimateTokens([reasoning, content]);
+  const outputTokens = estimateTokens([
+    reasoning,
+    content,
+    ...toolCalls.map((toolCall) => toolCall.arguments),
+  ]);
 
   return {
     provider: "fake",
     model: `fake-${modelHint}`,
     reasoning,
     content,
-    toolCalls: [],
-    finishReason: "stop",
+    toolCalls,
+    finishReason: toolCalls.length > 0 ? "tool_calls" : "stop",
     usage: {
       inputTokens,
       outputTokens,
@@ -177,6 +185,38 @@ export function fakeComplete(
       },
     ],
   };
+}
+
+function fakeAgentLoopToolCalls(prompt: string): LlmToolCall[] {
+  const path = "reports/agent-loop-report.md";
+  const content = [
+    "# Agent Loop Report",
+    "",
+    `Prompt: ${prompt}`,
+    "",
+    "This report was produced by the Step 16 fake LLM plan.",
+    "",
+  ].join("\n");
+  return [
+    {
+      id: "fake-write-report",
+      name: "write_file",
+      arguments: JSON.stringify({
+        path,
+        content,
+        mimeType: "text/markdown",
+      }),
+    },
+    {
+      id: "fake-create-artifact",
+      name: "create_artifact",
+      arguments: JSON.stringify({
+        title: "Agent Loop Report",
+        kind: "text",
+        path,
+      }),
+    },
+  ];
 }
 
 export async function completeWithRealProvider(params: {

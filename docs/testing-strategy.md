@@ -51,8 +51,9 @@ pnpm test
 
 - test database 或隔离测试记录
 - mocked auth helper
-- mocked sandbox orchestrator
 - fake search/LLM proxy provider
+
+Route tests 不验证 sandbox 行为；凡是测试名或验收点涉及 sandbox 创建、复用、runner 启动、sandbox 内工具执行，都必须放到 integration tests 并使用真实 Vercel Sandbox。
 
 必须覆盖：
 
@@ -73,7 +74,7 @@ pnpm test
 
 - real Postgres test database
 - real Vercel sandbox
-- fake sandbox runner
+- deterministic/scripted runner running inside real Vercel sandbox
 - fake LLM proxy
 
 默认集成套件不应该依赖：
@@ -112,7 +113,7 @@ pnpm test:integration
 
 默认使用：
 
-- fake runner mode
+- deterministic runner mode（涉及 sandbox 的 E2E 必须跑真实 Vercel sandbox）
 - deterministic test data
 
 必须覆盖：
@@ -174,9 +175,9 @@ Route tests 需要一种不依赖真实浏览器登录的 protected API 测试�
 - route tests 可以 mock auth helper。
 - E2E tests 使用真实登录。
 
-### 3.3 Fake Runner
+### 3.3 Deterministic Sandbox Runner
 
-在真实 agent runtime 前必须先有 fake runner。
+在真实 agent runtime 前必须先有 deterministic runner。它可以使用固定脚本和固定输出，但必须在真实 Vercel Sandbox 内运行；纯 Node 测试进程里的 helper 只能作为 ingest route fixture，不能被记为 sandbox 覆盖。
 
 模式：
 
@@ -190,7 +191,7 @@ artifact-create
 source-record
 ```
 
-Fake runner 必须：
+Deterministic runner 必须：
 
 - 在 sandbox 内运行，用于 integration tests。
 - 调用 ingest APIs。
@@ -219,7 +220,7 @@ fixtures/research/simple-topic.md
 fixtures/workspace-files/notes.md
 fixtures/artifacts/research-report.md
 fixtures/sources/search-results.json
-fixtures/sandbox-runner/fake-runner.ts
+fixtures/sandbox-runner/scripted-runner.ts
 ```
 
 Fixture 规则：
@@ -346,16 +347,16 @@ Route：
 
 Integration：
 
-23. create run starts fake runner
-24. fake runner completes run -> status=completed, completedAt set
-25. failed fake runner marks failed -> error message persisted
-26. stale fake runner (heartbeat 过期) swept -> interrupted
+23. create run starts scripted runner
+24. scripted runner completes run -> status=completed, completedAt set
+25. failed scripted runner marks failed -> error message persisted
+26. stale scripted runner (heartbeat 过期) swept -> interrupted
 27. stale provisioning_sandbox swept -> timeout
-28. fake runner reports run_waiting_for_input -> status=waiting_for_input, sandbox 进程退出
+28. scripted runner reports run_waiting_for_input -> status=waiting_for_input, sandbox 进程退出
 29. creating new run on a thread with a waiting_for_input run first transitions old run to completed（ADR-0019 原子收尾）
 30. waiting_for_input run untouched by sweep within 7-day threshold
 31. waiting_for_input run past 7-day threshold swept to interrupted
-32. concurrent sweep + fake runner completion race: only one transition wins, terminal status never overwritten（ADR-0018 核心验证点）
+32. concurrent sweep + scripted runner completion race: only one transition wins, terminal status never overwritten（ADR-0018 核心验证点）
 33. SandboxInstance currentRunId claimed atomically: two concurrent getOrCreate calls, only one gets the warm/ready instance, the other creates new（ADR-0018）
 34. SandboxInstance currentRunId cleared when run reaches terminal or waiting_for_input
 
@@ -413,7 +414,7 @@ Integration：
 3. create sandbox（首次，无 warm/ready 可复用）
 4. resume sandbox from stopped state
 5. resume sandbox from warm/ready state（复用，不重建）
-6. start fake runner inside sandbox
+6. start scripted runner inside sandbox
 7. runner has no DB env vars present
 8. runner has no Better Auth cookie present
 9. runner can call ingest with scoped run token
@@ -445,7 +446,7 @@ Route：
 
 Integration：
 
-13. fake runner writes workspace file, ingest persists metadata
+13. scripted runner writes workspace file, ingest persists metadata
 14. file survives refresh/API reload (read from DB, not sandbox memory)
 15. file_written event correlates with WorkspaceFile via eventSeq
 
@@ -473,8 +474,8 @@ Route：
 
 Integration：
 
-15. fake runner creates artifact
-16. fake runner updates same artifact -> new version, old version still readable
+15. scripted runner creates artifact
+16. scripted runner updates same artifact -> new version, old version still readable
 17. artifact remains readable after related workspace file changes
 18. artifact detail response includes referencing sources
 
@@ -495,8 +496,8 @@ Route：
 
 Integration：
 
-8. fake runner records URL source via fetch_url, artifact references it
-9. fake runner records search_result source via web_search（ADR-0020）
+8. scripted runner records URL source via fetch_url, artifact references it
+9. scripted runner records search_result source via web_search（ADR-0020）
 
 ### 4.10 LLM Proxy（含 [ADR-0009](./decisions/0009-provider-anti-corruption-layer.md)/[ADR-0017](./decisions/0017-token-accumulation-and-persistence-timing.md) finish_reason 归一化）
 
@@ -605,7 +606,7 @@ Hook：
 
 E2E：
 
-18. full fake-runner happy path（含 Stage1 概览 -> waiting_for_input -> 用户选择 -> Stage2 深挖，见 ADR-0013/0019）
+18. full scripted-runner happy path（含 Stage1 概览 -> waiting_for_input -> 用户选择 -> Stage2 深挖，见 ADR-0013/0019）
 19. cancel path
 20. reconnect after network drop resumes without visible data loss
 
@@ -619,17 +620,17 @@ E2E：
 3. create thread
 4. create run（不再有 reserve credits 步骤，见 ADR-0015）
 5. provision sandbox（认领 SandboxInstance 原子 UPDATE，见 ADR-0018）
-6. fake runner posts heartbeat（含 phase 字段）
-7. fake runner posts events
-8. fake runner posts stream-chunk（token 转发，验证不落库，见 ADR-0021）
-9. fake runner ingests file
-10. fake runner ingests source
-11. fake runner ingests artifact（首次创建，version=1）
-12. fake runner ingests run_waiting_for_input（Stage1 概览完成，见 ADR-0019）
+6. scripted runner posts heartbeat（含 phase 字段）
+7. scripted runner posts events
+8. scripted runner posts stream-chunk（token 转发，验证不落库，见 ADR-0021）
+9. scripted runner ingests file
+10. scripted runner ingests source
+11. scripted runner ingests artifact（首次创建，version=1）
+12. scripted runner ingests run_waiting_for_input（Stage1 概览完成，见 ADR-0019）
 13. GET run returns status=waiting_for_input with question payload
 14. POST new run on same thread first transitions old run to completed
-15. fake runner (Stage2) ingests artifact with same artifactId -> version=2, artifact_updated event
-16. fake runner completes Stage2 run
+15. scripted runner (Stage2) ingests artifact with same artifactId -> version=2, artifact_updated event
+16. scripted runner completes Stage2 run
 17. GET run returns terminal status and events
 18. GET files returns workspace file
 19. GET artifacts returns artifact with 2 versions
@@ -752,4 +753,3 @@ pnpm lint
 - integration tests 不删除无关远端数据。
 - test user identity 使用中性信息。
 - fixtures 不包含个人信息。
-

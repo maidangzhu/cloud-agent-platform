@@ -1,7 +1,7 @@
 // Run 创建/查询/取消路由（Step 6.3，见 docs/api-contract.md §5.4）。
 //
 // 这一步之后 run 会一直停在 created——还没有真实 sandbox（Group 9 才接
-// fake runner），这是预期行为，不是 bug。
+// sandbox runner 调度），这是预期行为，不是 bug。
 
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";

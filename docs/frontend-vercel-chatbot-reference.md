@@ -548,7 +548,7 @@ POST /api/artifacts/:artifactId/restore
   - start run
   - receive SSE artifact event
   - open artifact panel
-- optional Playwright test with fake runner mode
+- optional Playwright test with scripted runner mode
 
 实现：
 

@@ -2,11 +2,11 @@ import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
 import { createApp } from "../app";
 import { issueRunToken } from "../run/run-token";
-import { runFakeRunner } from "./fake-runner";
+import { runScriptedIngestFixture } from "./scripted-ingest-fixture";
 
-// Step 9.1：本地进程模拟 fake sandbox runner，不接真实 Vercel Sandbox。
-// 仍连真实 Neon + Better Auth；runner 本身只拿 scoped run token 和 HTTP
-// request 函数，不导入 Prisma、不拿 DB env、不带 Better Auth cookie。
+// 这是 ingest route fixture，不是 sandbox 覆盖。
+// 涉及 sandbox 创建、复用、runner 启动的集成测试必须使用真实 Vercel Sandbox；
+// 这里保留纯 HTTP fixture 用于稳定回归 ingest/files/artifacts/sources 行为。
 const HAS_DB = !!process.env.DATABASE_URL;
 const HAS_SECRET = !!process.env.BETTER_AUTH_SECRET;
 
@@ -20,7 +20,7 @@ async function signUpAndGetCookie(
     body: JSON.stringify({
       email,
       password: "integration-test-password-789",
-      name: "Fake Runner Test User",
+      name: "Scripted Ingest Fixture Test User",
     }),
   });
   const cookie = res.headers.get("set-cookie")?.split(";")[0];
@@ -29,17 +29,17 @@ async function signUpAndGetCookie(
 }
 
 describe.skipIf(!HAS_DB || !HAS_SECRET)(
-  "Fake sandbox runner helper（真实 Neon + HTTP ingest，见 Step 9.1）",
+  "Scripted ingest fixture（真实 Neon + HTTP ingest，不计入 sandbox 覆盖）",
   () => {
     const app = createApp();
-    const userEmail = `it-fake-runner-${Date.now()}@example.com`;
+    const userEmail = `it-scripted-ingest-fixture-${Date.now()}@example.com`;
     let cookie = "";
     let workspaceId = "";
     let threadId = "";
 
     afterAll(async () => {
       const workspaces = await prisma.workspace.findMany({
-        where: { title: { startsWith: "IT-FakeRunnerWs-" } },
+        where: { title: { startsWith: "IT-ScriptedIngestFixtureWs-" } },
       });
       const workspaceIds = workspaces.map((w) => w.id);
       if (workspaceIds.length > 0) {
@@ -118,7 +118,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       const wsRes = await app.request("/api/workspaces", {
         method: "POST",
         headers: { "Content-Type": "application/json", cookie },
-        body: JSON.stringify({ title: "IT-FakeRunnerWs-Main" }),
+        body: JSON.stringify({ title: "IT-ScriptedIngestFixtureWs-Main" }),
       });
       workspaceId = (await wsRes.json()).data.workspace.id;
 
@@ -127,7 +127,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         {
           method: "POST",
           headers: { "Content-Type": "application/json", cookie },
-          body: JSON.stringify({ title: "IT-FakeRunnerThread" }),
+          body: JSON.stringify({ title: "IT-ScriptedIngestFixtureThread" }),
         },
       );
       threadId = (await threadRes.json()).data.thread.id;
@@ -136,10 +136,10 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(threadId).toBeTruthy();
     });
 
-    it("start fake runner inside local sandbox helper and complete run through ingest HTTP", async () => {
-      const run = await createRun("fake runner complete check");
+    it("scripted ingest fixture completes run through ingest HTTP", async () => {
+      const run = await createRun("scripted ingest fixture complete check");
 
-      const result = await runFakeRunner({
+      const result = await runScriptedIngestFixture({
         mode: "complete",
         runToken: tokenFor(run),
         env: { PATH: "/usr/bin" },
@@ -184,9 +184,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
     });
 
     it("runner has no DB env vars or Better Auth cookie present", async () => {
-      const run = await createRun("fake runner env check");
+      const run = await createRun("scripted ingest fixture env check");
 
-      const result = await runFakeRunner({
+      const result = await runScriptedIngestFixture({
         mode: "timeout",
         runToken: tokenFor(run),
         env: {
@@ -207,9 +207,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
     });
 
     it("runner can be cancelled mid-execution", async () => {
-      const run = await createRun("fake runner cancel check");
+      const run = await createRun("scripted ingest fixture cancel check");
       const controller = new AbortController();
-      const runner = runFakeRunner({
+      const runner = runScriptedIngestFixture({
         mode: "cancel-aware",
         runToken: tokenFor(run),
         env: { PATH: "/usr/bin" },
@@ -240,10 +240,10 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(finalEvent?.type).toBe("run_cancelled");
     });
 
-    it("fake runner writes workspace file through ingest and file survives API reload", async () => {
-      const run = await createRun("fake runner file write check");
+    it("scripted ingest fixture writes workspace file through ingest and file survives API reload", async () => {
+      const run = await createRun("scripted ingest fixture file write check");
 
-      const result = await runFakeRunner({
+      const result = await runScriptedIngestFixture({
         mode: "file-write",
         runToken: tokenFor(run),
         env: { PATH: "/usr/bin" },
@@ -260,13 +260,13 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         where: {
           workspaceId_path: {
             workspaceId,
-            path: "notes/fake-runner.md",
+            path: "notes/scripted-ingest-fixture.md",
           },
         },
       });
       expect(file).toBeTruthy();
       expect(file?.latestRunId).toBe(run.id);
-      expect(file?.content).toBe("fake runner workspace note\n");
+      expect(file?.content).toBe("scripted ingest fixture workspace note\n");
 
       const listRes = await app.request(`/api/workspaces/${workspaceId}/files`, {
         headers: { cookie },
@@ -275,15 +275,15 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       const listBody = await listRes.json();
       expect(
         listBody.data.files.map((listed: { path: string }) => listed.path),
-      ).toContain("notes/fake-runner.md");
+      ).toContain("notes/scripted-ingest-fixture.md");
 
       const contentRes = await app.request(
-        `/api/workspaces/${workspaceId}/files/content?path=notes/fake-runner.md`,
+        `/api/workspaces/${workspaceId}/files/content?path=notes/scripted-ingest-fixture.md`,
         { headers: { cookie } },
       );
       expect(contentRes.status).toBe(200);
       const contentBody = await contentRes.json();
-      expect(contentBody.data.content).toBe("fake runner workspace note\n");
+      expect(contentBody.data.content).toBe("scripted ingest fixture workspace note\n");
 
       const event = await prisma.runEvent.findUnique({
         where: { runId_seq: { runId: run.id, seq: 3 } },
@@ -291,16 +291,16 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(event?.type).toBe("file_written");
       expect(event?.raw).toMatchObject({
         fileId: file?.id,
-        path: "notes/fake-runner.md",
+        path: "notes/scripted-ingest-fixture.md",
         size: file?.size,
         contentHash: file?.contentHash,
       });
     });
 
-    it("fake runner creates and updates the same artifact with readable versions", async () => {
-      const artifactId = `fake-runner-artifact-${Date.now()}`;
-      const firstRun = await createRun("fake runner artifact create");
-      const first = await runFakeRunner({
+    it("scripted ingest fixture creates and updates the same artifact with readable versions", async () => {
+      const artifactId = `scripted-ingest-fixture-artifact-${Date.now()}`;
+      const firstRun = await createRun("scripted ingest fixture artifact create");
+      const first = await runScriptedIngestFixture({
         mode: "artifact-create",
         artifactId,
         artifactContent: "first artifact version\n",
@@ -314,8 +314,8 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         "/api/ingest/artifacts",
       );
 
-      const secondRun = await createRun("fake runner artifact update");
-      const second = await runFakeRunner({
+      const secondRun = await createRun("scripted ingest fixture artifact update");
+      const second = await runScriptedIngestFixture({
         mode: "artifact-create",
         artifactId,
         artifactContent: "second artifact version\n",
@@ -353,10 +353,10 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       });
     });
 
-    it("fake runner records URL and search_result sources through ingest", async () => {
-      const artifactId = `fake-runner-source-artifact-${Date.now()}`;
-      const artifactRun = await createRun("fake runner source artifact");
-      await runFakeRunner({
+    it("scripted ingest fixture records URL and search_result sources through ingest", async () => {
+      const artifactId = `scripted-ingest-fixture-source-artifact-${Date.now()}`;
+      const artifactRun = await createRun("scripted ingest fixture source artifact");
+      await runScriptedIngestFixture({
         mode: "artifact-create",
         artifactId,
         artifactContent: "source backed artifact\n",
@@ -366,8 +366,8 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         stepDelayMs: 1,
       });
 
-      const urlRun = await createRun("fake runner url source");
-      const urlResult = await runFakeRunner({
+      const urlRun = await createRun("scripted ingest fixture url source");
+      const urlResult = await runScriptedIngestFixture({
         mode: "source-record",
         artifactId,
         sourceKind: "url",
@@ -382,8 +382,8 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         "/api/ingest/sources",
       );
 
-      const searchRun = await createRun("fake runner search source");
-      await runFakeRunner({
+      const searchRun = await createRun("scripted ingest fixture search source");
+      await runScriptedIngestFixture({
         mode: "source-record",
         sourceKind: "search_result",
         sourceUri: "https://search.example.com/result/",

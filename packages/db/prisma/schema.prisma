@@ -154,7 +154,7 @@ enum ToolCallStatus {
 }
 
 // 重命名自 v1 的 WorkspaceStatus。枚举值暂不对齐 docs/data-model.md §4
-// 定义的完整 SandboxStatus（warm/stopped 等），留给 Group 9（Fake Sandbox
+// 定义的完整 SandboxStatus（warm/stopped 等），留给 Group 9（Scripted Sandbox
 // Runner）真正需要时处理，本次只解决命名冲突，不引入本 Step 范围外的
 // 行为变化。
 enum SandboxStatus {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   completeWithRealProvider,
+  fakeComplete,
   normalizeFinishReason,
   normalizeOpenAiChatCompletion,
   resolveLlmModelChain,
@@ -89,6 +90,30 @@ describe("finishReason normalization", () => {
     expect(normalizeFinishReason("function_call")).toBe("tool_calls");
     expect(normalizeFinishReason("safety")).toBe("content_filter");
     expect(normalizeFinishReason(undefined)).toBe("unknown");
+  });
+});
+
+describe("fake provider agent-loop fixture", () => {
+  it("returns complete write_file/create_artifact tool calls for Step 16 agent loop", () => {
+    const result = fakeComplete(
+      [{ role: "user", content: "produce report" }],
+      "agent-loop-step16",
+    );
+
+    expect(result.finishReason).toBe("tool_calls");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "write_file",
+      "create_artifact",
+    ]);
+    expect(JSON.parse(result.toolCalls[0]?.arguments ?? "{}")).toMatchObject({
+      path: "reports/agent-loop-report.md",
+      mimeType: "text/markdown",
+    });
+    expect(JSON.parse(result.toolCalls[1]?.arguments ?? "{}")).toMatchObject({
+      title: "Agent Loop Report",
+      kind: "text",
+      path: "reports/agent-loop-report.md",
+    });
   });
 });
 

@@ -4,7 +4,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
 import { createApp } from "../app";
 import { issueRunToken } from "../run/run-token";
-import { runFakeRunner } from "../sandbox/fake-runner";
+import { runScriptedIngestFixture } from "../sandbox/scripted-ingest-fixture";
 import { webSearchTool, type WebSearchResult } from "./web-search";
 
 const HAS_DB = Boolean(process.env.DATABASE_URL);
@@ -204,7 +204,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
     it("web_search succeeds -> ToolCall completed, results as Sources", async () => {
       const run = await createRun("web search completed");
 
-      const result = await runFakeRunner({
+      const result = await runScriptedIngestFixture({
         mode: "web-search",
         searchQuery: "agent runtime",
         runToken: tokenFor(run),

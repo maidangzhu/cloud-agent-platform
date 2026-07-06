@@ -4,7 +4,7 @@ import { prisma } from "@cap/db";
 
 // 连真实 Neon Postgres + 真实 Better Auth，不 mock。对应
 // docs/testing-strategy.md §4.4 route 15-22、docs/implementation-roadmap.md
-// Step 6.3。这一步还没有真实 sandbox（Group 9 才接 fake runner），
+// Step 6.3。这一步还没有接真实 sandbox runner 调度，
 // running/provisioning_sandbox/waiting_for_input 场景直接用 prisma 写状态
 // 模拟，不通过真实 ingest（那是 Step 6.4/Group 8 的内容）。
 const HAS_DB = !!process.env.DATABASE_URL;

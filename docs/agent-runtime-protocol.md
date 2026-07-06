@@ -520,18 +520,18 @@ Sweep 同时负责清理孤儿资源（[ADR-0015](./decisions/0015-usage-telemet
 
 必须完成的集成里程碑：
 
-1. fake runner starts inside sandbox
-2. fake runner heartbeats
-3. fake runner ingests events
-4. fake runner writes file and ingests metadata
-5. fake runner creates artifact
-6. fake runner creates a second version of same artifact（artifact_updated）
-7. fake runner completes run
-8. cancel request stops fake runner
+1. scripted runner starts inside sandbox
+2. scripted runner heartbeats
+3. scripted runner ingests events
+4. scripted runner writes file and ingests metadata
+5. scripted runner creates artifact
+6. scripted runner creates a second version of same artifact（artifact_updated）
+7. scripted runner completes run
+8. cancel request stops scripted runner
 9. stale runner is swept
-10. fake runner reports run_waiting_for_input，run 正常收尾，后续新 run 可创建
+10. scripted runner reports run_waiting_for_input，run 正常收尾，后续新 run 可创建
 11. waiting_for_input run 超过阈值被 sweep 转 interrupted
-12. fake runner streams chunks through stream-chunk（Redis Streams），SSE 从 cursor 续读
+12. scripted runner streams chunks through stream-chunk（Redis Streams），SSE 从 cursor 续读
 13. real runner calls fake LLM proxy
 14. real runner calls real LLM in optional smoke test
 

@@ -6,7 +6,7 @@ import { issueRunToken } from "../run/run-token";
 import { resolveVercelCredentials } from "../../../../src/server/sandbox/vercel-credentials";
 import {
   getOrCreateWorkspaceSandbox,
-  runFakeRunnerScriptInSandbox,
+  runScriptedIngestRunnerInSandbox,
   sandboxNameForWorkspace,
   sweepOrphanWorkspaceSandboxes,
   type WorkspaceSandboxClaim,
@@ -256,7 +256,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL)(
     });
 
     it.skipIf(!PUBLIC_INGEST_BASE_URL)(
-      "runs fake runner script inside Vercel Sandbox and observes it only through ingest",
+      "runs scripted ingest runner inside Vercel Sandbox and observes it only through ingest",
       async () => {
         const graph = await createGraph("vercel-runner");
         const claim = await track(
@@ -267,7 +267,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL)(
           }),
         );
 
-        const result = await runFakeRunnerScriptInSandbox({
+        const result = await runScriptedIngestRunnerInSandbox({
           sandbox: claim.sandbox,
           ingestBaseUrl: PUBLIC_INGEST_BASE_URL,
           runToken: tokenFor(graph),

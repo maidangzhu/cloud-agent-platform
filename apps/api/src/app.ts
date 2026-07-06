@@ -18,7 +18,7 @@ import { searchRoutes } from "./search/routes";
 // Step 4.1 新增 Workspace CRUD（见 docs/api-contract.md §5.2）；
 // Step 5.1 新增 Thread CRUD（见 docs/api-contract.md §5.3）；
 // Step 6.3 新增 Run 创建/查询/取消（见 docs/api-contract.md §5.4，此时
-// 还没有真实 sandbox，run 会一直停在 created，Group 9 才接 fake runner）；
+// 还没有真实 sandbox runner 调度，run 会一直停在 created；
 // Step 8.1 新增 ingest events/heartbeat（scoped run token 认证）。
 // Step 10.1 新增 WorkspaceFile ingest + 查询路由。
 // Step 11.1 新增 Artifact 首次创建 ingest + 查询路由。

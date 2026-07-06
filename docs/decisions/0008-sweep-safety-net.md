@@ -24,7 +24,7 @@ cancel_requested + 过期         -> cancelled 或 timeout（按策略）
 
 ## 测试守护
 
-fake runner 发几个事件后 `process.exit(1)` 直接死、不发终态；断言 sweep 跑过后该 run 变 `interrupted`、SSE 发 `done`。对应 testing-strategy「stale fake runner swept」。
+scripted runner 发几个事件后 `process.exit(1)` 直接死、不发终态；断言 sweep 跑过后该 run 变 `interrupted`、SSE 发 `done`。对应 testing-strategy「stale scripted runner swept」。
 
 ## 被否方案
 

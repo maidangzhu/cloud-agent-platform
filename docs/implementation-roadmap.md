@@ -22,7 +22,7 @@ Group 5：Thread
 Group 6：Run 状态机 + Event Store（含 ADR-0018/0019）
 Group 7：Scoped Run Token
 Group 8：Ingest API 基线（含 ADR-0020 payload schema）
-Group 9：Fake Sandbox Runner
+Group 9：Scripted Sandbox Runner
 Group 10：Workspace Files
 Group 11：Artifacts（含版本化，ADR-0020）
 Group 12：Sources
@@ -262,7 +262,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 怎么测：[testing-strategy.md §4.4](./testing-strategy.md#44-run) route 15-22。
 
-验收标准：能创建/查询/取消 run，但此时还没有真实 sandbox，run 会一直停在 `created`（这是预期的，Group 9 才接 fake runner）。
+验收标准：能创建/查询/取消 run，但此时还没有真实 sandbox，run 会一直停在 `created`（这是预期的，Group 9 才接 scripted runner）。
 
 停下来确认。
 
@@ -338,32 +338,32 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ---
 
-## Group 9：Fake Sandbox Runner
+## Group 9：Scripted Sandbox Runner
 
-### Step 9.1：Fake runner 骨架（不用真实 Vercel Sandbox，先用本地进程模拟）
+### Step 9.1：Scripted ingest fixture（不计入 sandbox 覆盖）
 
 要写的东西：
 
-- `testing` helper：一个可配置行为的 fake runner（模式：complete/fail/timeout/cancel-aware/file-write/artifact-create/source-record，[testing-strategy.md §3.3](./testing-strategy.md#33-fake-runner)）。
-- fake runner 只通过 ingest HTTP API 和 scoped run token 与系统交互，不直接碰数据库——这条约束本身就是要验证的东西。
+- `testing` helper：一个可配置行为的 scripted ingest fixture（模式：complete/fail/timeout/cancel-aware/file-write/artifact-create/source-record）。
+- fixture 只通过 ingest HTTP API 和 scoped run token 与系统交互，不直接碰数据库。它用于稳定回归 ingest/files/artifacts/sources 行为，但不作为 sandbox 创建/复用/runner 启动的验收依据。
 
-怎么测：[testing-strategy.md §4.6](./testing-strategy.md#46-sandbox) integration 6-10。
+怎么测：ingest/files/artifacts/sources 的 route/integration 回归测试。凡是测试名或验收点涉及 sandbox，必须进入 Step 9.2 并使用真实 Vercel Sandbox。
 
-验收标准：fake runner 能完成一个 run 的完整生命周期（心跳→事件→文件→artifact→终态），全程只用 HTTP。
+验收标准：scripted ingest fixture 能完成一个 run 的完整生命周期（心跳→事件→文件→artifact→终态），全程只用 HTTP；不把这一步计为 sandbox 覆盖。
 
 停下来确认。
 
-### Step 9.2：接入真实 Vercel Sandbox（fake runner 代码跑在真沙箱里）
+### Step 9.2：接入真实 Vercel Sandbox（scripted runner 代码跑在真沙箱里）
 
 要写的东西：
 
 - 复用 `src/server/sandbox/factory.ts`（已验证可用，Group 0 PoC 确认过）。
 - Control Plane 侧的 sandbox 认领逻辑（[ADR-0018](./decisions/0018-atomic-state-transitions.md) `currentRunId` 原子认领）。
-- 把 fake runner 脚本上传到真实沙箱并启动。
+- 把 scripted runner 脚本上传到真实沙箱并启动。
 
-怎么测：[testing-strategy.md §4.6](./testing-strategy.md#46-sandbox) integration 3-5、11-14。
+怎么测：[testing-strategy.md §4.6](./testing-strategy.md#46-sandbox) integration 3-14。
 
-验收标准：fake runner 确实在 Vercel Sandbox microVM 里运行（不是本地进程），Control Plane 只能通过 ingest 观察它，SandboxInstance 复用互斥测试通过。
+验收标准：scripted runner 确实在 Vercel Sandbox microVM 里运行（不是本地进程），Control Plane 只能通过 ingest 观察它，SandboxInstance 复用互斥测试通过。
 
 停下来确认：这一步涉及真实计费资源（Vercel Sandbox），建议用户此时关注一下 Vercel 账单/用量，确认测试频率可接受。
 
@@ -381,13 +381,13 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 停下来确认。
 
-### Step 10.2：Fake runner 写文件的端到端验证
+### Step 10.2：Scripted runner 写文件的端到端验证
 
-要写的东西：把 Group 9 的 fake runner 扩展出 `write_file` 行为，串联 Group 10.1 的 ingest 端点。
+要写的东西：把 Group 9 的 scripted runner 扩展出 `write_file` 行为，串联 Group 10.1 的 ingest 端点。
 
 怎么测：[testing-strategy.md §4.7](./testing-strategy.md#47-files) integration 13-15。
 
-验收标准：fake runner 写的文件刷新后仍可读（从 DB 而不是从沙箱内存）。
+验收标准：scripted runner 写的文件刷新后仍可读（从 DB 而不是从沙箱内存）。
 
 停下来确认。
 
@@ -427,7 +427,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 验收标准：source 能被 artifact 引用，查询正常。
 
-停下来确认。这个 Group 完成后，对应原 roadmap 到 Phase 11 为止的全部内容已经用 fake runner 验证完毕，下一步开始接真实基础设施（Redis token 流、真实 LLM）。
+停下来确认。这个 Group 完成后，对应原 roadmap 到 Phase 11 为止的全部内容已经用 scripted runner 验证完毕，下一步开始接真实基础设施（Redis token 流、真实 LLM）。
 
 ---
 

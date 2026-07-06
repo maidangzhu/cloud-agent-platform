@@ -507,9 +507,9 @@ POST /api/ingest/heartbeat
 - sandbox name generation。
 - create/resume sandbox integration。
 - upload runner files or bootstrap command。
-- start fake runner in sandbox。
-- fake runner reports events through ingest。
-- fake runner completes run。
+- start scripted runner in sandbox。
+- scripted runner reports events through ingest。
+- scripted runner completes run。
 
 Sandbox runner input：
 
@@ -529,7 +529,7 @@ Sandbox runner input：
 
 - 测试证明 loop process 确实在 sandbox 内运行。
 - Control Plane 只通过 ingest 观察。
-- SSE 显示 fake runner events。
+- SSE 显示 scripted runner events。
 
 ### Phase 9：Workspace File Ingest
 
@@ -558,7 +558,7 @@ POST /api/workspaces/:workspaceId/files/upload-url
 
 验收：
 
-- fake sandbox runner 写文件并 ingest。
+- scripted sandbox runner 写文件并 ingest。
 - API 可以 list/read 文件。
 - path traversal 被拒绝。
 
@@ -656,7 +656,7 @@ POST /api/llm-proxy
 
 目标：
 
-用真实 research agent loop 替换 fake runner。
+用真实 research agent loop 替换 scripted runner。
 
 先写测试：
 
