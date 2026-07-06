@@ -14,6 +14,7 @@ import { deriveUiState } from "./derive-ui-state";
 import { isTerminalStatus, type RunStatus } from "./transitions";
 import { toArtifactDTO } from "../artifacts/store";
 import { toSourceDTO } from "../sources/store";
+import { readRunStream, type RunStreamEntry } from "../redis/streams";
 
 type RunDTO = {
   id: string;
@@ -82,8 +83,16 @@ type RunEventDTO = {
   createdAt: string;
 };
 
+type StreamChunkDTO = {
+  runId: string;
+  streamType: RunStreamEntry["streamType"];
+  chunk: string;
+};
+
 const SSE_POLL_INTERVAL_MS = 100;
 const SSE_PING_INTERVAL_MS = 15_000;
+const SSE_STREAM_READ_COUNT = 100;
+const SSE_STREAM_DRAIN_MAX_BATCHES = 20;
 
 function toEventDTO(row: {
   seq: number;
@@ -103,6 +112,19 @@ function toEventDTO(row: {
     payload: row.raw ?? null,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+function toStreamChunkDTO(runId: string, entry: RunStreamEntry): StreamChunkDTO {
+  return {
+    runId,
+    streamType: entry.streamType,
+    chunk: entry.chunk,
+  };
+}
+
+function streamCursorFromLastEventId(value: string | undefined): string {
+  const cursor = value?.trim();
+  return cursor && /^\d+-\d+$/.test(cursor) ? cursor : "0";
 }
 
 function parseWaitingForInputPayload(
@@ -234,14 +256,43 @@ runRoutes.get("/api/runs/:runId/events", async (c) => {
     return c.json({ code: 1004, message: "not found", data: null }, 404);
   }
 
+  const initialStreamCursor = streamCursorFromLastEventId(
+    c.req.header("Last-Event-ID"),
+  );
+
   return streamSSE(c, async (stream) => {
     const [snapshotEvents, waitingForInput] = await Promise.all([
       prisma.runEvent.findMany({ where: { runId }, orderBy: { seq: "asc" } }),
       getWaitingForInput(runId),
     ]);
     let lastSeq = snapshotEvents.at(-1)?.seq ?? 0;
+    let streamCursor = initialStreamCursor;
     let currentRun = run;
     let currentStatus = currentRun.status as RunStatus;
+
+    const forwardStreamEntries = async (entries: RunStreamEntry[]) => {
+      for (const entry of entries) {
+        streamCursor = entry.id;
+        await stream.writeSSE({
+          id: entry.id,
+          event: "stream_chunk",
+          data: JSON.stringify(toStreamChunkDTO(runId, entry)),
+        });
+      }
+    };
+
+    const drainAvailableStreamEntries = async () => {
+      for (let i = 0; i < SSE_STREAM_DRAIN_MAX_BATCHES; i += 1) {
+        const entries = await readRunStream({
+          runId,
+          cursor: streamCursor,
+          blockMs: 1,
+          count: SSE_STREAM_READ_COUNT,
+        });
+        await forwardStreamEntries(entries);
+        if (entries.length < SSE_STREAM_READ_COUNT) return;
+      }
+    };
 
     await stream.writeSSE({
       event: "snapshot",
@@ -250,6 +301,8 @@ runRoutes.get("/api/runs/:runId/events", async (c) => {
         events: snapshotEvents.map(toEventDTO),
       }),
     });
+
+    await drainAvailableStreamEntries();
 
     if (shouldCloseSse(currentStatus)) {
       await stream.writeSSE({
@@ -261,23 +314,28 @@ runRoutes.get("/api/runs/:runId/events", async (c) => {
 
     let lastPingAt = Date.now();
     while (!stream.aborted && !c.req.raw.signal.aborted) {
-      await stream.sleep(SSE_POLL_INTERVAL_MS);
-
-      const [freshRun, newEvents] = await Promise.all([
+      const [freshRun, newEvents, streamEntries] = await Promise.all([
         prisma.agentRun.findUnique({ where: { id: runId } }),
         prisma.runEvent.findMany({
           where: { runId, seq: { gt: lastSeq } },
           orderBy: { seq: "asc" },
+        }),
+        readRunStream({
+          runId,
+          cursor: streamCursor,
+          blockMs: SSE_POLL_INTERVAL_MS,
+          count: SSE_STREAM_READ_COUNT,
         }),
       ]);
       if (!freshRun) return;
       currentRun = freshRun;
       currentStatus = currentRun.status as RunStatus;
 
+      await forwardStreamEntries(streamEntries);
+
       for (const event of newEvents) {
         lastSeq = event.seq;
         await stream.writeSSE({
-          id: String(event.seq),
           event: event.type,
           data: JSON.stringify(toEventDTO(event)),
         });

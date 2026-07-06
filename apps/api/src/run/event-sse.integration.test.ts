@@ -2,13 +2,16 @@ import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
 import { createApp } from "../app";
 import { insertRunEvent } from "./event-store";
+import { issueRunToken } from "./run-token";
+import { deleteRunStream, disconnectRedis } from "../redis/streams";
 
 // 连真实 Neon Postgres + 真实 Better Auth，不 mock。对应
-// docs/testing-strategy.md §4.5 SSE 22-25、28。业务事实事件通过
+// docs/testing-strategy.md §4.5 SSE 22-28。业务事实事件通过
 // Step 6.4 的测试 helper 直接写 RunEvent，不走真实 ingest HTTP 端点
-// （Group 8 才实现）。
+// （Group 8 才实现）；stream chunk 走真实 HTTP ingest + Redis Streams。
 const HAS_DB = !!process.env.DATABASE_URL;
 const HAS_SECRET = !!process.env.BETTER_AUTH_SECRET;
+const HAS_REDIS = !!process.env.REDIS_URL;
 
 type SseRecord = {
   event?: string;
@@ -79,6 +82,7 @@ async function readSseUntil(
       if (record) {
         records.push(record);
         if (predicate(record)) {
+          await reader.cancel().catch(() => undefined);
           return { records, matched: record };
         }
       }
@@ -91,16 +95,21 @@ async function readSseUntil(
   );
 }
 
-describe.skipIf(!HAS_DB || !HAS_SECRET)(
-  "Run events SSE（真实 Neon + Better Auth，见 Step 6.5）",
+describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_REDIS)(
+  "Run events SSE（真实 Neon + Better Auth + Redis Streams，见 Step 13.2）",
   () => {
     const app = createApp();
     const userEmail = `it-sse-${Date.now()}@example.com`;
     let cookie = "";
     let workspaceId = "";
     let threadId = "";
+    const runIds: string[] = [];
 
     afterAll(async () => {
+      for (const runId of runIds) {
+        await deleteRunStream(runId).catch(() => undefined);
+      }
+
       const workspaces = await prisma.workspace.findMany({
         where: { title: { startsWith: "IT-SseWs-" } },
       });
@@ -133,6 +142,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         });
       }
       await prisma.user.deleteMany({ where: { email: userEmail } });
+      await disconnectRedis();
       await prisma.$disconnect();
     });
 
@@ -143,7 +153,37 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         body: JSON.stringify({ prompt }),
       });
       expect(res.status).toBe(200);
-      return (await res.json()).data.run.id;
+      const runId = (await res.json()).data.run.id as string;
+      runIds.push(runId);
+      return runId;
+    }
+
+    async function tokenFor(runId: string): Promise<string> {
+      const run = await prisma.agentRun.findUniqueOrThrow({
+        where: { id: runId },
+      });
+      return issueRunToken({
+        userId: run.userId,
+        workspaceId: run.workspaceId,
+        threadId: run.threadId,
+        runId: run.id,
+      });
+    }
+
+    async function postStreamChunk(
+      runId: string,
+      body: { chunk: string; streamType: "thinking" | "content" },
+    ): Promise<string> {
+      const res = await app.request("/api/ingest/stream-chunk", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${await tokenFor(runId)}`,
+        },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(200);
+      return (await res.json()).data.streamEntryId as string;
     }
 
     it("准备：注册用户，建 workspace + thread", async () => {
@@ -243,7 +283,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       );
       const matched = records.find((record) => record.event === "run_created");
 
-      expect(matched?.id).toBe("1");
+      expect(matched?.id).toBeUndefined();
       expect(JSON.parse(matched?.data ?? "{}").seq).toBe(1);
     });
 
@@ -298,33 +338,117 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
 
     it('new connection without Last-Event-ID reads full stream from start (cursor "0")', async () => {
       const runId = await createRun("full stream from start check");
-      await insertRunEvent({
-        runId,
-        seq: 1,
-        type: "run_created",
-        payload: null,
-      });
-      await insertRunEvent({
-        runId,
-        seq: 2,
-        type: "agent_started",
-        payload: null,
-      });
       await prisma.agentRun.update({
         where: { id: runId },
-        data: { status: "completed" },
+        data: { status: "running" },
+      });
+      const id1 = await postStreamChunk(runId, {
+        chunk: "race-A",
+        streamType: "thinking",
+      });
+      const id2 = await postStreamChunk(runId, {
+        chunk: "race-B",
+        streamType: "content",
       });
 
       const res = await app.request(`/api/runs/${runId}/events`, {
         headers: { cookie },
       });
 
-      const records = parseSseRecords(await res.text());
-      const snapshot = JSON.parse(
-        records.find((record) => record.event === "snapshot")?.data ?? "{}",
+      const { records } = await readSseUntil(
+        res,
+        (record) =>
+          record.event === "stream_chunk" &&
+          JSON.parse(record.data).chunk === "race-B",
       );
-      expect(snapshot.events.map((event: { seq: number }) => event.seq)).toEqual(
-        [1, 2],
+      const chunks = records.filter((record) => record.event === "stream_chunk");
+      expect(chunks.map((record) => record.id)).toEqual([id1, id2]);
+      expect(chunks.map((record) => JSON.parse(record.data).chunk)).toEqual([
+        "race-A",
+        "race-B",
+      ]);
+    });
+
+    it("reconnect with Last-Event-ID resumes from correct cursor, no duplicate delivery", async () => {
+      const runId = await createRun("last event id no duplicate check");
+      await prisma.agentRun.update({
+        where: { id: runId },
+        data: { status: "running" },
+      });
+      const id1 = await postStreamChunk(runId, {
+        chunk: "cursor-A",
+        streamType: "thinking",
+      });
+      const id2 = await postStreamChunk(runId, {
+        chunk: "cursor-B",
+        streamType: "thinking",
+      });
+      const id3 = await postStreamChunk(runId, {
+        chunk: "cursor-C",
+        streamType: "content",
+      });
+
+      const res = await app.request(`/api/runs/${runId}/events`, {
+        headers: { cookie, "Last-Event-ID": id2 },
+      });
+
+      const { records } = await readSseUntil(
+        res,
+        (record) =>
+          record.event === "stream_chunk" &&
+          JSON.parse(record.data).chunk === "cursor-C",
+      );
+      const chunks = records.filter((record) => record.event === "stream_chunk");
+      expect(chunks.map((record) => record.id)).toEqual([id3]);
+      expect(chunks.map((record) => record.id)).not.toContain(id1);
+      expect(chunks.map((record) => record.id)).not.toContain(id2);
+    });
+
+    it("reconnect with Last-Event-ID resumes through reconnect gap, no lost chunk", async () => {
+      const runId = await createRun("last event id no lost chunk check");
+      await prisma.agentRun.update({
+        where: { id: runId },
+        data: { status: "running" },
+      });
+
+      const firstRes = await app.request(`/api/runs/${runId}/events`, {
+        headers: { cookie },
+      });
+      const liveId = await postStreamChunk(runId, {
+        chunk: "live-before-disconnect",
+        streamType: "thinking",
+      });
+      const firstRead = await readSseUntil(
+        firstRes,
+        (record) =>
+          record.event === "stream_chunk" &&
+          JSON.parse(record.data).chunk === "live-before-disconnect",
+      );
+      expect(firstRead.matched.id).toBe(liveId);
+
+      const gapId1 = await postStreamChunk(runId, {
+        chunk: "gap-A",
+        streamType: "thinking",
+      });
+      const gapId2 = await postStreamChunk(runId, {
+        chunk: "gap-B",
+        streamType: "content",
+      });
+
+      const reconnectRes = await app.request(`/api/runs/${runId}/events`, {
+        headers: { cookie, "Last-Event-ID": liveId },
+      });
+
+      const { records } = await readSseUntil(
+        reconnectRes,
+        (record) =>
+          record.event === "stream_chunk" &&
+          JSON.parse(record.data).chunk === "gap-B",
+      );
+      const chunks = records.filter((record) => record.event === "stream_chunk");
+      expect(chunks.map((record) => record.id)).toEqual([gapId1, gapId2]);
+      expect(chunks.map((record) => JSON.parse(record.data).chunk)).toEqual(
+        ["gap-A", "gap-B"],
       );
     });
   },

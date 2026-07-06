@@ -1,4 +1,6 @@
 import Redis from "ioredis";
+import { prisma } from "@cap/db";
+import { TERMINAL_RUN_STATUSES } from "../run/transitions";
 
 export type StreamChunkType = "thinking" | "content";
 
@@ -10,6 +12,8 @@ export type RunStreamEntry = {
 
 const DEFAULT_MAXLEN = 1000;
 const DEFAULT_TTL_SECONDS = 60 * 60;
+const DEFAULT_CLEANUP_GRACE_MS = 60 * 60 * 1000;
+const DEFAULT_CLEANUP_BATCH_SIZE = 100;
 
 let redis: Redis | null = null;
 
@@ -86,6 +90,35 @@ export async function readRunStream(params: {
 
 export async function deleteRunStream(runId: string): Promise<void> {
   await getRedisClient().del(runStreamKey(runId));
+}
+
+export async function cleanupExpiredRunStreams(params: {
+  now?: Date;
+  graceMs?: number;
+  batchSize?: number;
+  runIds?: string[];
+} = {}): Promise<{ scanned: number; deleted: number; runIds: string[] }> {
+  const now = params.now ?? new Date();
+  const graceMs = params.graceMs ?? DEFAULT_CLEANUP_GRACE_MS;
+  const cutoff = new Date(now.getTime() - graceMs);
+
+  const expiredRuns = await prisma.agentRun.findMany({
+    where: {
+      status: { in: [...TERMINAL_RUN_STATUSES] },
+      completedAt: { lte: cutoff },
+      ...(params.runIds ? { id: { in: params.runIds } } : {}),
+    },
+    orderBy: { completedAt: "asc" },
+    take: params.batchSize ?? DEFAULT_CLEANUP_BATCH_SIZE,
+    select: { id: true },
+  });
+  const runIds = expiredRuns.map((run) => run.id);
+  if (runIds.length === 0) {
+    return { scanned: 0, deleted: 0, runIds: [] };
+  }
+
+  const deleted = await getRedisClient().del(...runIds.map(runStreamKey));
+  return { scanned: runIds.length, deleted, runIds };
 }
 
 function parseRunStreamEntry(id: string, fields: string[]): RunStreamEntry {
