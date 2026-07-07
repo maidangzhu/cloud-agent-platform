@@ -2,7 +2,7 @@
 
 ## 1. 目标
 
-下一版前端以 `/Users/zhujianye/maidang/references/vercel-chatbot` 作为主要 UI 参考。
+下一版前端以 `<reference-root>/vercel-chatbot` 作为主要 UI 参考。
 
 参考范围：
 
@@ -23,17 +23,17 @@
 关键参考文件：
 
 ```text
-/Users/zhujianye/maidang/references/vercel-chatbot/components/chat/artifact.tsx
-/Users/zhujianye/maidang/references/vercel-chatbot/hooks/use-artifact.ts
-/Users/zhujianye/maidang/references/vercel-chatbot/components/chat/document.tsx
-/Users/zhujianye/maidang/references/vercel-chatbot/components/chat/document-preview.tsx
-/Users/zhujianye/maidang/references/vercel-chatbot/components/chat/artifact-actions.tsx
-/Users/zhujianye/maidang/references/vercel-chatbot/components/chat/version-footer.tsx
-/Users/zhujianye/maidang/references/vercel-chatbot/artifacts/text/client.tsx
-/Users/zhujianye/maidang/references/vercel-chatbot/components/chat/app-sidebar.tsx
-/Users/zhujianye/maidang/references/vercel-chatbot/components/chat/sidebar-history.tsx
-/Users/zhujianye/maidang/references/vercel-chatbot/components/ui/sidebar.tsx
-/Users/zhujianye/maidang/references/vercel-chatbot/app/globals.css
+<reference-root>/vercel-chatbot/components/chat/artifact.tsx
+<reference-root>/vercel-chatbot/hooks/use-artifact.ts
+<reference-root>/vercel-chatbot/components/chat/document.tsx
+<reference-root>/vercel-chatbot/components/chat/document-preview.tsx
+<reference-root>/vercel-chatbot/components/chat/artifact-actions.tsx
+<reference-root>/vercel-chatbot/components/chat/version-footer.tsx
+<reference-root>/vercel-chatbot/artifacts/text/client.tsx
+<reference-root>/vercel-chatbot/components/chat/app-sidebar.tsx
+<reference-root>/vercel-chatbot/components/chat/sidebar-history.tsx
+<reference-root>/vercel-chatbot/components/ui/sidebar.tsx
+<reference-root>/vercel-chatbot/app/globals.css
 ```
 
 可借鉴依赖：
@@ -606,4 +606,3 @@ CodeMirror、ProseMirror、react-data-grid、图片工具等，等对应 artifac
 - 不要混淆 workspace files 和 artifacts。
 - 可用 workspace shell 优先，不要先做 landing page。
 - 组件命名要对齐领域：workspace、thread、run、artifact。
-
