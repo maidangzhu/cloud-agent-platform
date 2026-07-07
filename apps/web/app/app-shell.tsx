@@ -1,34 +1,72 @@
 "use client";
 
-import {
-  FileText,
-  Fullscreen,
-  Loader2,
-  PanelRightOpen,
-  Plus,
-  Search,
-  Send,
-  Square,
-} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { ResearchShell } from "@/components/research/research-shell";
 import { ResearchSidebar } from "@/components/research/research-sidebar";
 import type {
+  AgentRun,
   CurrentUser,
   LoadState,
+  RunArtifact,
+  RunSource,
+  RunStatus,
   Thread,
+  ThreadMessage,
   Workspace,
 } from "@/components/research/types";
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
+import type {
+  RunEventDTO,
+  RunEventType,
+  StreamChunkDTO,
+} from "@/components/research/run-events";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 type ApiEnvelope<T> = {
   code: number;
   message: string;
   data: T | null;
 };
+
+type ThreadSnapshot = {
+  thread: Thread;
+  messages: ThreadMessage[];
+  runs?: AgentRun[];
+};
+
+type RunSnapshot = {
+  run: AgentRun;
+  events: RunEventDTO[];
+  toolCalls: unknown[];
+  artifacts: RunArtifact[];
+  sources: RunSource[];
+};
+
+type ClientStreamChunk = StreamChunkDTO & { id: string };
+
+const RUN_EVENT_TYPES: RunEventType[] = [
+  "run_created",
+  "sandbox_provisioning",
+  "sandbox_ready",
+  "runner_started",
+  "agent_started",
+  "agent_thinking",
+  "agent_message",
+  "tool_call_started",
+  "tool_call_completed",
+  "tool_call_failed",
+  "file_written",
+  "source_recorded",
+  "artifact_started",
+  "artifact_delta",
+  "artifact_created",
+  "artifact_updated",
+  "artifact_failed",
+  "run_completed",
+  "run_failed",
+  "run_timeout",
+  "run_cancelled",
+  "run_waiting_for_input",
+];
 
 export function AppShell() {
   const [state, setState] = useState<LoadState>("idle");
@@ -42,6 +80,15 @@ export function AppShell() {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
+  const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>([]);
+  const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
+  const [runEvents, setRunEvents] = useState<RunEventDTO[]>([]);
+  const [streamChunks, setStreamChunks] = useState<ClientStreamChunk[]>([]);
+  const [runArtifacts, setRunArtifacts] = useState<RunArtifact[]>([]);
+  const [runSources, setRunSources] = useState<RunSource[]>([]);
+  const [runError, setRunError] = useState("");
+  const [isStartingRun, setIsStartingRun] = useState(false);
+  const [isCancellingRun, setIsCancellingRun] = useState(false);
 
   async function loadWorkspaceSnapshot(nextWorkspaceId?: string | null) {
     setState("loading");
@@ -52,6 +99,9 @@ export function AppShell() {
         setUser(null);
         setWorkspaces([]);
         setThreads([]);
+        setActiveWorkspaceId(null);
+        setActiveThreadId(null);
+        clearThreadRunState();
         setState("unauthorized");
         return;
       }
@@ -79,6 +129,7 @@ export function AppShell() {
       if (!selectedWorkspaceId) {
         setThreads([]);
         setActiveThreadId(null);
+        clearThreadRunState();
         setState("ready");
         return;
       }
@@ -106,9 +157,87 @@ export function AppShell() {
 
   useEffect(() => {
     void loadWorkspaceSnapshot();
-    // Initial snapshot only. Later steps will move this into a shared data hook.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!activeThreadId) {
+      clearThreadRunState();
+      return;
+    }
+    clearThreadRunState();
+    void loadThreadSnapshot(activeThreadId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    if (!activeRun || isTerminalRunStatus(activeRun.status)) {
+      return;
+    }
+
+    const source = new EventSource(`/api/runs/${activeRun.id}/events`, {
+      withCredentials: true,
+    });
+
+    source.addEventListener("snapshot", (message) => {
+      const snapshot = parseSseData<{
+        run: AgentRun;
+        events: RunEventDTO[];
+      }>(message);
+      if (!snapshot) {
+        return;
+      }
+      setActiveRun(snapshot.run);
+      setRunEvents(snapshot.events);
+      setStreamChunks([]);
+      setRunError("");
+    });
+
+    source.addEventListener("stream_chunk", (message) => {
+      const chunk = parseSseData<StreamChunkDTO>(message);
+      if (!chunk) {
+        return;
+      }
+      const id = message.lastEventId || `${Date.now()}-${Math.random()}`;
+      setStreamChunks((current) =>
+        current.some((item) => item.id === id)
+          ? current
+          : [...current, { ...chunk, id }]
+      );
+    });
+
+    for (const type of RUN_EVENT_TYPES) {
+      source.addEventListener(type, (message) => {
+        const event = parseSseData<RunEventDTO>(message);
+        if (!event) {
+          return;
+        }
+        setRunEvents((current) => mergeRunEvents(current, [event]));
+      });
+    }
+
+    source.addEventListener("done", (message) => {
+      const done = parseSseData<{ runId: string; status: RunStatus }>(message);
+      if (done?.runId === activeRun.id) {
+        setActiveRun((current) =>
+          current && current.id === done.runId
+            ? { ...current, status: done.status }
+            : current
+        );
+        void loadRunSnapshot(done.runId);
+      }
+      source.close();
+    });
+
+    source.addEventListener("error", () => {
+      if (!isTerminalRunStatus(activeRun.status)) {
+        setRunError("Live event stream disconnected; showing last snapshot.");
+      }
+    });
+
+    return () => source.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRun?.id, activeRun?.status]);
 
   const activeWorkspace = useMemo(
     () =>
@@ -162,6 +291,112 @@ export function AppShell() {
     }
   }
 
+  function clearThreadRunState() {
+    setThreadMessages([]);
+    setActiveRun(null);
+    setRunEvents([]);
+    setStreamChunks([]);
+    setRunArtifacts([]);
+    setRunSources([]);
+    setRunError("");
+  }
+
+  async function loadThreadSnapshot(threadId: string) {
+    setRunError("");
+    try {
+      const result = await apiGet<ThreadSnapshot>(`/api/threads/${threadId}`);
+      if (!result.ok) {
+        throw new Error(result.message);
+      }
+      setThreadMessages(result.data.messages);
+
+      const latestRunId =
+        [...result.data.messages].reverse().find((message) => message.runId)
+          ?.runId ??
+        result.data.runs?.[0]?.id ??
+        readStoredRunId(threadId);
+
+      if (latestRunId) {
+        await loadRunSnapshot(latestRunId);
+      } else {
+        setActiveRun(null);
+        setRunEvents([]);
+        setStreamChunks([]);
+        setRunArtifacts([]);
+        setRunSources([]);
+      }
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function loadRunSnapshot(runId: string) {
+    const result = await apiGet<RunSnapshot>(`/api/runs/${runId}`);
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+    setActiveRun(result.data.run);
+    setRunEvents(result.data.events);
+    setRunArtifacts(result.data.artifacts);
+    setRunSources(result.data.sources);
+    setRunError("");
+    storeRunId(result.data.run.threadId, result.data.run.id);
+  }
+
+  async function startRun(prompt: string) {
+    if (!activeThreadId) {
+      setRunError("Select or create a thread before starting a run.");
+      return false;
+    }
+    setIsStartingRun(true);
+    setRunError("");
+    try {
+      const result = await apiPost<{ run: AgentRun }>(
+        `/api/threads/${activeThreadId}/runs`,
+        { prompt }
+      );
+      if (!result.ok) {
+        throw new Error(result.message);
+      }
+      setActiveRun(result.data.run);
+      setRunEvents([]);
+      setStreamChunks([]);
+      setRunArtifacts([]);
+      setRunSources([]);
+      storeRunId(activeThreadId, result.data.run.id);
+      await loadRunSnapshot(result.data.run.id);
+      return true;
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : String(err));
+      return false;
+    } finally {
+      setIsStartingRun(false);
+    }
+  }
+
+  async function cancelRun() {
+    if (!activeRun) {
+      return;
+    }
+    setIsCancellingRun(true);
+    setRunError("");
+    try {
+      const result = await apiPost<{ run: AgentRun }>(
+        `/api/runs/${activeRun.id}/cancel`,
+        {}
+      );
+      if (!result.ok) {
+        throw new Error(result.message);
+      }
+      setActiveRun(result.data.run);
+      await loadRunSnapshot(result.data.run.id);
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsCancellingRun(false);
+    }
+  }
+
   return (
     <SidebarProvider>
       <ResearchSidebar
@@ -183,347 +418,84 @@ export function AppShell() {
         workspaces={workspaces}
       />
 
-      <SidebarInset className="h-dvh overflow-hidden">
-        <header className="sticky top-0 flex h-14 shrink-0 items-center justify-between gap-2 bg-sidebar px-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <SidebarTrigger className="md:hidden" />
-            <div className="min-w-0">
-              <div className="truncate text-[13px] font-medium">
-                {activeWorkspace?.title ?? "Research workspace"}
-              </div>
-              <div className="truncate text-xs text-muted-foreground">
-                {activeThread?.title ?? headerSubtitle(state)}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <StatusPill state={state} />
-            <button
-              aria-label="Open artifact panel"
-              className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground xl:hidden"
-              type="button"
-            >
-              <PanelRightOpen className="size-4" />
-            </button>
-          </div>
-        </header>
-
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background md:rounded-tl-[12px] md:border-l md:border-t md:border-border/40">
-          <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(360px,42vw)]">
-            <ConversationSurface
-              activeThread={activeThread}
-              activeWorkspace={activeWorkspace}
-              error={error}
-              loadState={state}
-              onCreateThread={createThread}
-              onCreateWorkspace={createWorkspace}
-              user={user}
-            />
-            <ArtifactSurface />
-          </div>
-        </div>
+      <SidebarInset>
+        <ResearchShell
+          activeThread={activeThread}
+          activeWorkspace={activeWorkspace}
+          error={error}
+          isCancellingRun={isCancellingRun}
+          isStartingRun={isStartingRun}
+          loadState={state}
+          onCancelRun={cancelRun}
+          onCreateThread={createThread}
+          onCreateWorkspace={createWorkspace}
+          onStartRun={startRun}
+          run={activeRun}
+          runArtifacts={runArtifacts}
+          runError={runError}
+          runEvents={runEvents}
+          runSources={runSources}
+          streamChunks={streamChunks}
+          threadMessages={threadMessages}
+          user={user}
+        />
       </SidebarInset>
     </SidebarProvider>
   );
 }
 
-function ConversationSurface(props: {
-  activeWorkspace: Workspace | null;
-  activeThread: Thread | null;
-  error: string;
-  loadState: LoadState;
-  onCreateWorkspace: () => void;
-  onCreateThread: () => void;
-  user: CurrentUser | null;
-}) {
-  return (
-    <section className="relative flex min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-8">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-          <SystemBanner {...props} />
-          {props.activeThread ? (
-            <ThreadPreview
-              thread={props.activeThread}
-              workspace={props.activeWorkspace}
-            />
-          ) : (
-            <EmptyThreadState
-              activeWorkspace={props.activeWorkspace}
-              onCreateThread={props.onCreateThread}
-              onCreateWorkspace={props.onCreateWorkspace}
-            />
-          )}
-        </div>
-      </div>
+function parseSseData<T>(message: Event): T | null {
+  const data = (message as MessageEvent).data;
+  if (typeof data !== "string") {
+    return null;
+  }
+  try {
+    return JSON.parse(data) as T;
+  } catch {
+    return null;
+  }
+}
 
-      <div className="shrink-0 px-3 pb-3 md:px-4 md:pb-4">
-        <form className="mx-auto w-full max-w-3xl">
-          <div className="rounded-2xl border border-border bg-card p-2 shadow-[var(--shadow-composer)] transition-shadow focus-within:shadow-[var(--shadow-composer-focus)]">
-            <label className="sr-only" htmlFor="composer">
-              Message
-            </label>
-            <textarea
-              className="max-h-40 min-h-14 w-full resize-none bg-transparent px-2 py-2 text-[13px] leading-6 outline-none placeholder:text-muted-foreground"
-              disabled
-              id="composer"
-              placeholder="Ask what to research next..."
-              rows={2}
-            />
-            <div className="flex items-center justify-between gap-2 px-1 pb-1">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="rounded-md border border-border px-2 py-1">
-                  research-default
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  aria-label="Cancel run"
-                  className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
-                  disabled
-                  type="button"
-                >
-                  <Square className="size-4" />
-                </button>
-                <button
-                  aria-label="Send message"
-                  className="inline-flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
-                  disabled
-                  type="button"
-                >
-                  <Send className="size-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </form>
-      </div>
-    </section>
+function mergeRunEvents(current: RunEventDTO[], incoming: RunEventDTO[]) {
+  const bySeq = new Map<number, RunEventDTO>();
+  for (const event of current) {
+    bySeq.set(event.seq, event);
+  }
+  for (const event of incoming) {
+    bySeq.set(event.seq, event);
+  }
+  return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+}
+
+function isTerminalRunStatus(status: RunStatus) {
+  return (
+    status === "completed" ||
+    status === "failed" ||
+    status === "timeout" ||
+    status === "cancelled" ||
+    status === "interrupted" ||
+    status === "waiting_for_input"
   );
 }
 
-function SystemBanner(props: {
-  error: string;
-  loadState: LoadState;
-  user: CurrentUser | null;
-}) {
-  if (props.loadState === "unauthorized") {
-    return (
-      <div className="message-fade-in rounded-2xl border border-border/50 bg-card px-4 py-3 text-[13px] leading-6 shadow-[var(--shadow-card)]">
-        <div className="font-medium">Not signed in</div>
-        <p className="mt-1 text-muted-foreground">
-          Sign in through the API auth flow, then this shell will load your real
-          workspaces and threads.
-        </p>
-      </div>
-    );
-  }
-  if (props.loadState === "error") {
-    return (
-      <div className="message-fade-in rounded-2xl border border-destructive/30 bg-card px-4 py-3 text-[13px] leading-6 shadow-[var(--shadow-card)]">
-        <div className="font-medium text-destructive">API snapshot failed</div>
-        <p className="mt-1 text-muted-foreground">{props.error}</p>
-      </div>
-    );
-  }
-  if (props.loadState === "loading") {
-    return (
-      <div className="message-fade-in flex items-center gap-2 rounded-2xl border border-border/50 bg-card px-4 py-3 text-[13px] text-muted-foreground shadow-[var(--shadow-card)]">
-        <Loader2 className="size-4 animate-spin" />
-        Loading workspace snapshot
-      </div>
-    );
-  }
-  return null;
+function runStorageKey(threadId: string) {
+  return `research:last-run:${threadId}`;
 }
 
-function EmptyThreadState(props: {
-  activeWorkspace: Workspace | null;
-  onCreateWorkspace: () => void;
-  onCreateThread: () => void;
-}) {
-  return (
-    <div className="message-fade-in rounded-2xl border border-border/50 bg-card p-5 shadow-[var(--shadow-card)]">
-      <div className="text-sm font-medium">
-        {props.activeWorkspace ? "No thread selected" : "No workspace selected"}
-      </div>
-      <p className="mt-1 max-w-xl text-[13px] leading-6 text-muted-foreground">
-        {props.activeWorkspace
-          ? "Create a thread in this workspace to start the research path."
-          : "Create a workspace first; threads and runs belong inside it."}
-      </p>
-      <div className="mt-4 flex gap-2">
-        {props.activeWorkspace ? (
-          <button
-            className="inline-flex h-8 items-center gap-2 rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground hover:bg-primary/90"
-            onClick={props.onCreateThread}
-            type="button"
-          >
-            <Plus className="size-4" />
-            New thread
-          </button>
-        ) : (
-          <button
-            className="inline-flex h-8 items-center gap-2 rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground hover:bg-primary/90"
-            onClick={props.onCreateWorkspace}
-            type="button"
-          >
-            <Plus className="size-4" />
-            New workspace
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ThreadPreview(props: {
-  thread: Thread;
-  workspace: Workspace | null;
-}) {
-  return (
-    <>
-      <div className="message-fade-in flex justify-end">
-        <div className="w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-2xl rounded-br-lg border border-border/30 bg-gradient-to-br from-secondary to-muted px-3.5 py-2 text-[13px] leading-[1.65] shadow-[var(--shadow-card)]">
-          {props.thread.title}
-        </div>
-      </div>
-
-      <div className="message-fade-in space-y-3">
-        <div className="w-fit max-w-[min(88%,62ch)] rounded-2xl border border-border/50 bg-card px-4 py-3 text-[13px] leading-6 shadow-[var(--shadow-card)]">
-          Workspace context is ready. Continue from the composer when this
-          thread is ready for the next run.
-        </div>
-        <ArtifactPreview />
-      </div>
-
-      <div className="message-fade-in grid gap-2">
-        {[
-          ["Workspace", props.workspace?.title ?? "Selected workspace"],
-          ["Thread", props.thread.title],
-          ["Status", props.thread.status],
-        ].map(([label, value]) => (
-          <div
-            className="flex max-w-[450px] items-center justify-between rounded-xl border border-border/50 bg-card px-3 py-2 text-[13px] shadow-[var(--shadow-card)]"
-            key={label}
-          >
-            <span className="text-muted-foreground">{label}</span>
-            <span className="min-w-0 truncate font-medium">{value}</span>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
-function ArtifactPreview() {
-  return (
-    <button
-      className="relative w-full max-w-[450px] cursor-pointer text-left transition-transform hover:-translate-y-px"
-      type="button"
-    >
-      <div className="absolute left-0 top-0 z-10 size-full rounded-xl">
-        <div className="flex w-full items-center justify-end p-4">
-          <div className="absolute right-[9px] top-[13px] rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-            <Fullscreen className="size-4" />
-          </div>
-        </div>
-      </div>
-      <div className="flex flex-row items-center justify-between gap-2 rounded-t-2xl border border-b-0 border-border/50 bg-card px-4 py-3">
-        <div className="flex min-w-0 flex-row items-center gap-2.5">
-          <FileText className="size-4 shrink-0 text-muted-foreground" />
-          <div className="truncate text-sm font-medium">Artifact preview</div>
-        </div>
-        <div className="w-8" />
-      </div>
-      <div className="h-[220px] overflow-hidden rounded-b-2xl border border-t-0 border-border/50 bg-muted p-6">
-        <div className="space-y-3">
-          <div className="h-4 w-2/3 rounded bg-muted-foreground/15" />
-          <div className="h-3 w-full rounded bg-muted-foreground/15" />
-          <div className="h-3 w-11/12 rounded bg-muted-foreground/15" />
-          <div className="h-3 w-4/5 rounded bg-muted-foreground/15" />
-          <div className="mt-5 h-20 rounded-xl border border-border/60 bg-background/70" />
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function ArtifactSurface() {
-  return (
-    <aside
-      className="hidden min-h-0 border-l border-border/70 bg-card xl:flex xl:flex-col"
-      data-testid="artifact"
-    >
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border/70 px-4">
-        <div className="min-w-0">
-          <div className="truncate text-[13px] font-medium">Artifact</div>
-          <div className="truncate text-xs text-muted-foreground">
-            Preview surface
-          </div>
-        </div>
-        <button
-          aria-label="Search artifact"
-          className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          type="button"
-        >
-          <Search className="size-4" />
-        </button>
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        <article className="mx-auto max-w-2xl space-y-5 text-[13px] leading-6">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-[-0.025em]">
-              Artifact preview
-            </h1>
-            <p className="mt-2 text-muted-foreground">
-              Generated reports open here without replacing the conversation.
-            </p>
-          </div>
-          <div className="rounded-2xl border border-border/50 bg-background p-4 shadow-[var(--shadow-card)]">
-            <div className="mb-3 flex items-center gap-2 text-sm font-medium">
-              <FileText className="size-4 text-muted-foreground" />
-              Latest report
-            </div>
-            <div className="space-y-2 text-muted-foreground">
-              <p>Overview, source trail, and version history will appear here.</p>
-              <p>The conversation remains available while artifacts stay open.</p>
-            </div>
-          </div>
-        </article>
-      </div>
-    </aside>
-  );
-}
-
-function StatusPill({ state }: { state: LoadState }) {
-  const label =
-    state === "ready"
-      ? "snapshot"
-      : state === "loading"
-        ? "loading"
-        : state === "unauthorized"
-          ? "signed out"
-          : state === "error"
-            ? "error"
-            : "idle";
-  return (
-    <span className="hidden rounded-lg border border-border/70 px-2 py-1 text-xs text-muted-foreground sm:inline-flex">
-      {label}
-    </span>
-  );
-}
-
-function headerSubtitle(state: LoadState) {
-  if (state === "loading") {
-    return "Loading workspace snapshot";
+function readStoredRunId(threadId: string) {
+  try {
+    return window.localStorage.getItem(runStorageKey(threadId));
+  } catch {
+    return null;
   }
-  if (state === "unauthorized") {
-    return "Not signed in";
+}
+
+function storeRunId(threadId: string, runId: string) {
+  try {
+    window.localStorage.setItem(runStorageKey(threadId), runId);
+  } catch {
+    // Ignore storage failures; server snapshots remain authoritative.
   }
-  if (state === "error") {
-    return "API unavailable";
-  }
-  return "Select or create a thread";
 }
 
 async function apiGet<T>(path: string) {

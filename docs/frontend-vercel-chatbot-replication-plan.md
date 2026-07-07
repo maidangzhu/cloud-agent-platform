@@ -206,6 +206,19 @@ Wire snapshot, creation, run start/cancel, and SSE resume. Acceptance:
 workspace/thread/run create flows work, refresh restores from snapshot, and SSE
 resume avoids duplicate/lost chunks.
 
+Implementation note:
+
+- `apps/web` treats `GET /api/runs/:runId` as the authoritative run snapshot.
+- `GET /api/runs/:runId/events` accelerates display with SSE `snapshot`,
+  `stream_chunk`, event-type messages, `done`, and `ping`.
+- Run events are deduplicated by `seq`; stream chunks are deduplicated by Redis
+  stream id from `MessageEvent.lastEventId`.
+- `GET /api/threads/:threadId` exposes recent runs so refresh can choose the
+  latest run and then restore full authoritative data from `GET /api/runs/:runId`.
+- The browser still stores the last selected run id per thread in local storage
+  as a compatibility fallback for older or empty thread snapshots. This remains
+  a frontend recovery bridge, not mocked run content.
+
 ## Verification Required Per Step
 
 - `pnpm --dir apps/web typecheck`

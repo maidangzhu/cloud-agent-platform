@@ -4,6 +4,8 @@
 import { Hono } from "hono";
 import { prisma } from "@cap/db";
 import { requireUser } from "../require-user";
+import { deriveUiState } from "../run/derive-ui-state";
+import type { RunStatus } from "../run/transitions";
 import { createThreadIfWorkspaceActive } from "./create";
 import { deriveThreadTitle } from "./title";
 import { validateThreadTitle } from "./validation";
@@ -13,6 +15,21 @@ type ThreadDTO = {
   workspaceId: string;
   title: string;
   status: "active" | "archived";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type RunDTO = {
+  id: string;
+  workspaceId: string;
+  threadId: string;
+  status: RunStatus;
+  prompt: string;
+  derivedUiState: string;
+  startedAt?: string;
+  completedAt?: string;
+  lastHeartbeatAt?: string;
+  error?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -30,6 +47,43 @@ function toDTO(row: {
     workspaceId: row.workspaceId,
     title: row.title,
     status: row.status as "active" | "archived",
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toRunDTO(row: {
+  id: string;
+  workspaceId: string;
+  threadId: string;
+  status: string;
+  prompt: string;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  lastHeartbeatAt: Date | null;
+  error: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): RunDTO {
+  const status = row.status as RunStatus;
+  return {
+    id: row.id,
+    workspaceId: row.workspaceId,
+    threadId: row.threadId,
+    status,
+    prompt: row.prompt,
+    derivedUiState: deriveUiState(
+      status,
+      row.lastHeartbeatAt,
+      new Date(),
+      row.createdAt,
+    ),
+    ...(row.startedAt ? { startedAt: row.startedAt.toISOString() } : {}),
+    ...(row.completedAt ? { completedAt: row.completedAt.toISOString() } : {}),
+    ...(row.lastHeartbeatAt
+      ? { lastHeartbeatAt: row.lastHeartbeatAt.toISOString() }
+      : {}),
+    ...(row.error ? { error: row.error } : {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -109,10 +163,17 @@ threadRoutes.get("/api/threads/:threadId", async (c) => {
     return c.json({ code: 1004, message: "not found", data: null }, 404);
   }
 
-  const messages = await prisma.threadMessage.findMany({
-    where: { threadId },
-    orderBy: { createdAt: "asc" },
-  });
+  const [messages, runs] = await Promise.all([
+    prisma.threadMessage.findMany({
+      where: { threadId },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.agentRun.findMany({
+      where: { threadId },
+      orderBy: { updatedAt: "desc" },
+      take: 10,
+    }),
+  ]);
 
   return c.json({
     code: 0,
@@ -128,9 +189,7 @@ threadRoutes.get("/api/threads/:threadId", async (c) => {
         content: m.content,
         createdAt: m.createdAt.toISOString(),
       })),
-      // Run 表还没进入 CRUD 阶段（Group 6），thread detail 的 runs 暂时
-      // 固定为空数组，符合本 Step 验收标准。
-      runs: [],
+      runs: runs.map(toRunDTO),
     },
   });
 });

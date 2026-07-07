@@ -45,6 +45,15 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       });
       const workspaceIds = workspaces.map((w) => w.id);
       if (workspaceIds.length > 0) {
+        const threads = await prisma.thread.findMany({
+          where: { workspaceId: { in: workspaceIds } },
+        });
+        const threadIds = threads.map((t) => t.id);
+        if (threadIds.length > 0) {
+          await prisma.agentRun.deleteMany({
+            where: { threadId: { in: threadIds } },
+          });
+        }
         await prisma.thread.deleteMany({
           where: { workspaceId: { in: workspaceIds } },
         });
@@ -144,6 +153,17 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
     });
 
     it("read thread detail (includes messages and runs)", async () => {
+      const runRes = await app.request(
+        `/api/threads/${threadIdOwnedByA}/runs`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", cookie: cookieA },
+          body: JSON.stringify({ prompt: "restore this run from thread" }),
+        },
+      );
+      expect(runRes.status).toBe(200);
+      const createdRunId = (await runRes.json()).data.run.id;
+
       const res = await app.request(`/api/threads/${threadIdOwnedByA}`, {
         headers: { cookie: cookieA },
       });
@@ -154,7 +174,10 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(Array.isArray(body.data.messages)).toBe(true);
       expect(body.data.messages.length).toBe(0);
       expect(Array.isArray(body.data.runs)).toBe(true);
-      expect(body.data.runs.length).toBe(0);
+      expect(body.data.runs.length).toBeGreaterThanOrEqual(1);
+      expect(body.data.runs[0].id).toBe(createdRunId);
+      expect(body.data.runs[0].threadId).toBe(threadIdOwnedByA);
+      expect(body.data.runs[0].derivedUiState).toBe("idle");
     });
 
     it("update thread title", async () => {
