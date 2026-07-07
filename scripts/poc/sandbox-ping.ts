@@ -1,5 +1,4 @@
-// PoC 脚本：验证 v2 分支下 Vercel Sandbox 封装仍然可用（复用现有
-// src/server/sandbox/factory.ts，不重新发明——v1 已经跑通过这条路径）。
+// PoC 脚本：验证 v2 分支下 Vercel Sandbox 封装仍然可用。
 // 不是正式功能代码，跑完确认通了就可以删除或忽略。
 //
 // 用法：pnpm tsx scripts/poc/sandbox-ping.ts
@@ -26,10 +25,10 @@ for (const file of [".env", ".env.local"]) {
 
 async function main() {
   const { resolveVercelCredentials } = await import(
-    "../../src/server/sandbox/vercel-credentials"
+    "../../apps/api/src/sandbox/vercel-credentials"
   );
   const { getOrCreateSandbox } = await import(
-    "../../src/server/sandbox/factory"
+    "../../apps/api/src/sandbox/factory"
   );
 
   const creds = resolveVercelCredentials();

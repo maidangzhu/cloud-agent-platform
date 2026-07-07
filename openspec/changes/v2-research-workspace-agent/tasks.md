@@ -43,77 +43,84 @@
 - [x] 6.1 RunStatus 纯函数状态机（isLegalTransition + deriveUiState，不接数据库）
 - [x] 6.2 transitionRun 原子 UPDATE 封装（真实并发集成测试通过；踩坑：v2 Run model 与 v1 遗留 Run model 撞名，183 行生产数据 + 14 处活代码依赖，改名为 AgentRun 规避）
 - [x] 6.3 Run + AgentEvent 数据模型 + 创建/查询/取消路由（含 waiting_for_input 收尾逻辑；踩坑：v2 AgentEvent/ToolCall 与 v1 同名 model 撞名，改名为 RunEvent/RunToolCall 规避；用户明确表示 v1 旧数据不重要，此后撞名不再需要先证明数据量，直接换名或清空 v1 表即可）
-- [ ] 6.4 Event Store（seq 唯一性、幂等、payload schema 校验）
-- [ ] 6.5 SSE 基础（snapshot + 推送 + done，暂不接 stream-chunk）
+- [x] 6.4 Event Store（seq 唯一性、幂等、payload schema 校验）
+- [x] 6.5 SSE 基础（snapshot + 推送 + done，暂不接 stream-chunk）
 
 ## 7. Scoped Run Token
 
-- [ ] 7.1 Token 签发与校验（绑定 user/workspace/thread/run + 过期）
+- [x] 7.1 Token 签发与校验（绑定 user/workspace/thread/run + 过期）
 
 ## 8. Ingest API 基线
 
-- [ ] 8.1 POST /api/ingest/events + heartbeat（真实 HTTP 端点，接 Group 7 token）
-- [ ] 8.2 POST /api/ingest/tool-calls（含 rejected/failed 区分）
+- [x] 8.1 POST /api/ingest/events + heartbeat（真实 HTTP 端点，接 Group 7 token）
+- [x] 8.2 POST /api/ingest/tool-calls（含 rejected/failed 区分）
 
 ## 9. Fake Sandbox Runner
 
-- [ ] 9.1 Fake runner 骨架（本地进程模拟，只走 ingest HTTP，不碰数据库）
-- [ ] 9.2 接入真实 Vercel Sandbox（fake runner 跑在真沙箱里，验证 currentRunId 复用互斥）
+- [x] 9.1 Scripted ingest fixture（本地脚本模拟，只走 ingest HTTP，不碰数据库）
+- [x] 9.2 接入真实 Vercel Sandbox（scripted runner 跑在真沙箱里，验证 currentRunId 复用互斥）
 
 ## 10. Workspace Files
 
-- [ ] 10.1 File ingest + 查询路由（path guard、content hash、size policy）
-- [ ] 10.2 Fake runner 写文件端到端验证
+- [x] 10.1 File ingest + 查询路由（path guard、content hash、size policy）
+- [x] 10.2 Scripted runner 写文件端到端验证
 
 ## 11. Artifacts
 
-- [ ] 11.1 Artifact ingest + 首次创建（version=1）
-- [ ] 11.2 Artifact 版本化（artifact_updated）+ versions/download 端点
+- [x] 11.1 Artifact ingest + 首次创建（version=1）
+- [x] 11.2 Artifact 版本化（artifact_updated）+ versions/download 端点
 
 ## 12. Sources
 
-- [ ] 12.1 Source ingest + 查询（含 artifact 引用关系）
+- [x] 12.1 Source ingest + 查询（含 artifact 引用关系）
 
 ## 13. Token Stream 转发（ADR-0021）
 
-- [ ] 13.1 正式的 Redis 客户端封装 + POST /api/ingest/stream-chunk
-- [ ] 13.2 SSE 端接入 cursor 续读（Last-Event-ID）
-- [ ] 13.3 过期 stream 清理（占位函数，接入 Group 18 sweep）
+- [x] 13.1 正式的 Redis 客户端封装 + POST /api/ingest/stream-chunk
+- [x] 13.2 SSE 端接入 cursor 续读（Last-Event-ID）
+- [x] 13.3 过期 stream 清理（接入 Group 18 sweep）
 
 ## 14. LLM Proxy
 
-- [ ] 14.1 LLM Proxy 路由 + fake provider
-- [ ] 14.2 真实 provider 接入 + finish_reason 归一化
-- [ ] 14.3 Usage 记录（LLMUsageRecord）
+- [x] 14.1 LLM Proxy 路由 + fake provider
+- [x] 14.2 真实 provider 接入 + finish_reason 归一化
+- [x] 14.3 Usage 记录（LLMUsageRecord）
 
 ## 15. Search Proxy + 工具协议（ADR-0020，解决 DQ-3）
 
-- [ ] 15.1 Search Proxy 路由（fake provider + 重试逻辑）
-- [ ] 15.2 真实 search provider 接入
-- [ ] 15.3 fetch_url 工具（SSRF guard + 重试）
-- [ ] 15.4 web_search 工具（走 search proxy）
+- [x] 15.1 Search Proxy 路由（fake provider + 重试逻辑）
+- [x] 15.2 真实 search provider 接入
+- [x] 15.3 fetch_url 工具（SSRF guard + 重试）
+- [x] 15.4 web_search 工具（走 search proxy）
 
 ## 16. 真实 Sandbox Agent Loop
 
-- [ ] 16.1 Agent loop 骨架（非流式，fake LLM 驱动跑通基本循环）
-- [ ] 16.2 接入流式 + token 攒批（ADR-0017）+ Redis 转发（ADR-0021）
-- [ ] 16.3 waiting_for_input 完整链路（ADR-0019 端到端）
-- [ ] 16.4 cancel + timeout 收敛
+- [x] 16.1 Agent loop 骨架（非流式，fake LLM 驱动跑通基本循环）
+- [x] 16.2 接入流式 + token 攒批（ADR-0017）+ Redis 转发（ADR-0021）
+- [x] 16.3 waiting_for_input 完整链路（ADR-0019 端到端）
+- [x] 16.4 cancel + timeout 收敛
 
 ## 17. Usage 遥测
 
-- [ ] 17.1 GET /api/usage/records 查询端点（分页 + 过滤）
+- [x] 17.1 GET /api/usage/records 查询端点（分页 + 过滤）
 
 ## 18. Sweep
 
-- [ ] 18.1 Sweep 核心逻辑（run 收敛）
-- [ ] 18.2 waiting_for_input 阈值兜底（7 天）
-- [ ] 18.3 孤儿资源清理（SandboxInstance + Redis stream）
-- [ ] 18.4 接入 Vercel Cron
+- [x] 18.1 Sweep 核心逻辑（run 收敛，含 stale created 收敛）
+- [x] 18.2 waiting_for_input 阈值兜底（7 天）
+- [x] 18.3 孤儿资源清理（SandboxInstance + Redis stream）
+- [x] 18.4 接入 Vercel Cron
 
 ## 19. UI Shell
 
-- [ ] 19.1 到达该 Group 时展开具体子步骤（App Shell → Sidebar → Conversation/Composer → Run Timeline → Artifact Preview/Panel）
+- [x] 19.1 App Shell 骨架（Next App Router shell、tokens/theme、三栏/移动端响应式）
+- [x] 19.2 Sidebar 数据流（auth、workspace/thread snapshot、create workspace/thread）
+- [x] 19.3 Conversation + Composer 主体（thread snapshot、run create/cancel、sticky composer）
+- [x] 19.4 Run Timeline + SSE（snapshot、stream_chunk、event type、done、ping、去重）
+- [x] 19.5 Artifact Preview / Panel（preview、desktop panel、mobile full-screen、actions/version footer）
+- [ ] 19.6 抽出共享 `useComposerEnabled` hook，对齐 frontend-shell spec 的 composer enabled 规则
+- [x] 19.7 浏览器 SSE 主路径改为 `POST /api/runs/:runId/events`（GET 保留兼容，body `lastEventId` 支持续读）
+- [x] 19.8 `POST /api/threads/:threadId/runs` 创建 run 后自动调度真实 Vercel Sandbox runner（签 scoped token、claim sandbox、启动 agent-loop、通过 ingest 回写事件）
 
 ## 20. Browser E2E
 

@@ -50,6 +50,14 @@ pnpm install
 pnpm dev
 ```
 
+`pnpm dev` 会同时启动：
+
+- `@cap/api`：Hono Control Plane，默认 `http://localhost:8787`
+- `@cap/web`：Next.js 前端，默认 `http://localhost:3000`
+
+前端的 `/api/*` 会通过 `apps/web/next.config.ts` rewrite 到本地 API，
+浏览器只访问 `localhost:3000`，避免本地跨域 cookie 问题。
+
 ## 文档
 
 - [`docs/prd.md`](./docs/prd.md) — 产品需求文档（目标、对象、状态流转、范围、验收 benchmark）
@@ -87,10 +95,8 @@ docs/implementation-roadmap.md               # v2 逐步执行路线图（21 Gro
 docs/decisions/                              # ADR-0001~0022 架构决策记录
 openspec/changes/v2-research-workspace-agent/# v2 规格驱动开发：proposal / design / specs / tasks
 openspec/changes/archive/                    # v1（cloud-agent-platform-mvp）归档
-apps/web/                                    # v2 Next.js 前端（monorepo，逐步接管 src/app）
-apps/api/                                    # v2 Hono Control Plane（monorepo，逐步接管 src/server）
+apps/web/                                    # v2 Next.js 前端
+apps/api/                                    # v2 Hono Control Plane
 packages/db/                                 # v2 Prisma schema + client（monorepo）
 packages/shared/                             # v2 前后端共享 DTO/schema（monorepo）
-src/server/                                  # v1 实现参考；内容逐步迁移到 apps/api
-src/app/                                     # v1 UI/API 参考；内容逐步迁移到 apps/web
 ```

@@ -1,0 +1,227 @@
+import { prisma } from "@cap/db";
+import {
+  getOrCreateWorkspaceSandbox,
+  releaseWorkspaceSandboxForRun,
+  runAgentLoopScriptInSandbox,
+} from "../sandbox/workspace-sandbox";
+import { issueRunToken } from "./run-token";
+import { transitionRun } from "./transition-run";
+import type { RunStatus } from "./transitions";
+
+type WaitUntil = (promise: Promise<unknown>) => void;
+
+export type RunOrchestrationResult =
+  | { started: true; status: RunStatus }
+  | { started: false; reason: string; status?: RunStatus };
+
+export function shouldAutoStartRunner(): boolean {
+  if (process.env.CAP_RUNNER_AUTO_START === "false") return false;
+  if (
+    process.env.NODE_ENV === "test" &&
+    process.env.CAP_RUNNER_AUTO_START !== "true"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function resolveRunOrchestratorApiBaseUrl(
+  requestUrl?: string,
+): string | null {
+  const configured =
+    process.env.PUBLIC_AGENT_LOOP_BASE_URL ??
+    process.env.CAP_API_BASE_URL ??
+    process.env.INGEST_BASE_URL ??
+    process.env.API_BASE_URL ??
+    process.env.PUBLIC_API_BASE_URL ??
+    process.env.PUBLIC_INGEST_BASE_URL ??
+    publicUrlOrNull(process.env.BETTER_AUTH_URL);
+  if (configured) return configured.replace(/\/$/, "");
+
+  if (!requestUrl) return null;
+  let url: URL;
+  try {
+    url = new URL(requestUrl);
+  } catch {
+    return null;
+  }
+  const isLocalhost =
+    url.hostname === "localhost" ||
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "::1";
+  if (isLocalhost && process.env.CAP_ALLOW_LOCAL_RUNNER_BASE_URL !== "true") {
+    return null;
+  }
+  return url.origin.replace(/\/$/, "");
+}
+
+function publicUrlOrNull(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    const isLocalhost =
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1" ||
+      url.hostname === "::1";
+    return isLocalhost ? undefined : value;
+  } catch {
+    return undefined;
+  }
+}
+
+export function dispatchRunOrchestration(params: {
+  runId: string;
+  apiBaseUrl: string | null;
+  waitUntil?: WaitUntil;
+}): Promise<RunOrchestrationResult> {
+  const promise = runCreatedRunOrchestration({
+    runId: params.runId,
+    apiBaseUrl: params.apiBaseUrl,
+  }).catch(async (error): Promise<RunOrchestrationResult> => {
+    await failRunBestEffort(
+      params.runId,
+      error instanceof Error ? error.message : String(error),
+    );
+    return { started: false, reason: "orchestration failed" };
+  });
+
+  params.waitUntil?.(promise);
+  return promise;
+}
+
+export async function runCreatedRunOrchestration(params: {
+  runId: string;
+  apiBaseUrl: string | null;
+}): Promise<RunOrchestrationResult> {
+  if (!params.apiBaseUrl) {
+    await failRunBestEffort(
+      params.runId,
+      "Public API base URL is required to start the sandbox runner.",
+    );
+    return { started: false, reason: "missing api base url", status: "failed" };
+  }
+
+  const run = await prisma.agentRun.findUnique({ where: { id: params.runId } });
+  if (!run) return { started: false, reason: "run not found" };
+
+  const currentStatus = run.status as RunStatus;
+  if (currentStatus !== "created") {
+    return { started: false, reason: "run is not created", status: currentStatus };
+  }
+
+  const provisioning = await transitionRun(run.id, "provisioning_sandbox", [
+    "created",
+  ]);
+  if (!provisioning.applied) {
+    const latest = await prisma.agentRun.findUnique({ where: { id: run.id } });
+    if (latest?.status === "cancel_requested") {
+      await transitionRun(run.id, "cancelled", ["cancel_requested"]);
+      return {
+        started: false,
+        reason: "run was cancelled before provisioning",
+        status: "cancelled",
+      };
+    }
+    return {
+      started: false,
+      reason: "run was claimed by another transition",
+      status: latest?.status as RunStatus | undefined,
+    };
+  }
+
+  const runToken = issueRunToken({
+    userId: run.userId,
+    workspaceId: run.workspaceId,
+    threadId: run.threadId,
+    runId: run.id,
+    ttlSeconds: run.maxDurationSec + 600,
+  });
+
+  try {
+    const claim = await getOrCreateWorkspaceSandbox({
+      workspaceId: run.workspaceId,
+      runId: run.id,
+      timeoutMs: 60_000,
+    });
+
+    const running = await transitionRun(run.id, "running", [
+      "provisioning_sandbox",
+    ]);
+    if (!running.applied) {
+      await releaseWorkspaceSandboxForRun(run.id, "warm");
+      const latest = await prisma.agentRun.findUnique({ where: { id: run.id } });
+      if (latest?.status === "cancel_requested") {
+        await transitionRun(run.id, "cancelled", ["cancel_requested"]);
+        return {
+          started: false,
+          reason: "run was cancelled before runner start",
+          status: "cancelled",
+        };
+      }
+      return {
+        started: false,
+        reason: "run left provisioning before runner start",
+        status: latest?.status as RunStatus | undefined,
+      };
+    }
+
+    await prisma.agentRun.updateMany({
+      where: { id: run.id, status: "running", startedAt: null },
+      data: { startedAt: new Date() },
+    });
+
+    const result = await runAgentLoopScriptInSandbox({
+      sandbox: claim.sandbox,
+      apiBaseUrl: params.apiBaseUrl,
+      runToken,
+      runId: run.id,
+      prompt: run.prompt,
+      execTimeoutMs: Math.max(30_000, run.maxDurationSec * 1000),
+    });
+
+    if (result.exitCode !== 0) {
+      await failRunBestEffort(
+        run.id,
+        trimRunError(result.stderr || result.stdout || "runner exited non-zero"),
+      );
+    }
+
+    const latest = await prisma.agentRun.findUnique({ where: { id: run.id } });
+    return {
+      started: true,
+      status: (latest?.status as RunStatus | undefined) ?? "running",
+    };
+  } catch (error) {
+    await failRunBestEffort(
+      run.id,
+      error instanceof Error ? error.message : String(error),
+    );
+    return { started: false, reason: "runner start failed", status: "failed" };
+  }
+}
+
+async function failRunBestEffort(runId: string, error: string): Promise<void> {
+  await transitionRun(runId, "failed", [
+    "created",
+    "provisioning_sandbox",
+    "running",
+    "cancel_requested",
+  ]).catch(() => undefined);
+  await prisma.agentRun
+    .updateMany({
+      where: {
+        id: runId,
+        status: { in: ["failed", "timeout", "interrupted", "cancelled"] },
+      },
+      data: {
+        error: trimRunError(error),
+        completedAt: new Date(),
+      },
+    })
+    .catch(() => undefined);
+  await releaseWorkspaceSandboxForRun(runId, "failed").catch(() => undefined);
+}
+
+function trimRunError(error: string): string {
+  return error.length > 1000 ? `${error.slice(0, 997)}...` : error;
+}

@@ -117,7 +117,7 @@ Mutations:
 
 Realtime:
 
-- `GET /api/runs/:runId/events`
+- `POST /api/runs/:runId/events`（GET remains compatible）
 - SSE accelerates display only.
 - Refresh must restore from snapshot.
 - `reason`/`content` render Redis stream chunks.
@@ -209,7 +209,7 @@ resume avoids duplicate/lost chunks.
 Implementation note:
 
 - `apps/web` treats `GET /api/runs/:runId` as the authoritative run snapshot.
-- `GET /api/runs/:runId/events` accelerates display with SSE `snapshot`,
+- `POST /api/runs/:runId/events` accelerates display with SSE `snapshot`,
   `stream_chunk`, event-type messages, `done`, and `ping`.
 - Run events are deduplicated by `seq`; stream chunks are deduplicated by Redis
   stream id from `MessageEvent.lastEventId`.

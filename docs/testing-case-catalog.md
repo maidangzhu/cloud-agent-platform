@@ -52,10 +52,14 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | RUN-I-001 | integration | Run | create/read/cancel route behavior | done |
 | RUN-I-002 | integration | Run | transition race and terminal overwrite prevention | done |
 | RUN-I-003 | integration | Run sweep | stale running/provisioning/cancel convergence and race safety | done |
+| RUN-I-004 | integration | Run sweep | waiting_for_input threshold interrupts only after 7 days | done |
+| RUN-I-005 | integration | Run sweep | stale created run is failed by sweep | done |
 | EVENT-U-001 | unit | Events | payload validation and ordering helpers | done |
 | EVENT-I-001 | integration | Events | ingest events, seq idempotency/conflict | done |
 | REDIS-I-001 | integration | Redis | stream-chunk writes Redis and does not create RunEvent | done |
 | REDIS-I-002 | integration | Redis | stream cleanup deletes old streams only | done |
+| SWEEP-I-001 | integration | Sweep | orphan resource cleanup paths: sandbox instance and Redis streams | done |
+| SWEEP-U-001 | unit/route | Sweep | cron endpoint auth and sweep orchestration | done |
 | SSE-I-001 | integration | SSE | snapshot, live events, done for terminal/waiting | done |
 | SSE-I-002 | integration | SSE | cursor `0`, Last-Event-ID resume no duplicate/no lost chunk | done |
 | SANDBOX-I-001 | integration | Sandbox | real Vercel create/reuse/resume/warm claim | done |
@@ -145,7 +149,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | WF-006 | workflow | cancel running run and release sandbox | done |
 | WF-007 | workflow | tool failure marks run failed and persists error | planned |
 | WF-008 | workflow | tool rejected by policy/SSRF creates rejected tool call | planned |
-| WF-009 | workflow | stale heartbeat sweep interrupts run | planned |
+| WF-009 | workflow | stale heartbeat sweep interrupts run | done |
 | WF-010 | workflow | deployed sandbox callback completes full run | planned |
 
 ## 7. Live / Expensive Case Matrix

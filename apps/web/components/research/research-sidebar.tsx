@@ -52,6 +52,7 @@ type ResearchSidebarProps = {
   onCreateThread: () => void;
   onSelectWorkspace: (workspaceId: string) => void;
   onSelectThread: (threadId: string) => void;
+  onSignOut: () => void;
   threads: Thread[];
   user: CurrentUser | null;
   workspaces: Workspace[];
@@ -67,6 +68,7 @@ export function ResearchSidebar({
   onCreateThread,
   onSelectWorkspace,
   onSelectThread,
+  onSignOut,
   threads,
   user,
   workspaces,
@@ -155,7 +157,7 @@ export function ResearchSidebar({
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border pb-3 pt-2">
-        <ResearchUserNav user={user} />
+        <ResearchUserNav onSignOut={onSignOut} user={user} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
@@ -295,7 +297,13 @@ function WorkspaceThreadNavItem({
   );
 }
 
-function ResearchUserNav({ user }: { user: CurrentUser | null }) {
+function ResearchUserNav({
+  onSignOut,
+  user,
+}: {
+  onSignOut: () => void;
+  user: CurrentUser | null;
+}) {
   const { setTheme, resolvedTheme } = useTheme();
   const label = user?.email ?? "Not signed in";
 
@@ -330,8 +338,12 @@ function ResearchUserNav({ user }: { user: CurrentUser | null }) {
               {`Toggle ${resolvedTheme === "light" ? "dark" : "light"} mode`}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem disabled className="text-[13px]">
-              Authentication is handled by apps/api
+            <DropdownMenuItem
+              className="cursor-pointer text-[13px]"
+              disabled={!user}
+              onSelect={onSignOut}
+            >
+              Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

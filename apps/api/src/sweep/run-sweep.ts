@@ -5,8 +5,10 @@ import type { RunStatus } from "../run/transitions";
 
 export type SweepStaleRunsOptions = {
   now?: Date;
+  createdTimeoutMs?: number;
   provisioningTimeoutMs?: number;
   cancelTimeoutMs?: number;
+  waitingForInputTimeoutMs?: number;
   limit?: number;
   runIds?: string[];
   releaseSandbox?: (runId: string) => Promise<unknown>;
@@ -33,24 +35,37 @@ type SweepCandidate = {
   updatedAt: Date;
 };
 
+const DEFAULT_CREATED_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_PROVISIONING_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_CANCEL_TIMEOUT_MS = 60 * 1000;
+const DEFAULT_WAITING_FOR_INPUT_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_LIMIT = 100;
 
 export async function sweepStaleRuns(
   options: SweepStaleRunsOptions = {},
 ): Promise<SweepStaleRunsResult> {
   const now = options.now ?? new Date();
+  const createdTimeoutMs = options.createdTimeoutMs ?? DEFAULT_CREATED_TIMEOUT_MS;
   const provisioningTimeoutMs =
     options.provisioningTimeoutMs ?? DEFAULT_PROVISIONING_TIMEOUT_MS;
   const cancelTimeoutMs = options.cancelTimeoutMs ?? DEFAULT_CANCEL_TIMEOUT_MS;
+  const waitingForInputTimeoutMs =
+    options.waitingForInputTimeoutMs ?? DEFAULT_WAITING_FOR_INPUT_TIMEOUT_MS;
   const limit = options.limit ?? DEFAULT_LIMIT;
   const releaseSandbox = options.releaseSandbox ?? releaseWorkspaceSandboxForRun;
 
   const candidates = await prisma.agentRun.findMany({
     where: {
       ...(options.runIds ? { id: { in: options.runIds } } : {}),
-      status: { in: ["running", "provisioning_sandbox", "cancel_requested"] },
+      status: {
+        in: [
+          "created",
+          "running",
+          "provisioning_sandbox",
+          "cancel_requested",
+          "waiting_for_input",
+        ],
+      },
     },
     orderBy: { updatedAt: "asc" },
     take: limit,
@@ -60,8 +75,10 @@ export async function sweepStaleRuns(
   for (const candidate of candidates) {
     const target = getStaleRunTarget(candidate, {
       now,
+      createdTimeoutMs,
       provisioningTimeoutMs,
       cancelTimeoutMs,
+      waitingForInputTimeoutMs,
     });
     if (!target) continue;
 
@@ -88,11 +105,19 @@ export function getStaleRunTarget(
   candidate: SweepCandidate,
   options: {
     now: Date;
+    createdTimeoutMs: number;
     provisioningTimeoutMs: number;
     cancelTimeoutMs: number;
+    waitingForInputTimeoutMs: number;
   },
 ): RunStatus | null {
   const status = candidate.status as RunStatus;
+  if (status === "created") {
+    return isOlderThan(candidate.createdAt, options.now, options.createdTimeoutMs)
+      ? "failed"
+      : null;
+  }
+
   if (status === "running") {
     const heartbeatAt = candidate.lastHeartbeatAt ?? candidate.createdAt;
     return isOlderThan(heartbeatAt, options.now, candidate.maxDurationSec * 1000)
@@ -110,6 +135,16 @@ export function getStaleRunTarget(
   if (status === "cancel_requested") {
     return isOlderThan(candidate.updatedAt, options.now, options.cancelTimeoutMs)
       ? "cancelled"
+      : null;
+  }
+
+  if (status === "waiting_for_input") {
+    return isOlderThan(
+      candidate.updatedAt,
+      options.now,
+      options.waitingForInputTimeoutMs,
+    )
+      ? "interrupted"
       : null;
   }
 

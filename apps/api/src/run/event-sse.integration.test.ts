@@ -254,6 +254,41 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_REDIS)(
       ]);
     });
 
+    it("POST SSE snapshot includes existing historical events", async () => {
+      const runId = await createRun("post snapshot check");
+      await insertRunEvent({
+        runId,
+        seq: 1,
+        type: "run_created",
+        payload: null,
+      });
+      await prisma.agentRun.update({
+        where: { id: runId },
+        data: { status: "completed" },
+      });
+
+      const res = await app.request(`/api/runs/${runId}/events`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie,
+        },
+        body: JSON.stringify({}),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/event-stream");
+      const records = parseSseRecords(await res.text());
+      expect(records.map((record) => record.event)).toEqual([
+        "snapshot",
+        "done",
+      ]);
+      const snapshot = JSON.parse(records[0].data);
+      expect(snapshot.events.map((event: { type: string }) => event.type)).toEqual([
+        "run_created",
+      ]);
+    });
+
     it("active run streams new events as they're ingested", async () => {
       const runId = await createRun("active stream check");
       await prisma.agentRun.update({
@@ -402,6 +437,41 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_REDIS)(
       expect(chunks.map((record) => record.id)).toEqual([id3]);
       expect(chunks.map((record) => record.id)).not.toContain(id1);
       expect(chunks.map((record) => record.id)).not.toContain(id2);
+    });
+
+    it("POST reconnect with body lastEventId resumes from correct cursor", async () => {
+      const runId = await createRun("post last event id no duplicate check");
+      await prisma.agentRun.update({
+        where: { id: runId },
+        data: { status: "running" },
+      });
+      const id1 = await postStreamChunk(runId, {
+        chunk: "post-cursor-A",
+        streamType: "thinking",
+      });
+      const id2 = await postStreamChunk(runId, {
+        chunk: "post-cursor-B",
+        streamType: "content",
+      });
+
+      const res = await app.request(`/api/runs/${runId}/events`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie,
+        },
+        body: JSON.stringify({ lastEventId: id1 }),
+      });
+
+      const { records } = await readSseUntil(
+        res,
+        (record) =>
+          record.event === "stream_chunk" &&
+          JSON.parse(record.data).chunk === "post-cursor-B",
+      );
+      const chunks = records.filter((record) => record.event === "stream_chunk");
+      expect(chunks.map((record) => record.id)).toEqual([id2]);
+      expect(chunks.map((record) => record.id)).not.toContain(id1);
     });
 
     it("reconnect with Last-Event-ID resumes through reconnect gap, no lost chunk", async () => {

@@ -187,6 +187,12 @@ export async function sweepOrphanWorkspaceSandboxes(params: {
   return stopped;
 }
 
+export async function stopWorkspaceSandboxByName(
+  sandboxName: string,
+): Promise<void> {
+  await stopVercelSandboxByName(sandboxName);
+}
+
 export async function runScriptedIngestRunnerInSandbox(params: {
   sandbox: VercelSandboxHandle;
   ingestBaseUrl: string;
@@ -327,9 +333,7 @@ async function getVercelSandboxByName(
   sandboxName: string,
   timeoutMs?: number,
 ): Promise<VercelSandboxHandle> {
-  const { getOrCreateSandbox } = await import(
-    "../../../../src/server/sandbox/factory"
-  );
+  const { getOrCreateSandbox } = await import("./factory");
   const result = await getOrCreateSandbox({
     sessionId: sandboxName.replace(/^cap-/, ""),
     timeoutMs,
@@ -338,7 +342,17 @@ async function getVercelSandboxByName(
 }
 
 async function stopVercelSandboxByName(sandboxName: string): Promise<void> {
-  const sandbox = await getVercelSandboxByName(sandboxName, 60_000);
+  const [{ Sandbox }, { resolveVercelCredentials }] = await Promise.all([
+    import("@vercel/sandbox"),
+    import("./vercel-credentials"),
+  ]);
+  const creds = resolveVercelCredentials();
+  if (!creds) {
+    throw new Error(
+      "Vercel credentials not available: set VERCEL_TOKEN, or VERCEL_OIDC_TOKEN (+ optional VERCEL_TEAM_ID/VERCEL_PROJECT_ID).",
+    );
+  }
+  const sandbox = await Sandbox.get({ name: sandboxName, ...creds });
   await sandbox.stop();
 }
 

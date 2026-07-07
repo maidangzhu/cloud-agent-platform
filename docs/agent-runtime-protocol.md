@@ -77,10 +77,10 @@ Sandbox 可以拿到：
 5. Control Plane creates Run status=created
 6. Control Plane creates scoped run token
 7. Control Plane 认领/创建 SandboxInstance（原子 UPDATE 设置 currentRunId，见 ADR-0018）
-8. Control Plane starts sandbox-runner inside sandbox
+8. Control Plane starts sandbox-runner inside sandbox（产品主路径必须自动调度，不需要人工或测试 helper 手动启动）
 9. Control Plane sets Run status=provisioning_sandbox/running as appropriate
 10. Sandbox Runner posts heartbeat/events through ingest
-11. Browser listens on GET /api/runs/:runId/events（从 Last-Event-ID 或起始 cursor 读取，见 ADR-0021）
+11. Browser listens on POST /api/runs/:runId/events（GET 保留兼容；从 body.lastEventId、Last-Event-ID 或起始 cursor 读取，见 ADR-0021）
 12. Sandbox Runner calls LLM proxy and tools；token 逐字转发经 stream-chunk（不落库），语义完整时落库（ADR-0011/0016/0017/0021）
 13. Sandbox Runner ingests files/sources/artifacts
 14. Sandbox Runner reports terminal event 或 run_waiting_for_input（ADR-0019）
@@ -124,6 +124,8 @@ Control Plane 使用 JSON config 启动 runner。
 - Token 必须过期。
 - Token 应该通过环境变量或权限受限的临时文件传入。
 - Runner 不能打印 token。
+- Control Plane 创建 run 后必须自动执行启动流程：`created -> provisioning_sandbox`，签发 scoped run token，认领/创建 workspace sandbox，sandbox ready 后 `provisioning_sandbox -> running`，再执行 runner 脚本。
+- 若缺少可从 Vercel Sandbox 访问的 Control Plane public API base URL，或 sandbox/runner 启动失败，run 必须收敛到 `failed`/`timeout`，不得长期停留在 `created`。
 
 ## 5. Runner 生命周期
 

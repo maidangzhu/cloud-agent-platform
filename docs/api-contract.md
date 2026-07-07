@@ -440,6 +440,7 @@ GET /api/runs/:runId
 POST /api/runs/:runId/cancel
 GET /api/runs/:runId/control
 GET /api/runs/:runId/events
+POST /api/runs/:runId/events
 ```
 
 Create request：
@@ -475,8 +476,9 @@ type RunDetailData = {
 - 如果 thread 存在一个 `waiting_for_input` 的 run，先原子转其为 `completed`（[ADR-0019](./decisions/0019-waiting-for-input-state.md)），再创建新 run。
 - Workspace/Thread 必须为 `active`，否则用 insert-select 原子拒绝（返回 `WORKSPACE_ARCHIVED`，[ADR-0018](./decisions/0018-atomic-state-transitions.md)），不做"先查后建"两步式判断。
 - 创建 user message。
-- 创建 `created` 状态的 run。
-- Orchestrator 可以异步启动 sandbox runner。
+- 创建 `created` 状态的 run；`created` 只是持久化后的瞬时状态。
+- Orchestrator 必须异步启动真实 Vercel Sandbox runner：先将 run 转为 `provisioning_sandbox`，签发 scoped run token，认领/创建 `WorkspaceSandboxInstance`，sandbox ready 后转为 `running` 并启动 `agent-loop` 脚本。启动失败必须将 run 收敛为 `failed`/`timeout`，不得长期停留在 `created`。
+- Sandbox runner 只能通过 ingest/llm/control HTTP API 回写 heartbeat、events、stream chunk、files、artifacts、sources，不得直接连接数据库。
 - 只有非终态 run（含 `waiting_for_input`）可以 cancel。
 - `GET /api/runs/:runId/control` 只接受 scoped run token，供 sandbox runner polling cancel；不接受用户 cookie 作为 runner 身份。
 - control response 包含 `status`、`cancelRequested`、`terminal`、`maxDurationSec`、`updatedAt`；`cancelRequested` 仅在 run status 为 `cancel_requested` 时为 true。
@@ -486,6 +488,8 @@ type RunDetailData = {
 - create run success
 - archived workspace/thread rejects run creation（WORKSPACE_ARCHIVED）
 - creating run while a waiting_for_input run exists first completes the old run
+- created run is asynchronously scheduled and does not remain `created`
+- sandbox runner produces heartbeat/events and terminal/waiting state through ingest
 - cancel running run
 - cancel waiting_for_input run
 - cancel terminal run rejected
@@ -496,6 +500,7 @@ type RunDetailData = {
 
 ```text
 GET /api/runs/:runId/events
+POST /api/runs/:runId/events
 ```
 
 事件：
@@ -520,6 +525,7 @@ type RunSnapshotData = {
 
 - 浏览器端需要 Better Auth。
 - 用户必须拥有 run 所在 workspace。
+- 浏览器主路径使用 `POST /api/runs/:runId/events`，可在 JSON body 里传 `lastEventId`；`GET` 保留兼容，并继续支持 `Last-Event-ID` header。
 - 终态 run 发送 snapshot 后发送 done。
 - `waiting_for_input` run 发送 snapshot 后发送 done（sandbox 已退出，没有更多事件；`run.waitingForInput` 字段已包含在 snapshot 里，见 [RunDTO](#dto)）。
 - active run 发送 snapshot、新事件、ping，终态后发送 done。

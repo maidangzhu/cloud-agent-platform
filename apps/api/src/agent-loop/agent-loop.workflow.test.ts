@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
-import { resolveVercelCredentials } from "../../../../src/server/sandbox/vercel-credentials";
+import { resolveVercelCredentials } from "../sandbox/vercel-credentials";
 import { createApp } from "../app";
 import {
   deleteRunStream,
@@ -13,6 +13,7 @@ import {
   getOrCreateWorkspaceSandbox,
   installAgentLoopScriptInSandbox,
   runAgentLoopScriptInSandbox,
+  stopWorkspaceSandboxByName,
   type WorkspaceSandboxClaim,
 } from "../sandbox/workspace-sandbox";
 import { runAgentLoop } from "./agent-loop";
@@ -33,7 +34,8 @@ const PUBLIC_API_BASE_URL =
   process.env.INGEST_BASE_URL ??
   process.env.API_BASE_URL ??
   process.env.PUBLIC_API_BASE_URL ??
-  process.env.PUBLIC_INGEST_BASE_URL;
+  process.env.PUBLIC_INGEST_BASE_URL ??
+  publicUrlOrUndefined(process.env.BETTER_AUTH_URL);
 
 async function signUpAndGetCookie(
   app: ReturnType<typeof createApp>,
@@ -71,6 +73,18 @@ function parseSseRecords(text: string): SseRecord[] {
       }
       return record;
     });
+}
+
+function publicUrlOrUndefined(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return ["localhost", "127.0.0.1", "::1"].includes(url.hostname)
+      ? undefined
+      : value;
+  } catch {
+    return undefined;
+  }
 }
 
 describe.skipIf(!HAS_DB || !HAS_SECRET)(
@@ -170,6 +184,24 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         threadId: run.threadId,
         runId: run.id,
       });
+    }
+
+    async function waitForRunStatus(
+      runId: string,
+      predicate: (status: string) => boolean,
+    ) {
+      const deadline = Date.now() + 180_000;
+      while (Date.now() < deadline) {
+        const run = await prisma.agentRun.findUniqueOrThrow({
+          where: { id: runId },
+        });
+        if (predicate(run.status)) return run;
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+      const run = await prisma.agentRun.findUniqueOrThrow({
+        where: { id: runId },
+      });
+      throw new Error(`run ${runId} did not reach expected status, got ${run.status}`);
     }
 
     it("准备：注册用户，建 workspace + thread", async () => {
@@ -556,6 +588,98 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         "run_cancelled",
       ]);
     });
+
+    it.skipIf(!HAS_VERCEL || !PUBLIC_API_BASE_URL)(
+      "auto-starts the real Vercel Sandbox agent loop after run creation",
+      async () => {
+        const previousAutoStart = process.env.CAP_RUNNER_AUTO_START;
+        process.env.CAP_RUNNER_AUTO_START = "true";
+        let runId = "";
+        try {
+          const createRes = await app.request(`/api/threads/${threadId}/runs`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", cookie },
+            body: JSON.stringify({
+              prompt: "auto-start a sandbox architecture report",
+            }),
+          });
+          expect(createRes.status).toBe(200);
+          runId = (await createRes.json()).data.run.id as string;
+          runIds.push(runId);
+
+          const transitioned = await waitForRunStatus(
+            runId,
+            (status) => status !== "created",
+          );
+          expect(["provisioning_sandbox", "running", "completed"]).toContain(
+            transitioned.status,
+          );
+
+          const completed = await waitForRunStatus(
+            runId,
+            (status) => status === "completed",
+          );
+          expect(completed.status).toBe("completed");
+          expect(completed.startedAt).toBeInstanceOf(Date);
+
+          const events = await prisma.runEvent.findMany({
+            where: { runId },
+            orderBy: { seq: "asc" },
+          });
+          expect(events.map((event) => event.type)).toEqual([
+            "run_created",
+            "runner_started",
+            "agent_started",
+            "agent_message",
+            "file_written",
+            "artifact_created",
+            "run_completed",
+          ]);
+
+          const artifact = await prisma.workspaceArtifact.findFirst({
+            where: { runId, title: "Agent Loop Report" },
+          });
+          expect(artifact?.version).toBe(1);
+
+          const sseRes = await app.request(`/api/runs/${runId}/events`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              cookie,
+            },
+            body: JSON.stringify({}),
+          });
+          expect(sseRes.status).toBe(200);
+          const records = parseSseRecords(await sseRes.text());
+          expect(records[0]?.event).toBe("snapshot");
+          expect(records.at(-1)?.event).toBe("done");
+          const snapshot = JSON.parse(records[0]?.data ?? "{}");
+          expect(snapshot.run.status).toBe("completed");
+          expect(
+            snapshot.events.map((event: { type: string }) => event.type),
+          ).toEqual(events.map((event) => event.type));
+        } finally {
+          if (previousAutoStart === undefined) {
+            delete process.env.CAP_RUNNER_AUTO_START;
+          } else {
+            process.env.CAP_RUNNER_AUTO_START = previousAutoStart;
+          }
+          if (runId) {
+            const instances = await prisma.workspaceSandboxInstance.findMany({
+              where: { workspaceId },
+            });
+            await Promise.all(
+              instances.map((instance) =>
+                stopWorkspaceSandboxByName(instance.sandboxName).catch(
+                  () => undefined,
+                ),
+              ),
+            );
+          }
+        }
+      },
+      240_000,
+    );
 
     it.skipIf(!HAS_VERCEL || !PUBLIC_API_BASE_URL)(
       "runs the same agent loop script inside real Vercel Sandbox",

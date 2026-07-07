@@ -3,13 +3,17 @@
 ### Requirement: Run 状态机
 Run 状态 SHALL 遵循合法转移表：`created → provisioning_sandbox → running → {completed|failed|timeout|cancel_requested|waiting_for_input}`，`waiting_for_input → {completed|cancel_requested|interrupted}`，`cancel_requested → {cancelled|failed|timeout}`。终态（`completed`/`failed`/`timeout`/`cancelled`/`interrupted`）MUST NOT 被覆盖。非法转移 MUST 被拒绝。
 
-#### Scenario: 初始状态
+#### Scenario: 初始状态是瞬时持久化状态
 - **WHEN** 创建一个新 run
-- **THEN** 其状态为 `created`
+- **THEN** 其初始持久化状态为 `created`，随后产品主路径 MUST 自动调度 runner 并推进到 `provisioning_sandbox`，不得长期停留在 `created`
 
 #### Scenario: 正常主路径流转
 - **WHEN** run 依次经过 sandbox 供给、agent 执行、完成
 - **THEN** 状态依次为 `provisioning_sandbox → running → completed`
+
+#### Scenario: Run 创建后自动调度真实 runner
+- **WHEN** 用户通过 `POST /api/threads/:threadId/runs` 创建 run
+- **THEN** Control Plane 自动签发 scoped run token、认领或创建真实 Vercel Sandbox、启动 sandbox 内 agent loop，runner 通过 ingest 回写 heartbeat/events/files/artifacts/sources
 
 #### Scenario: 非法转移被拒绝
 - **WHEN** 尝试将 `created` 状态的 run 直接转为 `completed`

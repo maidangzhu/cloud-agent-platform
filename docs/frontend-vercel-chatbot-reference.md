@@ -157,7 +157,7 @@ App Shell
 
 - message stream 来自：
   - `GET /api/threads/:threadId`
-  - `GET /api/runs/:runId/events`
+  - `POST /api/runs/:runId/events`（GET 保留兼容）
   - Control Plane SSE
 - tool 和 model steps 来自 `AgentEventDTO`，不是 AI SDK `parts`。
 
@@ -285,7 +285,7 @@ GET /api/workspaces/:workspaceId/sources
 ```text
 POST /api/threads/:threadId/runs
   -> returns RunDTO
-  -> UI subscribes to GET /api/runs/:runId/events
+  -> UI subscribes to POST /api/runs/:runId/events
 ```
 
 ### 6.3 SSE Events

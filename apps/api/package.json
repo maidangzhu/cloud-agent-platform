@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:workflow": "vitest run --config vitest.workflow.config.ts --passWithNoTests",
@@ -11,6 +12,7 @@
   },
   "dependencies": {
     "@cap/db": "workspace:^",
+    "@vercel/sandbox": "^2.2.1",
     "better-auth": "1.6.23",
     "hono": "4.12.27",
     "ioredis": "5.11.1"

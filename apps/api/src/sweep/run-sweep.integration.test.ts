@@ -109,6 +109,30 @@ describe.skipIf(!HAS_DB)(
       expect(updated.status).toBe("timeout");
     });
 
+    it("marks stale created run as failed", async () => {
+      const now = new Date("2026-03-01T00:00:00.000Z");
+      const graph = await createGraph("stale-created");
+      const run = await createRun(graph, {
+        label: "stale-created",
+        status: "created",
+        createdAt: new Date(now.getTime() - 301_000),
+      });
+
+      const result = await sweepStaleRuns({
+        now,
+        createdTimeoutMs: 300_000,
+        runIds: [run.id],
+      });
+
+      expect(result.transitioned).toContainEqual({
+        runId: run.id,
+        fromStatus: "created",
+        toStatus: "failed",
+        applied: true,
+      });
+      await expectStatus(run.id, "failed");
+    });
+
     it("marks stale cancel_requested run as cancelled", async () => {
       const now = new Date("2026-03-01T00:00:00.000Z");
       const graph = await createGraph("stale-cancel");
@@ -139,7 +163,7 @@ describe.skipIf(!HAS_DB)(
       expect(updated.status).toBe("cancelled");
     });
 
-    it("does not sweep fresh running or waiting_for_input runs in Step 18.1", async () => {
+    it("does not sweep fresh running or waiting_for_input runs within threshold", async () => {
       const now = new Date("2026-03-01T00:00:00.000Z");
       const graph = await createGraph("fresh");
       const fresh = await createRun(graph, {
@@ -151,7 +175,7 @@ describe.skipIf(!HAS_DB)(
       const waiting = await createRun(graph, {
         label: "waiting",
         status: "waiting_for_input",
-        createdAt: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
+        updatedAt: new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000),
       });
 
       const result = await sweepStaleRuns({ now, runIds: [fresh.id, waiting.id] });
@@ -164,6 +188,26 @@ describe.skipIf(!HAS_DB)(
       );
       await expectStatus(fresh.id, "running");
       await expectStatus(waiting.id, "waiting_for_input");
+    });
+
+    it("marks waiting_for_input run past threshold as interrupted", async () => {
+      const now = new Date("2026-03-01T00:00:00.000Z");
+      const graph = await createGraph("waiting-threshold");
+      const waiting = await createRun(graph, {
+        label: "waiting-threshold",
+        status: "waiting_for_input",
+        updatedAt: new Date(now.getTime() - 8 * 24 * 60 * 60 * 1000),
+      });
+
+      const result = await sweepStaleRuns({ now, runIds: [waiting.id] });
+
+      expect(result.transitioned).toContainEqual({
+        runId: waiting.id,
+        fromStatus: "waiting_for_input",
+        toStatus: "interrupted",
+        applied: true,
+      });
+      await expectStatus(waiting.id, "interrupted");
     });
 
     it("concurrent sweep and runner completion race has one winner and never overwrites terminal status", async () => {
@@ -239,6 +283,7 @@ async function createRun(
   params: {
     label: string;
     status:
+      | "created"
       | "running"
       | "provisioning_sandbox"
       | "cancel_requested"
@@ -246,6 +291,7 @@ async function createRun(
     maxDurationSec?: number;
     createdAt?: Date;
     lastHeartbeatAt?: Date;
+    updatedAt?: Date;
   },
 ) {
   return prisma.agentRun.create({
@@ -261,6 +307,7 @@ async function createRun(
       ...(params.lastHeartbeatAt
         ? { lastHeartbeatAt: params.lastHeartbeatAt }
         : {}),
+      ...(params.updatedAt ? { updatedAt: params.updatedAt } : {}),
     },
   });
 }

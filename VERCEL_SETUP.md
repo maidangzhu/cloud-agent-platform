@@ -81,7 +81,7 @@ Vercel 会自动注入 `VERCEL_OIDC_TOKEN`，但需要在项目设置中启用�
 
 ## 相关文件
 
-- `src/server/sandbox/vercel-credentials.ts` - Sandbox 凭证解析
-- `src/server/agent/model.ts` - LLM 配置解析
-- `src/server/sandbox/factory.ts` - 沙箱创建入口
-- `src/server/agent/run-agent.ts` - Agent 执行入口
+- `apps/api/src/sandbox/vercel-credentials.ts` - Sandbox 凭证解析
+- `apps/api/src/llm/provider.ts` - LLM provider 配置与调用
+- `apps/api/src/sandbox/factory.ts` - 沙箱创建入口
+- `apps/api/src/agent-loop/agent-loop.ts` - Agent 执行入口

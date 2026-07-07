@@ -94,7 +94,7 @@ export function Composer({
     command.name.startsWith(slashQuery.toLowerCase())
   );
   const canSubmit =
-    Boolean(activeThread) &&
+    Boolean(activeThread || activeWorkspace) &&
     loadState === "ready" &&
     !isStartingRun &&
     !isRunActive(run) &&
@@ -149,11 +149,11 @@ export function Composer({
   async function submit() {
     if (!canSubmit) {
       setNotice(
-        activeThread
+        activeThread || activeWorkspace
           ? isRunActive(run)
             ? "A run is already active for this thread."
             : "Enter a prompt before starting a run."
-          : "Select or create a thread before starting a run."
+          : "Create a workspace before starting a run."
       );
       return;
     }
@@ -168,14 +168,6 @@ export function Composer({
 
   return (
     <div className="relative flex w-full flex-col gap-4">
-      {!activeThread && loadState !== "loading" && (
-        <SuggestedComposerActions
-          activeWorkspace={activeWorkspace}
-          onCreateThread={onCreateThread}
-          onCreateWorkspace={onCreateWorkspace}
-        />
-      )}
-
       <div className="relative">
         {slashOpen && filteredCommands.length > 0 && (
           <SlashCommandMenu
@@ -214,9 +206,9 @@ export function Composer({
             }}
             onKeyDown={handleKeyDown}
             placeholder={
-              activeThread
+              activeThread || activeWorkspace
                 ? "Ask what to research next..."
-                : "Select or create a thread..."
+                : "Create a workspace to start..."
             }
             ref={textareaRef}
             value={input}
@@ -274,52 +266,6 @@ function isRunActive(run: AgentRun | null) {
         run.status === "provisioning_sandbox" ||
         run.status === "running" ||
         run.status === "cancel_requested")
-  );
-}
-
-function SuggestedComposerActions({
-  activeWorkspace,
-  onCreateThread,
-  onCreateWorkspace,
-}: {
-  activeWorkspace: Workspace | null;
-  onCreateWorkspace: () => void;
-  onCreateThread: () => void;
-}) {
-  const actions = activeWorkspace
-    ? [
-        {
-          label: "Start a research thread in this workspace",
-          action: onCreateThread,
-        },
-      ]
-    : [
-        {
-          label: "Create a workspace for this research path",
-          action: onCreateWorkspace,
-        },
-      ];
-
-  return (
-    <div
-      className="flex w-full gap-2.5 overflow-x-auto pb-1 sm:grid sm:grid-cols-2 sm:overflow-visible"
-      style={{
-        scrollbarWidth: "none",
-        WebkitOverflowScrolling: "touch",
-        msOverflowStyle: "none",
-      }}
-    >
-      {actions.map((action) => (
-        <button
-          className="h-auto min-w-[220px] shrink-0 whitespace-nowrap rounded-xl border border-border/50 bg-card/30 px-4 py-3 text-left text-[12px] leading-relaxed text-muted-foreground transition-all duration-200 hover:-translate-y-0.5 hover:bg-card/60 hover:text-foreground hover:shadow-[var(--shadow-card)] sm:min-w-0 sm:shrink sm:whitespace-normal sm:p-4 sm:text-[13px]"
-          key={action.label}
-          onClick={action.action}
-          type="button"
-        >
-          {action.label}
-        </button>
-      ))}
-    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2Icon, PlusIcon, SparklesIcon } from "lucide-react";
+import { Loader2Icon, SparklesIcon } from "lucide-react";
 import { ArtifactPreview } from "./artifact-preview";
 import { Greeting } from "./greeting";
 import { RunEventList, type RunEventDTO, type StreamChunkDTO } from "./run-events";
@@ -9,39 +9,29 @@ import type {
   CurrentUser,
   LoadState,
   RunArtifact,
-  RunSource,
   Thread,
   ThreadMessage,
-  Workspace,
 } from "./types";
 
 export function ConversationMessages({
   activeThread,
-  activeWorkspace,
   error,
   loadState,
-  onCreateThread,
-  onCreateWorkspace,
   run,
   runArtifacts = [],
   runError,
   runEvents = [],
-  runSources = [],
   streamChunks = [],
   threadMessages = [],
   user,
 }: {
-  activeWorkspace: Workspace | null;
   activeThread: Thread | null;
   error: string;
   loadState: LoadState;
-  onCreateWorkspace: () => void;
-  onCreateThread: () => void;
   run: AgentRun | null;
   runArtifacts?: RunArtifact[];
   runError: string;
   runEvents?: RunEventDTO[];
-  runSources?: RunSource[];
   streamChunks?: StreamChunkDTO[];
   threadMessages?: ThreadMessage[];
   user: CurrentUser | null;
@@ -69,17 +59,9 @@ export function ConversationMessages({
               run={run}
               runArtifacts={runArtifacts}
               runError={runError}
-              runSources={runSources}
               streamChunks={streamChunks}
               thread={activeThread}
               threadMessages={threadMessages}
-              workspace={activeWorkspace}
-            />
-          ) : loadState === "ready" ? (
-            <EmptyThreadState
-              activeWorkspace={activeWorkspace}
-              onCreateThread={onCreateThread}
-              onCreateWorkspace={onCreateWorkspace}
             />
           ) : null}
           <div className="min-h-[220px] min-w-[24px] shrink-0 md:min-h-[240px]" />
@@ -127,85 +109,39 @@ function SystemBanner({
   return null;
 }
 
-function EmptyThreadState({
-  activeWorkspace,
-  onCreateThread,
-  onCreateWorkspace,
-}: {
-  activeWorkspace: Workspace | null;
-  onCreateWorkspace: () => void;
-  onCreateThread: () => void;
-}) {
-  return (
-    <div className="message-fade-in mt-[30vh] rounded-2xl border border-border/50 bg-card/80 p-5 shadow-[var(--shadow-card)] backdrop-blur-sm md:mt-[34vh]">
-      <div className="text-sm font-medium">
-        {activeWorkspace ? "No thread selected" : "No workspace selected"}
-      </div>
-      <p className="mt-1 max-w-xl text-[13px] leading-6 text-muted-foreground">
-        {activeWorkspace
-          ? "Create a thread in this workspace to start the research path."
-          : "Create a workspace first; threads and runs belong inside it."}
-      </p>
-      <div className="mt-4 flex gap-2">
-        {activeWorkspace ? (
-          <button
-            className="inline-flex h-8 items-center gap-2 rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground hover:bg-primary/90"
-            onClick={onCreateThread}
-            type="button"
-          >
-            <PlusIcon className="size-4" />
-            New thread
-          </button>
-        ) : (
-          <button
-            className="inline-flex h-8 items-center gap-2 rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground hover:bg-primary/90"
-            onClick={onCreateWorkspace}
-            type="button"
-          >
-            <PlusIcon className="size-4" />
-            New workspace
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function ThreadReadyState({
   events,
   run,
   runArtifacts,
   runError,
-  runSources,
   streamChunks,
   thread,
   threadMessages,
-  workspace,
 }: {
   events: RunEventDTO[];
   run: AgentRun | null;
   runArtifacts: RunArtifact[];
   runError: string;
-  runSources: RunSource[];
   streamChunks: StreamChunkDTO[];
   thread: Thread;
   threadMessages: ThreadMessage[];
-  workspace: Workspace | null;
 }) {
   const userPrompt =
     run?.prompt ||
     [...threadMessages].reverse().find((message) => message.role === "user")
-      ?.content ||
-    thread.title;
+      ?.content;
   const primaryArtifact = runArtifacts[0];
+  const hasLiveOutput = events.length > 0 || streamChunks.length > 0;
 
   return (
     <>
-      <div className="message-fade-in flex justify-end">
-        <div className="w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-2xl rounded-br-lg border border-border/30 bg-gradient-to-br from-secondary to-muted px-3.5 py-2 text-[13px] leading-[1.65] shadow-[var(--shadow-card)]">
-          {userPrompt}
+      {userPrompt && (
+        <div className="message-fade-in flex justify-end">
+          <div className="w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-2xl rounded-br-lg border border-border/30 bg-gradient-to-br from-secondary to-muted px-3.5 py-2 text-[13px] leading-[1.65] shadow-[var(--shadow-card)]">
+            {userPrompt}
+          </div>
         </div>
-      </div>
+      )}
 
       {runError && (
         <div className="message-fade-in ml-10 rounded-2xl border border-destructive/30 bg-card px-4 py-3 text-[13px] leading-6 shadow-[var(--shadow-card)]">
@@ -214,55 +150,38 @@ function ThreadReadyState({
         </div>
       )}
 
-      <div className="message-fade-in flex items-start gap-3">
-        <div className="flex h-[calc(13px*1.65)] shrink-0 items-center">
-          <div className="flex size-7 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground ring-1 ring-border/50">
-            <SparklesIcon size={13} />
+      {!hasLiveOutput && run && (
+        <div className="message-fade-in flex items-start gap-3">
+          <div className="flex h-[calc(13px*1.65)] shrink-0 items-center">
+            <div className="flex size-7 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground ring-1 ring-border/50">
+              <SparklesIcon size={13} />
+            </div>
+          </div>
+          <div className="w-fit max-w-[min(88%,62ch)] rounded-2xl border border-border/50 bg-card px-4 py-3 text-[13px] leading-6 text-muted-foreground shadow-[var(--shadow-card)]">
+            Starting research...
           </div>
         </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div className="w-fit max-w-[min(88%,62ch)] rounded-2xl border border-border/50 bg-card px-4 py-3 text-[13px] leading-6 shadow-[var(--shadow-card)]">
-            {run
-              ? `Run ${run.derivedUiState || run.status}.`
-              : "This thread is selected. Start a run from the composer."}
-          </div>
+      )}
+
+      {primaryArtifact && (
+        <div className="message-fade-in ml-10">
           <ArtifactPreview
-            artifact={
-              primaryArtifact
-                ? {
-                    id: primaryArtifact.id,
-                    title: primaryArtifact.title,
-                    kind: primaryArtifact.kind,
-                    content: primaryArtifact.contentSnapshot,
-                    status: "idle",
-                  }
-                : undefined
-            }
+            artifact={{
+              id: primaryArtifact.id,
+              title: primaryArtifact.title,
+              kind: primaryArtifact.kind,
+              content: primaryArtifact.contentSnapshot,
+              status: "idle",
+            }}
           />
         </div>
-      </div>
+      )}
 
-      <div className="message-fade-in ml-10 grid gap-2">
-        {[
-          ["Workspace", workspace?.title ?? "Selected workspace"],
-          ["Thread", thread.title],
-          ["Thread status", thread.status],
-          ["Run status", run?.status ?? "no run"],
-          ["Sources", String(runSources.length)],
-        ].map(([label, value]) => (
-          <div
-            className="flex max-w-[450px] items-center justify-between rounded-xl border border-border/50 bg-card px-3 py-2 text-[13px] shadow-[var(--shadow-card)]"
-            key={label}
-          >
-            <span className="text-muted-foreground">{label}</span>
-            <span className="min-w-0 truncate font-medium">{value}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="message-fade-in ml-10">
-        <RunEventList events={events} streamChunks={streamChunks} />
-      </div>
+      {hasLiveOutput && (
+        <div className="message-fade-in ml-10">
+          <RunEventList events={events} streamChunks={streamChunks} />
+        </div>
+      )}
     </>
   );
 }

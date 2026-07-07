@@ -2,7 +2,7 @@
 
 v2 的完整架构论证已经在 `docs/decisions/`（ADR-0001~0022）逐条记录——每条 ADR 都包含决策内容、背景、被否方案、连锁影响。本文档**不重复那些论证**，只做三件事：（1）汇总关键决策的落地形态供实现时速查，（2）列出跨 capability 的风险和缓解方式，（3）给出迁移顺序。要理解"为什么这么定"，去读对应的 ADR 链接；要理解"具体做什么"，看 specs/ 和 tasks.md。
 
-当前状态：v1（`cloud-agent-platform-mvp`）已归档，`src/app/api/*`、`src/server/*`、`prisma/schema.prisma` 是唯一的现存实现，将被逐步迁移/重写，不是推倒重来——沙箱封装（`src/server/sandbox/`）、LLM fallback 逻辑（`src/server/agent/`）等已验证可用的部分会被复用而非重写。
+当前状态：v1（`cloud-agent-platform-mvp`）已归档，v2 已迁入 monorepo：`apps/web` 承载 Next.js 前端，`apps/api` 承载 Hono Control Plane，`packages/db` 承载 Prisma schema + client。旧根 `src/` 应被视为已废弃并删除；需要复用的沙箱封装已迁到 `apps/api/src/sandbox/`。
 
 ## Goals / Non-Goals
 

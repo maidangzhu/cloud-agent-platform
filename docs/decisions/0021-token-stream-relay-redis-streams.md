@@ -46,7 +46,7 @@ SSE 侧：维护一个 cursor 变量
 }
 ```
 
-SSE 端（`GET /api/runs/:runId/events`）读取规则：有 `Last-Event-ID` header 就从该 ID 之后 `XREAD` 续读；没有则从 stream 起始（`"0"`）读取。
+SSE 端（浏览器主路径 `POST /api/runs/:runId/events`，GET 保留兼容）读取规则：有 body `lastEventId` 或 `Last-Event-ID` header 就从该 ID 之后 `XREAD` 续读；没有则从 stream 起始（`"0"`）读取。
 
 ## P0/P1 排期
 

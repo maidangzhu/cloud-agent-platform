@@ -49,11 +49,15 @@
 - **THEN** 产生 `artifact_updated` 事件，version 递增
 
 ### Requirement: SSE Snapshot 与恢复
-SSE 端点 SHALL 先发送历史事件 snapshot，再推送新事件；终态或 `waiting_for_input` run 在 snapshot 后 SHALL 发送 `done`。页面刷新 MUST 能从数据库 snapshot 完整恢复状态。
+SSE 端点 SHALL 先发送历史事件 snapshot，再推送新事件；终态或 `waiting_for_input` run 在 snapshot 后 SHALL 发送 `done`。浏览器主路径 SHALL 使用 `POST /api/runs/:runId/events`，`GET` 保留兼容。页面刷新 MUST 能从数据库 snapshot 完整恢复状态。
 
 #### Scenario: Snapshot 包含历史事件
 - **WHEN** 建立 SSE 连接查看一个已有若干事件的 run
 - **THEN** 首个 snapshot 消息包含全部历史事件
+
+#### Scenario: POST SSE 支持 snapshot 与续读
+- **WHEN** 浏览器用 POST 建立 SSE 连接，并在 JSON body 中传入 `lastEventId`
+- **THEN** 服务端返回 `text/event-stream`，先发送 snapshot，并从该 cursor 之后续读 Redis stream chunk
 
 #### Scenario: 终态 run 发送 done
 - **WHEN** run 已处于终态时建立 SSE 连接

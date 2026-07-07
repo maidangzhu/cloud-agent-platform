@@ -3,7 +3,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
 import { createApp } from "../app";
 import { issueRunToken } from "../run/run-token";
-import { resolveVercelCredentials } from "../../../../src/server/sandbox/vercel-credentials";
+import { resolveVercelCredentials } from "./vercel-credentials";
 import {
   getOrCreateWorkspaceSandbox,
   runScriptedIngestRunnerInSandbox,
@@ -19,6 +19,7 @@ const PUBLIC_INGEST_BASE_URL =
   process.env.CAP_API_BASE_URL ??
   process.env.INGEST_BASE_URL ??
   process.env.API_BASE_URL ??
+  publicUrlOrUndefined(process.env.BETTER_AUTH_URL) ??
   "";
 
 const suiteId = `${Date.now()}-${randomUUID().slice(0, 8)}`;
@@ -33,6 +34,18 @@ type TestGraph = {
   threadId: string;
   runId: string;
 };
+
+function publicUrlOrUndefined(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return ["localhost", "127.0.0.1", "::1"].includes(url.hostname)
+      ? undefined
+      : value;
+  } catch {
+    return undefined;
+  }
+}
 
 describe.skipIf(!HAS_DB || !HAS_SECRET)(
   "Workspace sandbox DB lifecycle（真实 Neon，见 Step 9.2）",

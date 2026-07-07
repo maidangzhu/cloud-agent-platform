@@ -34,7 +34,6 @@ function PureWorkspaceThreadHeader({
           {activeThread?.title ?? headerSubtitle(state)}
         </div>
       </div>
-      <StatusPill state={state} />
       <Button
         aria-label="Open artifact panel"
         className="ml-auto"
@@ -64,25 +63,6 @@ function PureWorkspaceThreadHeader({
 
 export const WorkspaceThreadHeader = memo(PureWorkspaceThreadHeader);
 
-function StatusPill({ state }: { state: LoadState }) {
-  const label =
-    state === "ready"
-      ? "snapshot"
-      : state === "loading"
-        ? "loading"
-        : state === "unauthorized"
-          ? "signed out"
-          : state === "error"
-            ? "error"
-            : "idle";
-
-  return (
-    <span className="ml-auto hidden rounded-lg border border-border/70 px-2 py-1 text-xs text-muted-foreground sm:inline-flex xl:ml-2">
-      {label}
-    </span>
-  );
-}
-
 function headerSubtitle(state: LoadState) {
   if (state === "loading") {
     return "Loading workspace snapshot";
@@ -93,5 +73,5 @@ function headerSubtitle(state: LoadState) {
   if (state === "error") {
     return "API unavailable";
   }
-  return "Select or create a thread";
+  return "Ready";
 }

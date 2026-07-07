@@ -19,7 +19,7 @@ export function Greeting() {
         initial={{ opacity: 0, y: 10 }}
         transition={{ delay: 0.5, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
       >
-        Create a workspace and thread, then start an agent run.
+        Send a question to start a new research thread.
       </motion.div>
     </div>
   );

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Composer } from "./composer";
 import { ConversationMessages } from "./conversation-messages";
 import { ArtifactPanel } from "./artifact-panel";
+import { AuthPanel, type AuthRequest } from "./auth-panel";
 import type {
   AgentRun,
   CurrentUser,
@@ -31,6 +32,7 @@ export function ResearchShell({
   isStartingRun,
   loadState,
   onCancelRun,
+  onAuthenticate,
   onCreateThread,
   onCreateWorkspace,
   onStartRun,
@@ -50,6 +52,7 @@ export function ResearchShell({
   isStartingRun: boolean;
   loadState: LoadState;
   onCancelRun: () => void;
+  onAuthenticate: (request: AuthRequest) => Promise<boolean>;
   onCreateWorkspace: () => void;
   onCreateThread: () => void;
   onStartRun: (prompt: string) => Promise<boolean>;
@@ -72,6 +75,7 @@ export function ResearchShell({
         isStartingRun={isStartingRun}
         loadState={loadState}
         onCancelRun={onCancelRun}
+        onAuthenticate={onAuthenticate}
         onCreateThread={onCreateThread}
         onCreateWorkspace={onCreateWorkspace}
         onStartRun={onStartRun}
@@ -96,6 +100,7 @@ function ResearchShellContent({
   isStartingRun,
   loadState,
   onCancelRun,
+  onAuthenticate,
   onCreateThread,
   onCreateWorkspace,
   onStartRun,
@@ -115,6 +120,7 @@ function ResearchShellContent({
   isStartingRun: boolean;
   loadState: LoadState;
   onCancelRun: () => void;
+  onAuthenticate: (request: AuthRequest) => Promise<boolean>;
   onCreateWorkspace: () => void;
   onCreateThread: () => void;
   onStartRun: (prompt: string) => Promise<boolean>;
@@ -148,36 +154,38 @@ function ResearchShellContent({
           state={loadState}
         />
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background md:rounded-tl-[12px] md:border-l md:border-t md:border-border/40">
-          <ConversationMessages
-            activeThread={activeThread}
-            activeWorkspace={activeWorkspace}
-            error={error}
-            loadState={loadState}
-            onCreateThread={onCreateThread}
-            onCreateWorkspace={onCreateWorkspace}
-            run={run}
-            runArtifacts={runArtifacts}
-            runError={runError}
-            runEvents={runEvents}
-            runSources={runSources}
-            streamChunks={streamChunks}
-            threadMessages={threadMessages}
-            user={user}
-          />
-          <div className="sticky bottom-0 z-1 mx-auto flex w-full max-w-4xl gap-2 border-t-0 bg-background px-2 pb-3 md:px-4 md:pb-4">
-            <Composer
-              activeThread={activeThread}
-              activeWorkspace={activeWorkspace}
-              isCancellingRun={isCancellingRun}
-              isStartingRun={isStartingRun}
-              loadState={loadState}
-              onCancelRun={onCancelRun}
-              onCreateThread={onCreateThread}
-              onCreateWorkspace={onCreateWorkspace}
-              onStartRun={onStartRun}
-              run={run}
-            />
-          </div>
+          {loadState === "unauthorized" ? (
+            <AuthPanel error={error} onAuthenticate={onAuthenticate} />
+          ) : (
+            <>
+              <ConversationMessages
+                activeThread={activeThread}
+                error={error}
+                loadState={loadState}
+                run={run}
+                runArtifacts={runArtifacts}
+                runError={runError}
+                runEvents={runEvents}
+                streamChunks={streamChunks}
+                threadMessages={threadMessages}
+                user={user}
+              />
+              <div className="sticky bottom-0 z-1 mx-auto flex w-full max-w-4xl gap-2 border-t-0 bg-background px-2 pb-3 md:px-4 md:pb-4">
+                <Composer
+                  activeThread={activeThread}
+                  activeWorkspace={activeWorkspace}
+                  isCancellingRun={isCancellingRun}
+                  isStartingRun={isStartingRun}
+                  loadState={loadState}
+                  onCancelRun={onCancelRun}
+                  onCreateThread={onCreateThread}
+                  onCreateWorkspace={onCreateWorkspace}
+                  onStartRun={onStartRun}
+                  run={run}
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
 

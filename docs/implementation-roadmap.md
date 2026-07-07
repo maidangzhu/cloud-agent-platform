@@ -15,24 +15,24 @@
 ```text
 Group 0：PoC（环境连通性）— 已完成
 Group 1：文档校订（ADR-0018~0022 + 关联文档修订）— 已完成
-Group 2：Monorepo 脚手架（ADR-0022）
-Group 3：Auth（Better Auth 挂 apps/api）
-Group 4：Workspace
-Group 5：Thread
-Group 6：Run 状态机 + Event Store（含 ADR-0018/0019）
-Group 7：Scoped Run Token
-Group 8：Ingest API 基线（含 ADR-0020 payload schema）
-Group 9：Scripted Sandbox Runner
-Group 10：Workspace Files
-Group 11：Artifacts（含版本化，ADR-0020）
-Group 12：Sources
-Group 13：Token Stream 转发（Redis Streams，ADR-0021）
-Group 14：LLM Proxy
-Group 15：Search Proxy + web_search/fetch_url 工具协议（ADR-0020）
-Group 16：真实 Sandbox Agent Loop
-Group 17：Usage 遥测（原 Credits，ADR-0015）
-Group 18：Sweep（含孤儿资源清理，ADR-0015；waiting_for_input 阈值，ADR-0019）
-Group 19：UI Shell
+Group 2：Monorepo 脚手架（ADR-0022）— 已完成
+Group 3：Auth（Better Auth 挂 apps/api）— 已完成
+Group 4：Workspace — 已完成
+Group 5：Thread — 已完成
+Group 6：Run 状态机 + Event Store（含 ADR-0018/0019）— 已完成
+Group 7：Scoped Run Token — 已完成
+Group 8：Ingest API 基线（含 ADR-0020 payload schema）— 已完成
+Group 9：Scripted Sandbox Runner — 已完成
+Group 10：Workspace Files — 已完成
+Group 11：Artifacts（含版本化，ADR-0020）— 已完成
+Group 12：Sources — 已完成
+Group 13：Token Stream 转发（Redis Streams，ADR-0021）— 已完成
+Group 14：LLM Proxy — 已完成
+Group 15：Search Proxy + web_search/fetch_url 工具协议（ADR-0020）— 已完成
+Group 16：真实 Sandbox Agent Loop — 已完成
+Group 17：Usage 遥测（原 Credits，ADR-0015）— 已完成
+Group 18：Sweep（含孤儿资源清理，ADR-0015；waiting_for_input 阈值，ADR-0019）— 代码已实现，待本轮提交确认
+Group 19：UI Shell — 主体已完成并提交，剩余前端协议细化见当前状态
 Group 20：Browser E2E
 Group 21：部署和运维
 ```
@@ -184,7 +184,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 **实测踩坑：**
 
 1. **v1/v2 model 命名冲突且有真实生产数据**：v1 的 `Workspace` model 语义是"沙箱实例状态"，与 v2 顶层概念 Workspace 冲突，且这张表在真实 Neon 数据库里存有 97 条历史数据。险些因为用错表名大小写（PostgreSQL 表名大小写敏感）误判"表无数据"，差点执行 `--force-reset` 丢失数据——被 Prisma 自身的安全校验（拒绝无默认值加必填列）拦下。之后任何 v1/v2 model 重命名，先用 `SELECT count(*) FROM "ExactCaseTableName"`（带双引号原样大小写）确认真实数据量，不要凭直觉判断"应该没数据"。
-2. **根目录 tsconfig.json 未排除 monorepo 子包**：`include: ["**/*.ts", ...]` + `exclude: ["node_modules"]` 会让 Next.js 的 `pnpm build` 类型检查扫描 `apps/`、`packages/` 下的代码，一处子包内的真实类型错误会直接拖挂根目录 build。已在 `exclude` 里加上 `"apps"`、`"packages"`。
+2. **根目录 tsconfig.json 未排除 monorepo 子包**：早期根 Next.js app 的 `include: ["**/*.ts", ...]` + `exclude: ["node_modules"]` 会让根目录 build 类型检查扫描 `apps/`、`packages/` 下的代码，一处子包内的真实类型错误会直接拖挂根目录 build。根 Next.js app 删除后，根 tsconfig 也随之移除，类型检查改由各 workspace 自己负责。
 
 停下来确认。
 
@@ -262,7 +262,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 怎么测：[testing-strategy.md §4.4](./testing-strategy.md#44-run) route 15-22。
 
-验收标准：能创建/查询/取消 run，但此时还没有真实 sandbox，run 会一直停在 `created`（这是预期的，Group 9 才接 scripted runner）。
+验收标准（当时）：能创建/查询/取消 run；该 Step 尚未接真实 sandbox，`created` 停留是当时的阶段性预期。当前产品主路径已在后续步骤接入自动 runner 调度，不能再把长期停留 `created` 视为完成。
 
 停下来确认。
 
@@ -283,7 +283,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 要写的东西：
 
-- `GET /api/runs/:runId/events` SSE 端点：snapshot + 新事件推送 + done。
+- `GET /api/runs/:runId/events` SSE 端点：snapshot + 新事件推送 + done。（后续浏览器主路径改为 POST，GET 保留兼容。）
 - 暂不实现 [ADR-0021](./decisions/0021-token-stream-relay-redis-streams.md) 的 stream-chunk 转发（那是 Group 13），这一步只做"业务事实事件"的 SSE。
 
 怎么测：[testing-strategy.md §4.5](./testing-strategy.md#45-events) SSE 22-25、28。
@@ -357,7 +357,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 要写的东西：
 
-- 复用 `src/server/sandbox/factory.ts`（已验证可用，Group 0 PoC 确认过）。
+- 使用 `apps/api/src/sandbox/factory.ts`（由已验证过的 Vercel Sandbox 封装迁入）。
 - Control Plane 侧的 sandbox 认领逻辑（[ADR-0018](./decisions/0018-atomic-state-transitions.md) `currentRunId` 原子认领）。
 - 把 scripted runner 脚本上传到真实沙箱并启动。
 
@@ -450,7 +450,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ### Step 13.2：SSE 端接入 cursor 续读
 
-要写的东西：`GET /api/runs/:runId/events` 增加"订阅 Redis stream 并按 cursor 转发"这一层，处理 `Last-Event-ID` header。
+要写的东西：`GET /api/runs/:runId/events` 增加"订阅 Redis stream 并按 cursor 转发"这一层，处理 `Last-Event-ID` header。（后续浏览器主路径改为 POST，并在 body 中支持 `lastEventId`。）
 
 怎么测：[testing-strategy.md §4.5](./testing-strategy.md#45-events) SSE 26-28。
 
@@ -610,7 +610,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ## Group 18：Sweep（含孤儿资源清理，[ADR-0015](./decisions/0015-usage-telemetry-and-ops-priorities.md)；waiting_for_input 阈值，[ADR-0019](./decisions/0019-waiting-for-input-state.md)）
 
-### Step 18.1：Sweep 核心逻辑（run 收敛）
+### Step 18.1：Sweep 核心逻辑（run 收敛） ✅
 
 要写的东西：定时任务逻辑（先写成一个可独立调用的函数，不依赖 Vercel Cron 触发，方便测试）：扫描 heartbeat 过期的非终态 run，按 [state-machines.md](./state-machines.md) §11 策略收敛。
 
@@ -620,7 +620,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 停下来确认。
 
-### Step 18.2：waiting_for_input 阈值兜底
+### Step 18.2：waiting_for_input 阈值兜底 ✅
 
 要写的东西：sweep 扫描超过 7 天（默认值）的 `waiting_for_input` run，转 `interrupted`。
 
@@ -630,7 +630,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 停下来确认。
 
-### Step 18.3：孤儿资源清理（SandboxInstance + Redis stream）
+### Step 18.3：孤儿资源清理（SandboxInstance + Redis stream） ✅
 
 要写的东西：清理孤儿 `SandboxInstance`（[testing-strategy.md §4.6](./testing-strategy.md#46-sandbox) integration 14）、过期 Redis stream key（复用 Group 13.3 写好的函数）。
 
@@ -640,7 +640,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 停下来确认。
 
-### Step 18.4：接入 Vercel Cron
+### Step 18.4：接入 Vercel Cron ✅
 
 要写的东西：把 Step 18.1-18.3 的函数接到 `/api/sweep` 端点，配置 Vercel Cron 定期调用。
 
@@ -656,6 +656,56 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 到这里，后端 API 已经全部用测试证明可用，才开始做 UI（[testing-strategy.md](./testing-strategy.md) §1.5/§2 的核心原则："不要让 UI 依赖想象中的后端行为"）。这个 Group 的具体子步骤（App Shell → Sidebar → Conversation/Composer → Run Timeline → Artifact Preview/Panel）在到达这一步时会展开成更细的 Step，遵循 [design-system.md](./design-system.md) 已定的布局和交互规则（含 ADR-0019 的 composer 规则、`useComposerEnabled` 共享 hook）。此处先占位，不提前展开细节——UI 阶段的实现顺序可能因为到时候的具体前端框架选型细节（如是否用 shadcn 组件库的具体版本）有调整空间，到达这个 Group 时再和用户对齐一次。
 
+### Step 19.1：App Shell 骨架 ✅
+
+要写的东西：在 `apps/web` 建立独立 Next App Router 前端壳，完成左 sidebar / 中 conversation / 右 artifact panel 的第一屏布局、基础 design tokens、移动端单栏响应式、`/api/*` 到 `apps/api` 的本地 rewrite。
+
+怎么测：`apps/web` typecheck/build，Playwright 截图检查 desktop/mobile 首屏可见且不重叠。
+
+验收标准：`apps/web` 可以独立启动；第一屏不是 landing page，而是可工作的 workspace shell 骨架；不接真实列表/消息/SSE，不实现业务数据流。
+
+停下来确认。
+
+### Step 19.2：Sidebar 数据流 ✅
+
+要写的东西：接入 Better Auth session、workspace list、active workspace thread list、new workspace/new thread 操作，保留 sidebar 折叠/移动 drawer 的壳。
+
+怎么测：route/component 层验证未登录、空列表、创建后刷新、active item。
+
+验收标准：sidebar 从 API snapshot 恢复，不依赖内存状态。
+
+停下来确认。
+
+### Step 19.3：Conversation + Composer ✅
+
+要写的东西：接入 thread snapshot、run 创建、`useComposerEnabled` 规则、cancel 操作、waiting_for_input 用户选择入口。
+
+怎么测：composer enabled/disabled 状态、创建 run、cancel、waiting_for_input 到下一 run。
+
+验收标准：中间 chat 是唯一输入通道，刷新后状态可恢复。
+
+停下来确认。
+
+### Step 19.4：Run Timeline + SSE ✅
+
+要写的东西：接入 Control Plane SSE，渲染 run event、Redis stream chunks、tool call 完整对象和终态 done。
+
+怎么测：SSE snapshot/resume、Last-Event-ID、tool call 不 token stream、终态关闭。
+
+验收标准：实时流只是展示加速层，刷新仍以 API snapshot 为事实源。
+
+停下来确认。
+
+### Step 19.5：Artifact Preview / Panel ✅
+
+要写的东西：artifact preview card、右侧 artifact panel、markdown/text 渲染、copy/download、版本切换的 P0 交互。
+
+怎么测：artifact 创建中/已完成、打开/关闭、移动端 full-screen overlay、版本切换。
+
+验收标准：artifact 是一等交付物，不只是 assistant message。
+
+停下来确认。
+
 ---
 
 ## Group 20：Browser E2E
@@ -666,12 +716,19 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ## Group 21：部署和运维
 
-覆盖 sweep 生产环境验证、secrets 管理、日志可观测性（能定位 runId/workspaceId 且不泄露敏感内容）、[ADR-0022](./decisions/0022-monorepo-hono-backend.md) 的两个独立 Vercel 项目部署配置、cookie domain 生产配置。到达这个 Group 时展开具体子步骤。
+覆盖 sweep 生产环境验证、secrets 管理、日志可观测性（能定位 runId/workspaceId 且不泄露敏感内容，具体方案见 [backend-audit-logging-plan.md](./backend-audit-logging-plan.md)）、[ADR-0022](./decisions/0022-monorepo-hono-backend.md) 的两个独立 Vercel 项目部署配置、cookie domain 生产配置。到达这个 Group 时展开具体子步骤。
 
 ---
 
 ## 当前状态
 
-Group 0（PoC）、Group 1（文档校订）、Group 2（Monorepo 脚手架）、Group 3（Auth）、Group 4（Workspace）已全部完成。下一步是 Group 5 Step 5.1：Thread 数据模型 + CRUD 路由（注意 Step 4.2 已提前建了最小 Thread 表，这一步是补齐完整字段/CRUD/title 派生逻辑，不是从零开始）。
+截至本轮：
 
-按规矩，每完成一个 Step 就停下来等确认，不会连续做完多个 Step。
+- Group 0-17 已完成，后端主链路已经覆盖 workspace/thread/run、ingest、SSE、Redis Streams、files/artifacts/sources、LLM/Search/fetch tools、真实 sandbox agent loop、usage telemetry。
+- Group 18 Sweep 已实现并通过验证，当前仍在工作区未提交：stale `created`/`running`/`provisioning_sandbox`/`cancel_requested`/`waiting_for_input` run 收敛、孤儿 SandboxInstance 清理、过期 Redis stream 清理、`/api/sweep` + Vercel Cron。
+- Group 19 UI Shell 主体已提交到 `35059ae finish web rebuild with run recovery`，本轮继续未提交改动：登录态首页改为默认 workspace + 中央 composer，首条消息自动创建 thread；SSE 前端从原生 `EventSource` 改为 `@microsoft/fetch-event-source`，通过 `POST /api/runs/:runId/events` 建连，服务端保留 GET 兼容并新增 POST。
+- 本轮已接上 run 创建后的真实 runner 调度入口：`POST /api/threads/:threadId/runs` 创建 run 后会按配置自动触发真实 Vercel Sandbox orchestration，签发 scoped run token，认领/创建 `WorkspaceSandboxInstance`，启动 `agent-loop` 脚本；runner 继续只通过 ingest/llm/control HTTP API 回写 heartbeat/events/files/artifacts/sources。测试环境默认不自动拉真实沙箱，显式 workflow/live 场景通过 `CAP_RUNNER_AUTO_START=true` 打开，并且需要一个沙箱内可访问的公网 Control Plane base URL（如 `PUBLIC_AGENT_LOOP_BASE_URL`/`CAP_API_BASE_URL`；localhost 型 `BETTER_AUTH_URL` 不能作为 Vercel Sandbox callback base）。
+- Group 19 仍有一个前端协议缺口：`frontend-shell` 要求 composer enabled 规则封装为共享 `useComposerEnabled` hook。
+- 下一步应按 [backend-audit-logging-plan.md](./backend-audit-logging-plan.md) 增加后台审计日志，然后进入 Group 20 Browser E2E。
+
+按规矩，每完成一个 Step 就停下来等确认，不会连续做完多个 Step。当前因为前端重做任务已经跨 Step 完成，本文档以真实提交/验证结果回填进度。

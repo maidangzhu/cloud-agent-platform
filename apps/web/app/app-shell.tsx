@@ -1,8 +1,10 @@
 "use client";
 
+import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { useEffect, useMemo, useState } from "react";
 import { ResearchShell } from "@/components/research/research-shell";
 import { ResearchSidebar } from "@/components/research/research-sidebar";
+import type { AuthRequest } from "@/components/research/auth-panel";
 import type {
   AgentRun,
   CurrentUser,
@@ -42,6 +44,8 @@ type RunSnapshot = {
 };
 
 type ClientStreamChunk = StreamChunkDTO & { id: string };
+
+const DEFAULT_WORKSPACE_TITLE = "Research workspace";
 
 const RUN_EVENT_TYPES: RunEventType[] = [
   "run_created",
@@ -117,11 +121,31 @@ export function AppShell() {
         throw new Error(workspaceResult.message);
       }
 
-      const nextWorkspaces = workspaceResult.data.workspaces;
+      let nextWorkspaces = workspaceResult.data.workspaces;
+      if (nextWorkspaces.length === 0) {
+        const createdWorkspace = await apiPost<{ workspace: Workspace }>(
+          "/api/workspaces",
+          { title: DEFAULT_WORKSPACE_TITLE }
+        );
+        if (!createdWorkspace.ok) {
+          throw new Error(createdWorkspace.message);
+        }
+        nextWorkspaces = [createdWorkspace.data.workspace];
+      }
+
       setWorkspaces(nextWorkspaces);
+      const requestedWorkspaceId =
+        nextWorkspaceId && nextWorkspaces.some((workspace) => workspace.id === nextWorkspaceId)
+          ? nextWorkspaceId
+          : null;
+      const currentWorkspaceId =
+        activeWorkspaceId &&
+        nextWorkspaces.some((workspace) => workspace.id === activeWorkspaceId)
+          ? activeWorkspaceId
+          : null;
       const selectedWorkspaceId =
-        nextWorkspaceId ??
-        activeWorkspaceId ??
+        requestedWorkspaceId ??
+        currentWorkspaceId ??
         nextWorkspaces.find((workspace) => workspace.status === "active")?.id ??
         null;
       setActiveWorkspaceId(selectedWorkspaceId);
@@ -175,67 +199,104 @@ export function AppShell() {
       return;
     }
 
-    const source = new EventSource(`/api/runs/${activeRun.id}/events`, {
-      withCredentials: true,
-    });
+    const controller = new AbortController();
 
-    source.addEventListener("snapshot", (message) => {
-      const snapshot = parseSseData<{
-        run: AgentRun;
-        events: RunEventDTO[];
-      }>(message);
-      if (!snapshot) {
-        return;
-      }
-      setActiveRun(snapshot.run);
-      setRunEvents(snapshot.events);
-      setStreamChunks([]);
-      setRunError("");
-    });
-
-    source.addEventListener("stream_chunk", (message) => {
-      const chunk = parseSseData<StreamChunkDTO>(message);
-      if (!chunk) {
-        return;
-      }
-      const id = message.lastEventId || `${Date.now()}-${Math.random()}`;
-      setStreamChunks((current) =>
-        current.some((item) => item.id === id)
-          ? current
-          : [...current, { ...chunk, id }]
-      );
-    });
-
-    for (const type of RUN_EVENT_TYPES) {
-      source.addEventListener(type, (message) => {
-        const event = parseSseData<RunEventDTO>(message);
-        if (!event) {
+    void fetchEventSource(`/api/runs/${activeRun.id}/events`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "text/event-stream",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
+      openWhenHidden: true,
+      signal: controller.signal,
+      async onopen(response) {
+        if (!response.ok) {
+          throw new Error(`SSE connection failed with HTTP ${response.status}`);
+        }
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!contentType.includes("text/event-stream")) {
+          throw new Error("SSE connection did not return an event stream.");
+        }
+        setRunError("");
+      },
+      onmessage(message) {
+        if (message.event === "snapshot") {
+          const snapshot = parseSseData<{
+            run: AgentRun;
+            events: RunEventDTO[];
+          }>(message.data);
+          if (!snapshot) {
+            return;
+          }
+          setActiveRun(snapshot.run);
+          setRunEvents(snapshot.events);
+          setStreamChunks([]);
+          setRunError("");
           return;
         }
-        setRunEvents((current) => mergeRunEvents(current, [event]));
-      });
-    }
 
-    source.addEventListener("done", (message) => {
-      const done = parseSseData<{ runId: string; status: RunStatus }>(message);
-      if (done?.runId === activeRun.id) {
-        setActiveRun((current) =>
-          current && current.id === done.runId
-            ? { ...current, status: done.status }
-            : current
-        );
-        void loadRunSnapshot(done.runId);
-      }
-      source.close();
+        if (message.event === "stream_chunk") {
+          const chunk = parseSseData<StreamChunkDTO>(message.data);
+          if (!chunk) {
+            return;
+          }
+          const id = message.id || `${Date.now()}-${Math.random()}`;
+          setStreamChunks((current) =>
+            current.some((item) => item.id === id)
+              ? current
+              : [...current, { ...chunk, id }]
+          );
+          return;
+        }
+
+        if (message.event === "done") {
+          const done = parseSseData<{ runId: string; status: RunStatus }>(
+            message.data
+          );
+          if (done?.runId === activeRun.id) {
+            setActiveRun((current) =>
+              current && current.id === done.runId
+                ? { ...current, status: done.status }
+                : current
+            );
+            void loadRunSnapshot(done.runId);
+          }
+          controller.abort();
+          return;
+        }
+
+        if (message.event === "ping") {
+          return;
+        }
+
+        if (RUN_EVENT_TYPES.includes(message.event as RunEventType)) {
+          const event = parseSseData<RunEventDTO>(message.data);
+          if (!event) {
+            return;
+          }
+          setRunEvents((current) => mergeRunEvents(current, [event]));
+        }
+      },
+      onclose() {
+        if (!controller.signal.aborted && !isTerminalRunStatus(activeRun.status)) {
+          setRunError("Live event stream disconnected; showing last snapshot.");
+        }
+      },
+      onerror(error) {
+        if (!controller.signal.aborted && !isTerminalRunStatus(activeRun.status)) {
+          setRunError(
+            error instanceof Error
+              ? error.message
+              : "Live event stream disconnected; showing last snapshot."
+          );
+        }
+        return 2_000;
+      },
     });
 
-    source.addEventListener("error", () => {
-      if (!isTerminalRunStatus(activeRun.status)) {
-        setRunError("Live event stream disconnected; showing last snapshot.");
-      }
-    });
-
-    return () => source.close();
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRun?.id, activeRun?.status]);
 
@@ -249,6 +310,54 @@ export function AppShell() {
     () => threads.find((thread) => thread.id === activeThreadId) ?? null,
     [activeThreadId, threads]
   );
+
+  async function authenticate(request: AuthRequest) {
+    setError("");
+    const path =
+      request.mode === "sign-in"
+        ? "/api/auth/sign-in/email"
+        : "/api/auth/sign-up/email";
+    try {
+      const response = await fetch(path, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          request.mode === "sign-in"
+            ? { email: request.email, password: request.password }
+            : {
+                email: request.email,
+                password: request.password,
+                name: request.name,
+              }
+        ),
+      });
+      if (!response.ok) {
+        throw new Error(await readAuthError(response));
+      }
+      await loadWorkspaceSnapshot();
+      return true;
+    } catch (err) {
+      setState("unauthorized");
+      setError(err instanceof Error ? err.message : String(err));
+      return false;
+    }
+  }
+
+  async function signOut() {
+    setError("");
+    await fetch("/api/auth/sign-out", {
+      method: "POST",
+      credentials: "include",
+    }).catch(() => undefined);
+    setUser(null);
+    setWorkspaces([]);
+    setThreads([]);
+    setActiveWorkspaceId(null);
+    setActiveThreadId(null);
+    clearThreadRunState();
+    setState("unauthorized");
+  }
 
   async function createWorkspace() {
     setIsCreatingWorkspace(true);
@@ -289,6 +398,25 @@ export function AppShell() {
     } finally {
       setIsCreatingThread(false);
     }
+  }
+
+  async function createThreadForPrompt(prompt: string) {
+    if (!activeWorkspaceId) {
+      throw new Error("Select or create a workspace before starting a run.");
+    }
+    const result = await apiPost<{ thread: Thread }>(
+      `/api/workspaces/${activeWorkspaceId}/threads`,
+      { initialPrompt: prompt }
+    );
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+    setThreads((current) => [
+      result.data.thread,
+      ...current.filter((thread) => thread.id !== result.data.thread.id),
+    ]);
+    setActiveThreadId(result.data.thread.id);
+    return result.data.thread;
   }
 
   function clearThreadRunState() {
@@ -344,15 +472,16 @@ export function AppShell() {
   }
 
   async function startRun(prompt: string) {
-    if (!activeThreadId) {
-      setRunError("Select or create a thread before starting a run.");
-      return false;
-    }
     setIsStartingRun(true);
     setRunError("");
     try {
+      const targetThreadId =
+        activeThreadId ?? (await createThreadForPrompt(prompt)).id;
+      if (!targetThreadId) {
+        throw new Error("Create a workspace before starting a run.");
+      }
       const result = await apiPost<{ run: AgentRun }>(
-        `/api/threads/${activeThreadId}/runs`,
+        `/api/threads/${targetThreadId}/runs`,
         { prompt }
       );
       if (!result.ok) {
@@ -363,7 +492,7 @@ export function AppShell() {
       setStreamChunks([]);
       setRunArtifacts([]);
       setRunSources([]);
-      storeRunId(activeThreadId, result.data.run.id);
+      storeRunId(targetThreadId, result.data.run.id);
       await loadRunSnapshot(result.data.run.id);
       return true;
     } catch (err) {
@@ -413,6 +542,7 @@ export function AppShell() {
           setActiveThreadId(null);
           void loadWorkspaceSnapshot(workspaceId);
         }}
+        onSignOut={() => void signOut()}
         threads={threads}
         user={user}
         workspaces={workspaces}
@@ -427,6 +557,7 @@ export function AppShell() {
           isStartingRun={isStartingRun}
           loadState={state}
           onCancelRun={cancelRun}
+          onAuthenticate={authenticate}
           onCreateThread={createThread}
           onCreateWorkspace={createWorkspace}
           onStartRun={startRun}
@@ -444,8 +575,7 @@ export function AppShell() {
   );
 }
 
-function parseSseData<T>(message: Event): T | null {
-  const data = (message as MessageEvent).data;
+function parseSseData<T>(data: string): T | null {
   if (typeof data !== "string") {
     return null;
   }
@@ -534,4 +664,25 @@ async function parseApiResponse<T>(response: Response): Promise<
     data: body.data,
     message: body.message,
   };
+}
+
+async function readAuthError(response: Response) {
+  const body = await response.json().catch(() => null);
+  if (
+    body &&
+    typeof body === "object" &&
+    "message" in body &&
+    typeof body.message === "string"
+  ) {
+    return body.message;
+  }
+  if (
+    body &&
+    typeof body === "object" &&
+    "error" in body &&
+    typeof body.error === "string"
+  ) {
+    return body.error;
+  }
+  return `HTTP ${response.status}`;
 }

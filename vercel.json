@@ -10,6 +10,12 @@
       "maxDuration": 1800
     }
   },
+  "crons": [
+    {
+      "path": "/api/sweep",
+      "schedule": "* * * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",

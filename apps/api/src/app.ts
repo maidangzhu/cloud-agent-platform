@@ -11,6 +11,7 @@ import { sourceRoutes } from "./sources/routes";
 import { llmRoutes } from "./llm/routes";
 import { searchRoutes } from "./search/routes";
 import { usageRoutes } from "./usage/routes";
+import { sweepRoutes } from "./sweep/routes";
 
 // Hono app。Step 2.2 起了 health check；Step 3.1 挂载 Better Auth
 // （官方 Hono 集成方式：app.on(["POST","GET"], "/api/auth/*", ...)，
@@ -27,6 +28,7 @@ import { usageRoutes } from "./usage/routes";
 // Step 14.1 新增 LLM proxy fake provider 路由。
 // Step 15.1 新增 Search proxy fake provider 路由。
 // Step 17.1 新增 usage telemetry 查询路由。
+// Step 18.4 新增 sweep cron 入口（run 收敛 + 孤儿资源清理）。
 export function createApp() {
   const app = new Hono();
 
@@ -50,6 +52,7 @@ export function createApp() {
   app.route("/", llmRoutes);
   app.route("/", searchRoutes);
   app.route("/", usageRoutes);
+  app.route("/", sweepRoutes);
 
   return app;
 }

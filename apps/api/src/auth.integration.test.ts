@@ -17,12 +17,18 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
   () => {
     const app = createApp();
     const testEmail = `it-${Date.now()}@example.com`;
+    const webOriginEmail = `it-web-origin-${Date.now()}@example.com`;
+    const webFallbackOriginEmail = `it-web-origin-fallback-${Date.now()}@example.com`;
     const testPassword = "integration-test-password-123";
     let sessionCookie = "";
 
     afterAll(async () => {
       // 清理测试账号，保持远端库干净（同 db.integration.test.ts 的约定）。
-      await prisma.user.deleteMany({ where: { email: testEmail } });
+      await prisma.user.deleteMany({
+        where: {
+          email: { in: [testEmail, webOriginEmail, webFallbackOriginEmail] },
+        },
+      });
       await prisma.$disconnect();
     });
 
@@ -100,6 +106,30 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       });
 
       expect(res.status).toBe(422);
+    });
+
+    it("允许 apps/web 本地 origin 注册账号", async () => {
+      for (const [origin, email] of [
+        ["http://localhost:3000", webOriginEmail],
+        ["http://localhost:3001", webFallbackOriginEmail],
+      ] as const) {
+        const res = await app.request("/api/auth/sign-up/email", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            origin,
+          },
+          body: JSON.stringify({
+            email,
+            password: testPassword,
+            name: "Web Origin User",
+          }),
+        });
+
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.user.email).toBe(email);
+      }
     });
 
     it("认证 session 落在独立的 AuthSession 表，不污染 v1 业务 Session 表", async () => {

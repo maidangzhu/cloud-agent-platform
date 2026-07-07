@@ -1,9 +1,6 @@
-// Run 创建/查询/取消路由（Step 6.3，见 docs/api-contract.md §5.4）。
-//
-// 这一步之后 run 会一直停在 created——还没有真实 sandbox（Group 9 才接
-// sandbox runner 调度），这是预期行为，不是 bug。
+// Run 创建/查询/取消路由（见 docs/api-contract.md §5.4）。
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { prisma } from "@cap/db";
 import { requireUser } from "../require-user";
@@ -16,6 +13,11 @@ import { toArtifactDTO } from "../artifacts/store";
 import { toSourceDTO } from "../sources/store";
 import { readRunStream, type RunStreamEntry } from "../redis/streams";
 import { extractBearerRunToken, verifyRunToken } from "./run-token";
+import {
+  dispatchRunOrchestration,
+  resolveRunOrchestratorApiBaseUrl,
+  shouldAutoStartRunner,
+} from "./orchestrator";
 
 type RunDTO = {
   id: string;
@@ -194,6 +196,14 @@ runRoutes.post("/api/threads/:threadId/runs", async (c) => {
     where: { id: result.runId },
   });
 
+  if (shouldAutoStartRunner()) {
+    void dispatchRunOrchestration({
+      runId: created.id,
+      apiBaseUrl: resolveRunOrchestratorApiBaseUrl(c.req.url),
+      waitUntil: getWaitUntil(c),
+    });
+  }
+
   return c.json({ code: 0, message: "ok", data: { run: toDTO(created) } });
 });
 
@@ -202,6 +212,9 @@ runRoutes.get("/api/runs/:runId", async (c) => {
   if (user instanceof Response) return user;
 
   const runId = c.req.param("runId");
+  if (!runId) {
+    return c.json({ code: 1001, message: "runId is required", data: null }, 400);
+  }
   const run = await prisma.agentRun.findUnique({ where: { id: runId } });
   if (!run || run.userId !== user.id) {
     return c.json({ code: 1004, message: "not found", data: null }, 404);
@@ -283,18 +296,27 @@ runRoutes.get("/api/runs/:runId/control", async (c) => {
   });
 });
 
-runRoutes.get("/api/runs/:runId/events", async (c) => {
+async function handleRunEvents(c: Context) {
   const user = await requireUser(c);
   if (user instanceof Response) return user;
 
   const runId = c.req.param("runId");
+  if (!runId) {
+    return c.json({ code: 1001, message: "runId is required", data: null }, 400);
+  }
   const run = await prisma.agentRun.findUnique({ where: { id: runId } });
   if (!run || run.userId !== user.id) {
     return c.json({ code: 1004, message: "not found", data: null }, 404);
   }
 
+  const body =
+    c.req.raw.method === "POST"
+      ? await c.req
+          .json<{ lastEventId?: string }>()
+          .catch((): { lastEventId?: string } => ({}))
+      : {};
   const initialStreamCursor = streamCursorFromLastEventId(
-    c.req.header("Last-Event-ID"),
+    c.req.header("Last-Event-ID") ?? body.lastEventId,
   );
 
   return streamSSE(c, async (stream) => {
@@ -396,7 +418,10 @@ runRoutes.get("/api/runs/:runId/events", async (c) => {
       }
     }
   });
-});
+}
+
+runRoutes.get("/api/runs/:runId/events", handleRunEvents);
+runRoutes.post("/api/runs/:runId/events", handleRunEvents);
 
 runRoutes.post("/api/runs/:runId/cancel", async (c) => {
   const user = await requireUser(c);
@@ -421,3 +446,12 @@ runRoutes.post("/api/runs/:runId/cancel", async (c) => {
   });
   return c.json({ code: 0, message: "ok", data: { run: toDTO(updated) } });
 });
+
+function getWaitUntil(c: Context) {
+  try {
+    return (c as unknown as { executionCtx?: { waitUntil?: (p: Promise<unknown>) => void } })
+      .executionCtx?.waitUntil;
+  } catch {
+    return undefined;
+  }
+}

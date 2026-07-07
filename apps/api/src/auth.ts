@@ -18,6 +18,7 @@ export const auth = betterAuth({
   }),
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL || "http://localhost:8787",
+  trustedOrigins: getTrustedOrigins(),
   // Better Auth 默认关闭邮箱密码注册/登录。P0 先用最基础的邮箱密码方式
   // 验证 auth 链路可用，后续引入哪种登录方式（OAuth/魔法链接等）留给
   // 后续 Group（不在 Step 3.1 范围内）。
@@ -37,3 +38,20 @@ export const auth = betterAuth({
     modelName: "authSession",
   },
 });
+
+function getTrustedOrigins() {
+  return [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3002",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+    "http://127.0.0.1:3002",
+    process.env.WEB_ORIGIN,
+    process.env.NEXT_PUBLIC_APP_URL,
+    ...(process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  ].filter((origin): origin is string => Boolean(origin));
+}

@@ -44,7 +44,10 @@ describe.skipIf(!HAS_DB || !HAS_REDIS)(
       await prisma.$disconnect();
     });
 
-    async function createTerminalRun(completedAt: Date): Promise<string> {
+    async function createRun(params: {
+      status: "running" | "completed";
+      completedAt?: Date;
+    }): Promise<string> {
       const userId = randomUUID();
       const workspaceId = randomUUID();
       const threadId = randomUUID();
@@ -82,9 +85,10 @@ describe.skipIf(!HAS_DB || !HAS_REDIS)(
           threadId,
           userId,
           prompt: "cleanup expired stream",
-          status: "completed",
-          startedAt: completedAt,
-          completedAt,
+          status: params.status,
+          ...(params.completedAt
+            ? { startedAt: params.completedAt, completedAt: params.completedAt }
+            : {}),
         },
       });
 
@@ -93,9 +97,10 @@ describe.skipIf(!HAS_DB || !HAS_REDIS)(
 
     it("deletes stream key for terminal run older than grace and is idempotent", async () => {
       const now = new Date("2026-07-06T00:00:00.000Z");
-      const runId = await createTerminalRun(
-        new Date(now.getTime() - 2 * 60 * 60 * 1000),
-      );
+      const runId = await createRun({
+        status: "completed",
+        completedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000),
+      });
       await addRunStreamChunk({
         runId,
         chunk: "expired-token",
@@ -122,6 +127,43 @@ describe.skipIf(!HAS_DB || !HAS_REDIS)(
         runIds: [runId],
       });
       expect(second).toEqual({ scanned: 1, deleted: 0, runIds: [runId] });
+    });
+
+    it("does not delete active or terminal streams still inside grace", async () => {
+      const now = new Date("2026-07-06T00:00:00.000Z");
+      const activeRunId = await createRun({ status: "running" });
+      const freshTerminalRunId = await createRun({
+        status: "completed",
+        completedAt: new Date(now.getTime() - 30 * 60 * 1000),
+      });
+      await addRunStreamChunk({
+        runId: activeRunId,
+        chunk: "active-token",
+        streamType: "thinking",
+      });
+      await addRunStreamChunk({
+        runId: freshTerminalRunId,
+        chunk: "fresh-terminal-token",
+        streamType: "content",
+      });
+
+      const result = await cleanupExpiredRunStreams({
+        now,
+        graceMs: 60 * 60 * 1000,
+        runIds: [activeRunId, freshTerminalRunId],
+      });
+
+      expect(result).toEqual({ scanned: 0, deleted: 0, runIds: [] });
+      await expect(
+        readRunStream({ runId: activeRunId, cursor: "0", blockMs: 100 }),
+      ).resolves.toHaveLength(1);
+      await expect(
+        readRunStream({
+          runId: freshTerminalRunId,
+          cursor: "0",
+          blockMs: 100,
+        }),
+      ).resolves.toHaveLength(1);
     });
   },
 );
