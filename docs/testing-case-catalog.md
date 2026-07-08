@@ -82,12 +82,13 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | AGENT-W-003 | workflow | Agent Loop | SSE replays stream chunks from cursor `0` | done |
 | AGENT-W-004 | workflow | Agent Loop | SSE Last-Event-ID resumes without duplicate/lost chunks | done |
 | AGENT-W-005 | workflow | Agent Loop | tool calls remain complete objects, not stream chunks | done |
-| LIVE-L-001 | live | Deployed API | deployed `/health` and unauthenticated `/api/me` | planned, blocked until hosted `apps/api` exists |
-| LIVE-L-002 | live | Deployed API | sign in test account, create workspace/thread/run, cleanup | planned, blocked until hosted `apps/api` exists |
-| DEPLOY-L-001 | live | Hosted API | `apps/api` Vercel preview Ready and `/health` public 200 | planned |
-| DEPLOY-L-002 | live | Hosted Web | `apps/web` Vercel preview Ready with `API_PROXY_TARGET` pointing at hosted API | planned |
-| DEPLOY-L-003 | live | Web/API rewrite | web `/api/health` reaches hosted API, not `localhost:8787` | planned |
-| RUNTIME-W-001 | workflow | Pi AI Runtime | sandbox starts Pi AI runtime and completes deterministic run through hosted API | planned |
+| LIVE-L-001 | live | Deployed API | deployed `/health`, `/api/health`, CORS, unauthenticated browser endpoints | done |
+| LIVE-L-002 | live | Deployed API | authenticated workspace/thread/run/resource API against hosted API | done |
+| LIVE-L-003 | live | Pi AI Runtime | hosted API creates run, real Vercel Sandbox starts Pi runtime, file/artifact are readable through public API | done |
+| DEPLOY-L-001 | live | Hosted API | `apps/api` Vercel production Ready and `/health` public 200 | done |
+| DEPLOY-L-002 | live | Hosted Web | `apps/web` Vercel production Ready with `API_PROXY_TARGET` pointing at hosted API | done |
+| DEPLOY-L-003 | live | Web/API rewrite | web `/api/health` reaches hosted API, not `localhost:8787` | done |
+| RUNTIME-W-001 | workflow | Pi AI Runtime | sandbox starts Pi AI runtime and completes deterministic run through hosted API | done |
 
 ## 4. LLM Case Matrix
 

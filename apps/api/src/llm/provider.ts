@@ -153,7 +153,8 @@ export function fakeComplete(
   const reasoning = `fake reasoning for: ${prompt}`;
   const content = `fake response for: ${prompt}`;
   const toolCalls =
-    modelHint === "agent-loop-step16"
+    modelHint === "agent-loop-step16" &&
+    !messages.some((message) => message.role === "tool")
       ? fakeAgentLoopToolCalls(prompt)
       : [];
   const inputTokens = estimateTokens(messages.map((message) => message.content));

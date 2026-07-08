@@ -423,12 +423,14 @@ try {
     messageCount: agent.state.messages.length,
     forbiddenEnvPresent: forbiddenEnvKeys.some((key) => Boolean(process.env[key])),
   }));
+  process.exit(0);
 } catch (error) {
   if (!(error instanceof Error && error.message === "RUN_CANCELLED")) {
     await postRunEvent("run_failed", {
       errorCode: error instanceof Error ? error.message : String(error),
     }).catch(() => undefined);
-    throw error;
+    console.error(error);
+    process.exit(1);
   }
   console.log(JSON.stringify({
     piRuntimeStarted: true,
@@ -437,5 +439,6 @@ try {
     runId: config.runId,
     forbiddenEnvPresent: forbiddenEnvKeys.some((key) => Boolean(process.env[key])),
   }));
+  process.exit(0);
 }
 `.trim();

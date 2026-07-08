@@ -11,6 +11,7 @@ type WorkspaceSandboxRow = Awaited<
 
 type VercelSandboxHandle = {
   workingDir: string;
+  readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<void>;
   exec(
     command: string,
@@ -308,14 +309,111 @@ export async function runPiRuntimeInSandbox(params: {
     { timeoutMs: params.installTimeoutMs ?? 180_000 },
   );
   if (install.exitCode !== 0) return install;
-  return params.sandbox.exec("node pi-runtime.mjs", {
+  return runCapturedPiRuntimeCommand(params.sandbox, "node pi-runtime.mjs", {
     timeoutMs: params.execTimeoutMs ?? 120_000,
   });
+}
+
+async function runCapturedPiRuntimeCommand(
+  sandbox: VercelSandboxHandle,
+  command: string,
+  opts: { timeoutMs: number },
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const prefix = `pi-runtime-${randomUUID()}`;
+  const stdoutPath = `${prefix}.stdout.log`;
+  const stderrPath = `${prefix}.stderr.log`;
+  const exitPath = `${prefix}.exit-code.txt`;
+  const wrapped = [
+    "set +e",
+    `${command} > ${stdoutPath} 2> ${stderrPath}`,
+    `printf "%s" "$?" > ${exitPath}`,
+  ].join("; ");
+
+  try {
+    const result = await sandbox.exec(wrapped, opts);
+    return {
+      exitCode: await readCapturedExitCode(sandbox, exitPath, result.exitCode),
+      stdout: await readCapturedFile(sandbox, stdoutPath),
+      stderr: await readCapturedFile(sandbox, stderrPath),
+    };
+  } catch (error) {
+    if (!isSandboxStreamEndedError(error)) throw error;
+  }
+
+  const captured = await waitForCapturedPiRuntimeResult(sandbox, {
+    exitPath,
+    stdoutPath,
+    stderrPath,
+    timeoutMs: opts.timeoutMs,
+  });
+  if (captured) return captured;
+  throw new Error(`captured command did not finish after ${opts.timeoutMs}ms`);
+}
+
+async function waitForCapturedPiRuntimeResult(
+  sandbox: VercelSandboxHandle,
+  files: {
+    exitPath: string;
+    stdoutPath: string;
+    stderrPath: string;
+    timeoutMs: number;
+  },
+): Promise<{ exitCode: number; stdout: string; stderr: string } | null> {
+  const deadline = Date.now() + files.timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const exitCode = await readCapturedExitCode(sandbox, files.exitPath);
+      return {
+        exitCode,
+        stdout: await readCapturedFile(sandbox, files.stdoutPath),
+        stderr: await readCapturedFile(sandbox, files.stderrPath),
+      };
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+  return null;
+}
+
+async function readCapturedExitCode(
+  sandbox: VercelSandboxHandle,
+  path: string,
+  fallback?: number,
+): Promise<number> {
+  let raw: string;
+  try {
+    raw = await sandbox.readFile(path);
+  } catch (error) {
+    if (fallback !== undefined) return fallback;
+    throw error;
+  }
+  const parsed = Number.parseInt(raw.trim(), 10);
+  return Number.isInteger(parsed) ? parsed : (fallback ?? 1);
+}
+
+async function readCapturedFile(
+  sandbox: VercelSandboxHandle,
+  path: string,
+): Promise<string> {
+  try {
+    return await sandbox.readFile(path);
+  } catch {
+    return "";
+  }
 }
 
 function isSandboxExecTimeoutError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /timeout|timed out|abort/i.test(message);
+}
+
+function isSandboxStreamEndedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const name = error instanceof Error ? error.name : "";
+  const stack = error instanceof Error ? error.stack ?? "" : "";
+  return /stream ended before command finished|streamerror/i.test(
+    `${name}\n${message}\n${stack}`,
+  );
 }
 
 async function claimExistingWorkspaceSandbox(

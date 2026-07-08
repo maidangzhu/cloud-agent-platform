@@ -115,6 +115,20 @@ describe("fake provider agent-loop fixture", () => {
       path: "reports/agent-loop-report.md",
     });
   });
+
+  it("stops Step 16 fake tool calls after tool results are present", () => {
+    const result = fakeComplete(
+      [
+        { role: "user", content: "produce report" },
+        { role: "tool", content: "Wrote reports/agent-loop-report.md" },
+      ],
+      "agent-loop-step16",
+    );
+
+    expect(result.finishReason).toBe("stop");
+    expect(result.toolCalls).toEqual([]);
+    expect(result.content).toContain("produce report");
+  });
 });
 
 describe("OpenAI-compatible response normalization", () => {
