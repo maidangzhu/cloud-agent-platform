@@ -7,7 +7,7 @@ import {
   deleteRunStream,
   disconnectRedis,
   readRunStream,
-} from "./streams";
+} from "./streams.js";
 
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 const HAS_REDIS = Boolean(process.env.REDIS_URL);

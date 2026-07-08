@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { prisma } from "@cap/db";
-import { requireUser } from "../require-user";
-import { toSourceDTO } from "./store";
+import { requireUser } from "../require-user.js";
+import { toSourceDTO } from "./store.js";
 
 export const sourceRoutes = new Hono();
 

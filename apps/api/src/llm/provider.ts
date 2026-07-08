@@ -235,7 +235,7 @@ export async function completeWithRealProvider(params: {
     modelHint: params.modelHint,
     env: params.env,
   });
-  if (!resolved.ok) {
+  if (resolved.ok === false) {
     return { ok: false, status: 500, code: 5000, message: resolved.message };
   }
 

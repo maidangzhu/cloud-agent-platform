@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveVercelCredentials } from "./vercel-credentials";
+import { resolveVercelCredentials } from "./vercel-credentials.js";
 
 // 构造一个 payload 为 {owner_id, project_id} 的假 JWT（仅 header.payload.sig，
 // 不验签，符合 resolveVercelCredentials 只解析 payload 的行为）。

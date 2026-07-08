@@ -5,7 +5,7 @@ import {
   searchWithExaProvider,
   searchWithHttpProvider,
   type SearchHttpTransport,
-} from "./provider";
+} from "./provider.js";
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -130,7 +130,7 @@ describe("search retry behavior", () => {
 
     expect(result.ok).toBe(false);
     expect(calls).toBe(1);
-    if (!result.ok) {
+    if (result.ok === false) {
       expect(result.code).toBe(3001);
       expect(result.message).toMatch(/429/);
       expect(result.attempts).toHaveLength(1);

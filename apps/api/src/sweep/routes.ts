@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { sweepStaleRuns } from "./run-sweep";
-import { sweepOrphanResources } from "./resource-sweep";
+import { sweepStaleRuns } from "./run-sweep.js";
+import { sweepOrphanResources } from "./resource-sweep.js";
 
 type SweepAuthResult =
   | { ok: true }
@@ -16,7 +16,7 @@ export const sweepRoutes = new Hono();
 
 sweepRoutes.get("/api/sweep", async (c) => {
   const auth = authorizeSweep(c.req.header("authorization"), process.env);
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return c.json({ code: 1002, message: auth.message, data: null }, 401);
   }
 

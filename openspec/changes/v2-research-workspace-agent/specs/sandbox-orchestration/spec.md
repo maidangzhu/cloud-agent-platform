@@ -18,16 +18,21 @@ Sandbox runner 的一切持久化事实 MUST 通过 ingest HTTP API 上报，不
 - **WHEN** fake runner 执行心跳、事件、文件、artifact 上报的完整生命周期
 - **THEN** 全部通过 ingest API 完成，runner 进程中不存在任何数据库客户端连接
 
-### Requirement: Run 创建后自动启动真实 Sandbox Runner
-产品主路径 MUST 在 run 创建后自动启动真实 Vercel Sandbox runner，不允许要求人工或测试 helper 手动调用 runner，也不允许以 fake/local sandbox 作为产品主路径。测试可以用 deterministic LLM 输出稳定断言，但 sandbox 运行边界必须是真实 Vercel Sandbox。
+### Requirement: Run 创建后自动启动真实 Sandbox Runtime
+产品主路径 MUST 在 run 创建后自动启动真实 Vercel Sandbox runtime，不允许要求人工或测试 helper 手动调用 runtime，也不允许以 fake/local sandbox 作为产品主路径。产品 runtime MUST 迁移为真实 Pi AI runtime（`@earendil-works/pi`）；当前自写 loop 只允许作为 deterministic fixture 或迁移垫片。测试可以用 deterministic LLM 输出稳定断言，但 sandbox 运行边界必须是真实 Vercel Sandbox。
 
 #### Scenario: 创建 run 后启动 agent loop
 - **WHEN** 浏览器创建 run
-- **THEN** Control Plane 将 run 从 `created` 推进到 `provisioning_sandbox`，签发 scoped run token，认领/创建 workspace sandbox，并在 sandbox 内启动 agent loop
+- **THEN** Control Plane 将 run 从 `created` 推进到 `provisioning_sandbox`，签发 scoped run token，认领/创建 workspace sandbox，并在 sandbox 内启动 runtime
 
 #### Scenario: Runner 通过 ingest 驱动 SSE
-- **WHEN** sandbox agent loop 开始执行
+- **WHEN** sandbox runtime 开始执行
 - **THEN** 浏览器 SSE 能看到 snapshot、runner/run 事件、`agent_message` 或 `stream_chunk`，以及终态或等待态
+
+#### Scenario: Pi AI runtime 不持有长期凭证
+- **WHEN** sandbox runtime 启动
+- **THEN** 它只拿到 scoped run token 和 hosted Control Plane URL
+- **AND** 不拿到 `DATABASE_URL`、Better Auth secret 或长期 LLM provider key
 
 ### Requirement: 孤儿资源清理
 Sweep SHALL 定期清理孤儿 SandboxInstance（`warm`/`ready` 但无对应活跃 run，或对应 run 已终态但状态未跟着收敛）。

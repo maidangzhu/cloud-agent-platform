@@ -2,9 +2,9 @@ import { createServer, type Server } from "node:http";
 import { AddressInfo } from "node:net";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
-import { createApp } from "../app";
-import { issueRunToken } from "../run/run-token";
-import { runScriptedIngestFixture } from "../sandbox/scripted-ingest-fixture";
+import { createApp } from "../app.js";
+import { issueRunToken } from "../run/run-token.js";
+import { runScriptedIngestFixture } from "../sandbox/scripted-ingest-fixture.js";
 
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 const HAS_SECRET = Boolean(process.env.BETTER_AUTH_SECRET);

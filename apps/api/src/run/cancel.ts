@@ -7,7 +7,7 @@
 // 路由层据此映射成 RUN_NOT_CANCELABLE（不区分"已经是终态"和"已经在
 // cancel_requested"两种子情况——都是"不能再 cancel"）。
 
-import { transitionRun } from "./transition-run";
+import { transitionRun } from "./transition-run.js";
 
 const CANCELABLE_FROM_STATUSES = [
   "created",

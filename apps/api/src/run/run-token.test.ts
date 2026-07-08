@@ -4,7 +4,7 @@ import {
   issueRunToken,
   verifyRunToken,
   type RunTokenBinding,
-} from "./run-token";
+} from "./run-token.js";
 
 const SECRET = "unit-test-run-token-secret";
 const NOW = new Date("2026-07-05T00:00:00.000Z");

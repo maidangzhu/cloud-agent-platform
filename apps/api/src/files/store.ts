@@ -64,7 +64,7 @@ export function validateWorkspaceFileInput(
   message: string;
 } {
   const normalized = normalizeWorkspacePath(input.path);
-  if (!normalized.ok) return normalized;
+  if (normalized.ok === false) return normalized;
 
   if (
     typeof input.kind !== "string" ||

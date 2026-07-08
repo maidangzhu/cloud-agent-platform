@@ -10,7 +10,7 @@
 // 正常 no-op 结果——调用方不需要重试，也不需要抛错。
 
 import { prisma } from "@cap/db";
-import type { RunStatus } from "./transitions";
+import type { RunStatus } from "./transitions.js";
 
 export type TransitionRunResult = { applied: boolean };
 

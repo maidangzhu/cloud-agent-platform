@@ -4,7 +4,7 @@
 // 参考：https://better-auth.com/docs/concepts/api
 
 import type { Context } from "hono";
-import { auth } from "./auth";
+import { auth } from "./auth.js";
 
 export type CurrentUser = {
   id: string;

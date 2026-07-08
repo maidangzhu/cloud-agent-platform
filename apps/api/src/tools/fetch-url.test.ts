@@ -5,7 +5,7 @@ import {
   isTextContentType,
   validateFetchUrl,
   type FetchUrlTransport,
-} from "./fetch-url";
+} from "./fetch-url.js";
 
 function response(
   body: BodyInit,

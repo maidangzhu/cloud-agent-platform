@@ -1,18 +1,18 @@
 # Agent Runtime Protocol
 
-这份文档定义 Control Plane 和 Sandbox Runner 的通信协议。
+这份文档定义 Control Plane 和 Sandbox Runtime 的通信协议。
 
 这是 agent-in-sandbox 架构里最重要的后端契约。
 
 ## 1. 目标
 
-把完整 agent loop 移到 sandbox 内运行，同时让持久化状态、凭证、认证、点数和 UI streaming 仍由 Control Plane 管理。
+把完整 Agent Runtime 移到 sandbox 内运行，同时让持久化状态、凭证、认证、用量遥测和 UI streaming 仍由 Control Plane 管理。产品主路径使用真实 Pi AI runtime（`@earendil-works/pi`）；项目内自写 agent loop 只能作为 deterministic fixture 或迁移垫片。
 
 Control Plane 负责：
 
 - auth
 - run creation
-- credit reservation
+- usage telemetry
 - sandbox provisioning
 - scoped run token issuing
 - ingest verification
@@ -21,10 +21,10 @@ Control Plane 负责：
 - SSE
 - timeout/cancel convergence
 
-Sandbox Runner 负责：
+Sandbox Runtime 负责：
 
 - load run config
-- run agent loop
+- run Pi AI runtime
 - execute tools
 - read/write workspace filesystem
 - create artifacts
@@ -44,7 +44,7 @@ Browser auth -> Control Plane -> Postgres/Object Storage/LLM provider
 不可信区域：
 
 ```text
-Sandbox Runner -> tools -> network/files/commands
+Sandbox Runtime -> tools -> network/files/commands
 ```
 
 Sandbox 不允许拿到：
@@ -66,6 +66,7 @@ Sandbox 可以拿到：
 - workspace root
 - max steps/duration
 - tool policy config
+- public Control Plane API base URL
 
 ## 3. 端到端顺序
 
@@ -77,22 +78,22 @@ Sandbox 可以拿到：
 5. Control Plane creates Run status=created
 6. Control Plane creates scoped run token
 7. Control Plane 认领/创建 SandboxInstance（原子 UPDATE 设置 currentRunId，见 ADR-0018）
-8. Control Plane starts sandbox-runner inside sandbox（产品主路径必须自动调度，不需要人工或测试 helper 手动启动）
+8. Control Plane starts Pi AI runtime inside sandbox（产品主路径必须自动调度，不需要人工或测试 helper 手动启动）
 9. Control Plane sets Run status=provisioning_sandbox/running as appropriate
-10. Sandbox Runner posts heartbeat/events through ingest
+10. Sandbox Runtime posts heartbeat/events through ingest
 11. Browser listens on POST /api/runs/:runId/events（GET 保留兼容；从 body.lastEventId、Last-Event-ID 或起始 cursor 读取，见 ADR-0021）
-12. Sandbox Runner calls LLM proxy and tools；token 逐字转发经 stream-chunk（不落库），语义完整时落库（ADR-0011/0016/0017/0021）
-13. Sandbox Runner ingests files/sources/artifacts
-14. Sandbox Runner reports terminal event 或 run_waiting_for_input（ADR-0019）
+12. Sandbox Runtime calls LLM proxy and tools；token 逐字转发经 stream-chunk（不落库），语义完整时落库（ADR-0011/0016/0017/0021）
+13. Sandbox Runtime ingests files/sources/artifacts
+14. Sandbox Runtime reports terminal event 或 run_waiting_for_input（ADR-0019）
 15. Control Plane finalizes run；记录 LLMUsageRecord 用量遥测（ADR-0015，不做 reserve/debit 强制执行）
 16. SSE sends done
 ```
 
 > Credit reservation 步骤（旧版第 4/7 步）已按 [ADR-0015](./decisions/0015-usage-telemetry-and-ops-priorities.md) 移除——不再是"额度不足拒绝启动"，改为纯用量记录，不阻塞 run 创建流程。
 
-## 4. Runner 启动契约
+## 4. Runtime 启动契约
 
-Control Plane 使用 JSON config 启动 runner。
+Control Plane 使用 JSON config 启动 sandbox 内 Pi AI runtime（`@earendil-works/pi`）。当前代码里的自写 loop 可以继续作为测试 fixture，但不能作为最终产品 runtime。
 
 示例：
 
@@ -104,9 +105,10 @@ Control Plane 使用 JSON config 启动 runner。
   "userId": "usr_123",
   "prompt": "Research OpenClaw and produce a report.",
   "workspaceRoot": "/workspace",
-  "ingestUrl": "https://app.example.com/api/ingest",
-  "llmProxyUrl": "https://app.example.com/api/llm-proxy",
-  "controlUrl": "https://app.example.com/api/runs/run_123/control",
+  "ingestUrl": "https://api.example.com/api/ingest",
+  "llmProxyUrl": "https://api.example.com/api/llm-proxy",
+  "searchProxyUrl": "https://api.example.com/api/search-proxy",
+  "controlUrl": "https://api.example.com/api/runs/run_123/control",
   "runToken": "scoped-token",
   "maxSteps": 80,
   "maxDurationSec": 1800,
@@ -123,25 +125,25 @@ Control Plane 使用 JSON config 启动 runner。
 - Config 只作用于一个 run。
 - Token 必须过期。
 - Token 应该通过环境变量或权限受限的临时文件传入。
-- Runner 不能打印 token。
-- Control Plane 创建 run 后必须自动执行启动流程：`created -> provisioning_sandbox`，签发 scoped run token，认领/创建 workspace sandbox，sandbox ready 后 `provisioning_sandbox -> running`，再执行 runner 脚本。
-- 若缺少可从 Vercel Sandbox 访问的 Control Plane public API base URL，或 sandbox/runner 启动失败，run 必须收敛到 `failed`/`timeout`，不得长期停留在 `created`。
+- Runtime 不能打印 token。
+- Control Plane 创建 run 后必须自动执行启动流程：`created -> provisioning_sandbox`，签发 scoped run token，认领/创建 workspace sandbox，sandbox ready 后 `provisioning_sandbox -> running`，再执行 Pi AI runtime。
+- 若缺少可从 Vercel Sandbox 访问的 Control Plane public API base URL，或 sandbox/runtime 启动失败，run 必须收敛到 `failed`/`timeout`，不得长期停留在 `created`。
 
-## 5. Runner 生命周期
+## 5. Runtime 生命周期
 
-Runner 阶段：
+Runtime 阶段：
 
 ```text
 boot
 load_context
-agent_loop
+pi_ai_loop
 finalize
 exit
 ```
 
 ### 5.1 Boot
 
-Runner 必须：
+Runtime 必须：
 
 - parse config
 - validate required fields
@@ -152,7 +154,7 @@ Runner 必须：
 
 ### 5.2 Load Context
 
-Runner 需要上下文：
+Runtime 需要上下文：
 
 - 当前 prompt
 - 最近 thread messages
@@ -163,16 +165,16 @@ Runner 需要上下文：
 P0 选项：
 
 1. Control Plane 在 start config 里带上 context。
-2. Runner 调用一个 scoped context endpoint。
+2. Runtime 调用一个 scoped context endpoint。
 
 建议：
 
 - 先从 start config 提供最小 context。
 - context 变大后再增加 scoped context API。
 
-### 5.3 Agent Loop
+### 5.3 Pi AI Loop
 
-Loop：
+Pi AI runtime loop：
 
 ```text
 while not terminal:
@@ -203,7 +205,7 @@ while not terminal:
 
 ### 5.4 Finalize
 
-Runner 必须：
+Runtime 必须：
 
 - 在能判断时上报 completed/failed/cancelled/waiting_for_input。
 - flush pending ingest。
@@ -449,7 +451,7 @@ Request：
 - Control Plane 持有 provider credentials。
 - Control Plane 记录 usage（落一条 `LLMUsageRecord`，纯遥测，不做 reserve/debit 强制执行，见 [ADR-0015](./decisions/0015-usage-telemetry-and-ops-priorities.md)）。
 - Sandbox 接收模型输出。
-- Runner 判断"这段完整了"依赖 provider 的 `finish_reason` 字段（或等价信号），[ADR-0009](./decisions/0009-provider-anti-corruption-layer.md) 的防腐层必须保证这个信号在不同 provider 间被归一化，不能让 runner 直接处理 provider 差异（[ADR-0017](./decisions/0017-token-accumulation-and-persistence-timing.md)）。
+- Runtime 判断"这段完整了"依赖 provider 的 `finish_reason` 字段（或等价信号），[ADR-0009](./decisions/0009-provider-anti-corruption-layer.md) 的防腐层必须保证这个信号在不同 provider 间被归一化，不能让 Pi AI adapter 直接处理 provider 差异（[ADR-0017](./decisions/0017-token-accumulation-and-persistence-timing.md)）。
 
 P0：
 
@@ -463,17 +465,17 @@ Control Plane：
 - `POST /api/runs/:runId/cancel`
 - 设置 run `cancel_requested`
 
-Runner cancellation 选项：
+Runtime cancellation 选项：
 
-1. polling：runner 每 N 秒调用 control endpoint
-2. signal：Control Plane 调用 sandbox runner endpoint
+1. polling：runtime 每 N 秒调用 control endpoint
+2. signal：Control Plane 调用 sandbox runtime endpoint
 3. abort file：如果 sandbox API 支持，Control Plane 写 cancellation marker
 
 P0 建议：
 
 - 每 500-1000ms polling
 
-Runner 行为：
+Runtime 行为：
 
 - 尽量在下一次 LLM/tool call 前停止。
 - 尽量 abort active LLM proxy。
@@ -483,7 +485,7 @@ Runner 行为：
 
 Control Plane 行为：
 
-- 如果 runner 没有及时上报，sweep 根据策略最终标记 cancelled/timeout/interrupted。
+- 如果 runtime 没有及时上报，sweep 根据策略最终标记 cancelled/timeout/interrupted。
 
 ## 11. Timeout And Sweep
 
@@ -494,7 +496,7 @@ Timeout 来源：
 - maxDurationSec exceeded
 - heartbeat stale beyond threshold
 - provisioning took too long
-- runner process lost
+- runtime process lost
 
 Sweep 行为：
 
@@ -522,24 +524,24 @@ Sweep 同时负责清理孤儿资源（[ADR-0015](./decisions/0015-usage-telemet
 
 必须完成的集成里程碑：
 
-1. scripted runner starts inside sandbox
-2. scripted runner heartbeats
-3. scripted runner ingests events
-4. scripted runner writes file and ingests metadata
-5. scripted runner creates artifact
-6. scripted runner creates a second version of same artifact（artifact_updated）
-7. scripted runner completes run
-8. cancel request stops scripted runner
-9. stale runner is swept
-10. scripted runner reports run_waiting_for_input，run 正常收尾，后续新 run 可创建
+1. deterministic runtime fixture starts inside sandbox
+2. deterministic runtime fixture heartbeats
+3. deterministic runtime fixture ingests events
+4. deterministic runtime fixture writes file and ingests metadata
+5. deterministic runtime fixture creates artifact
+6. deterministic runtime fixture creates a second version of same artifact（artifact_updated）
+7. deterministic runtime fixture completes run
+8. cancel request stops deterministic runtime fixture
+9. stale runtime is swept
+10. deterministic runtime fixture reports run_waiting_for_input，run 正常收尾，后续新 run 可创建
 11. waiting_for_input run 超过阈值被 sweep 转 interrupted
-12. scripted runner streams chunks through stream-chunk（Redis Streams），SSE 从 cursor 续读
-13. real runner calls fake LLM proxy
-14. real runner calls real LLM in optional smoke test
+12. deterministic runtime fixture streams chunks through stream-chunk（Redis Streams），SSE 从 cursor 续读
+13. Pi AI runtime calls fake LLM proxy
+14. Pi AI runtime calls real LLM in optional smoke test
 
 测试必须证明：
 
-- runner 没有 DB credentials
+- sandbox runtime 没有 DB credentials
 - ingest 需要 run token
 - token 不能跨 run/workspace 使用
 - event snapshot 可以从 DB 恢复

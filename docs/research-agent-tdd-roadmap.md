@@ -1,5 +1,7 @@
 # Research Workspace Agent — TDD 路线图
 
+> Deprecated: this document is kept as historical context. Current execution order lives in [implementation-roadmap.md](./implementation-roadmap.md). Hosted API deployment is now tracked in [hosted-control-plane-deployment-plan.md](./hosted-control-plane-deployment-plan.md). Do not use the Next.js Control Plane or `app.example.com` examples below as current architecture.
+
 ## 1. 目标
 
 构建一个通用 research agent 平台，核心是持久化 workspace。
@@ -863,4 +865,3 @@ API 证明正确后，再验证用户可见流程。
 17. Deployment。
 
 最难的架构里程碑不是 LLM 效果，而是证明 loop 确实在 sandbox 内运行，并且所有持久化事实都通过 ingest APIs 回到 Control Plane，sandbox 不直接访问数据库。
-

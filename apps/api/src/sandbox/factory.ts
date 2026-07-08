@@ -1,6 +1,6 @@
 import { Sandbox as VercelSdkSandbox } from "@vercel/sandbox";
-import { resolveVercelCredentials } from "./vercel-credentials";
-import { VercelSandbox } from "./vercel-sandbox";
+import { resolveVercelCredentials } from "./vercel-credentials.js";
+import { VercelSandbox } from "./vercel-sandbox.js";
 
 const DEFAULT_SANDBOX_TIMEOUT_MS = 30 * 60 * 1000; // 30 分钟，与 Function maxDuration 对齐
 

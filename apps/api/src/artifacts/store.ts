@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { prisma, type ArtifactKind } from "@cap/db";
-import { normalizeWorkspacePath } from "../files/store";
+import { normalizeWorkspacePath } from "../files/store.js";
 
 const ARTIFACT_KINDS = new Set<ArtifactKind>([
   "text",
@@ -58,7 +58,7 @@ export function validateArtifactInput(
   let normalizedPath: string | undefined;
   if (input.path !== undefined) {
     const normalized = normalizeWorkspacePath(input.path);
-    if (!normalized.ok) return normalized;
+    if (normalized.ok === false) return normalized;
     normalizedPath = normalized.path;
   }
 
@@ -69,12 +69,15 @@ export function validateArtifactInput(
     };
   }
 
-  const eventSeq = input.eventSeq;
-  if (
-    eventSeq !== undefined &&
-    (typeof eventSeq !== "number" || !Number.isInteger(eventSeq))
-  ) {
-    return { ok: false, message: "eventSeq must be an integer" };
+  let eventSeq: number | undefined;
+  if (input.eventSeq !== undefined) {
+    if (
+      typeof input.eventSeq !== "number" ||
+      !Number.isInteger(input.eventSeq)
+    ) {
+      return { ok: false, message: "eventSeq must be an integer" };
+    }
+    eventSeq = input.eventSeq;
   }
 
   return {

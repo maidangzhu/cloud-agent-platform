@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { prisma } from "@cap/db";
-import { requireUser } from "../require-user";
-import { normalizeWorkspacePath, toWorkspaceFileDTO } from "./store";
+import { requireUser } from "../require-user.js";
+import { normalizeWorkspacePath, toWorkspaceFileDTO } from "./store.js";
 
 export const fileRoutes = new Hono();
 
@@ -38,7 +38,7 @@ fileRoutes.get("/api/workspaces/:workspaceId/files/content", async (c) => {
 
   const workspaceId = c.req.param("workspaceId");
   const normalized = normalizeWorkspacePath(c.req.query("path"));
-  if (!normalized.ok) {
+  if (normalized.ok === false) {
     return c.json({ code: 1006, message: normalized.message, data: null }, 400);
   }
 

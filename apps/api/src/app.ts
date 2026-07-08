@@ -1,17 +1,21 @@
 import { Hono } from "hono";
-import { auth } from "./auth";
-import { requireUser } from "./require-user";
-import { workspaceRoutes } from "./workspace/routes";
-import { threadRoutes } from "./thread/routes";
-import { runRoutes } from "./run/routes";
-import { ingestRoutes } from "./ingest/routes";
-import { fileRoutes } from "./files/routes";
-import { artifactRoutes } from "./artifacts/routes";
-import { sourceRoutes } from "./sources/routes";
-import { llmRoutes } from "./llm/routes";
-import { searchRoutes } from "./search/routes";
-import { usageRoutes } from "./usage/routes";
-import { sweepRoutes } from "./sweep/routes";
+import type { Context } from "hono";
+import { handle } from "hono/vercel";
+import { cors } from "hono/cors";
+import { auth } from "./auth.js";
+import { isAllowedCorsOrigin } from "./origins.js";
+import { requireUser } from "./require-user.js";
+import { workspaceRoutes } from "./workspace/routes.js";
+import { threadRoutes } from "./thread/routes.js";
+import { runRoutes } from "./run/routes.js";
+import { ingestRoutes } from "./ingest/routes.js";
+import { fileRoutes } from "./files/routes.js";
+import { artifactRoutes } from "./artifacts/routes.js";
+import { sourceRoutes } from "./sources/routes.js";
+import { llmRoutes } from "./llm/routes.js";
+import { searchRoutes } from "./search/routes.js";
+import { usageRoutes } from "./usage/routes.js";
+import { sweepRoutes } from "./sweep/routes.js";
 
 // Hono app。Step 2.2 起了 health check；Step 3.1 挂载 Better Auth
 // （官方 Hono 集成方式：app.on(["POST","GET"], "/api/auth/*", ...)，
@@ -32,7 +36,21 @@ import { sweepRoutes } from "./sweep/routes";
 export function createApp() {
   const app = new Hono();
 
-  app.get("/health", (c) => c.json({ ok: true }));
+  app.use(
+    "*",
+    cors({
+      origin: (origin) => (isAllowedCorsOrigin(origin) ? origin : null),
+      allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+      allowHeaders: ["Content-Type", "Authorization", "Last-Event-ID"],
+      exposeHeaders: ["Content-Type", "Last-Event-ID"],
+      credentials: true,
+      maxAge: 600,
+    }),
+  );
+
+  const health = (c: Context) => c.json({ ok: true });
+  app.get("/health", health);
+  app.get("/api/health", health);
 
   app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
@@ -56,3 +74,11 @@ export function createApp() {
 
   return app;
 }
+
+const handler = handle(createApp());
+
+export const GET = handler;
+export const POST = handler;
+export const PATCH = handler;
+export const DELETE = handler;
+export const OPTIONS = handler;

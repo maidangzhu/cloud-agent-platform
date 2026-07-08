@@ -1,12 +1,12 @@
 import { Hono } from "hono";
 import { prisma } from "@cap/db";
-import { requireUser } from "../require-user";
+import { requireUser } from "../require-user.js";
 import {
   artifactDownloadPayload,
   toArtifactDTO,
   toArtifactVersionDTO,
-} from "./store";
-import { toSourceDTO } from "../sources/store";
+} from "./store.js";
+import { toSourceDTO } from "../sources/store.js";
 
 export const artifactRoutes = new Hono();
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCreateInWorkspace, canReadWorkspace } from "./policy";
+import { canCreateInWorkspace, canReadWorkspace } from "./policy.js";
 
 // docs/testing-strategy.md §4.2 unit 4-5
 describe("workspace archive policy", () => {

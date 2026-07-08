@@ -1,0 +1,10 @@
+import { handle } from "hono/vercel";
+import { createApp } from "../src/app.js";
+
+const handler = handle(createApp());
+
+export const GET = handler;
+export const POST = handler;
+export const PATCH = handler;
+export const DELETE = handler;
+export const OPTIONS = handler;

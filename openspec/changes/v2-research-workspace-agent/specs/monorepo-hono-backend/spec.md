@@ -20,3 +20,24 @@ Better Auth SHALL 挂载于 `apps/api`,不挂在 `apps/web`。`apps/web` 通过 
 #### Scenario: 本地代理转发成功
 - **WHEN** 本地开发环境下浏览器请求 `apps/web` 的 `/api/health`
 - **THEN** 请求被代理到 `apps/api` 并返回其响应,浏览器不感知跨域
+
+### Requirement: Vercel 部署配置按 app 隔离
+仓库根目录 SHALL 只作为 pnpm workspace root，不作为 Vercel Next.js app root。`apps/web` 和 `apps/api` SHALL 各自拥有独立 Vercel 项目和 Root Directory。
+
+#### Scenario: 根目录不触发 Next.js 检测
+- **WHEN** 部署前端项目
+- **THEN** Vercel 使用 `apps/web` 作为 Root Directory
+- **AND** 不依赖根 `package.json` 里存在 `next` dependency
+
+#### Scenario: API 独立部署
+- **WHEN** 部署后端项目
+- **THEN** Vercel 使用 `apps/api` 作为 Root Directory
+- **AND** hosted `/health` 从 Hono app 返回 200
+
+### Requirement: 生产 Web 指向 hosted API
+生产/预览环境的 `apps/web` MUST 通过 `API_PROXY_TARGET` 指向 hosted `apps/api`，不得指向 `localhost:8787`。
+
+#### Scenario: Web rewrite 命中 hosted API
+- **WHEN** 用户访问线上 `apps/web` 的 `/api/health`
+- **THEN** 请求被代理到 hosted `apps/api`
+- **AND** 响应来自公网 API 服务

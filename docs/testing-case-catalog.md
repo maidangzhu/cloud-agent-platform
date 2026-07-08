@@ -82,8 +82,12 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | AGENT-W-003 | workflow | Agent Loop | SSE replays stream chunks from cursor `0` | done |
 | AGENT-W-004 | workflow | Agent Loop | SSE Last-Event-ID resumes without duplicate/lost chunks | done |
 | AGENT-W-005 | workflow | Agent Loop | tool calls remain complete objects, not stream chunks | done |
-| LIVE-L-001 | live | Deployed API | deployed `/health` and unauthenticated `/api/me` | done, skips without base URL |
-| LIVE-L-002 | live | Deployed API | sign in test account, create workspace/thread/run, cleanup | done, skips without base URL/account |
+| LIVE-L-001 | live | Deployed API | deployed `/health` and unauthenticated `/api/me` | planned, blocked until hosted `apps/api` exists |
+| LIVE-L-002 | live | Deployed API | sign in test account, create workspace/thread/run, cleanup | planned, blocked until hosted `apps/api` exists |
+| DEPLOY-L-001 | live | Hosted API | `apps/api` Vercel preview Ready and `/health` public 200 | planned |
+| DEPLOY-L-002 | live | Hosted Web | `apps/web` Vercel preview Ready with `API_PROXY_TARGET` pointing at hosted API | planned |
+| DEPLOY-L-003 | live | Web/API rewrite | web `/api/health` reaches hosted API, not `localhost:8787` | planned |
+| RUNTIME-W-001 | workflow | Pi AI Runtime | sandbox starts Pi AI runtime and completes deterministic run through hosted API | planned |
 
 ## 4. LLM Case Matrix
 
@@ -156,9 +160,9 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 
 | ID | Level | Scenario | Required Env | Frequency | Status |
 | --- | --- | --- | --- | --- | --- |
-| LIVE-001 | live | deployed `/health` | API base URL | PR/nightly | done |
-| LIVE-002 | live | deployed unauthenticated `/api/me` | API base URL | PR/nightly | done |
-| LIVE-003 | live | deployed sign-in + workspace/thread/run write smoke | API base URL + live account | nightly/manual | done |
+| LIVE-001 | live | deployed `/health` | API base URL | PR/nightly | planned |
+| LIVE-002 | live | deployed unauthenticated `/api/me` | API base URL | PR/nightly | planned |
+| LIVE-003 | live | deployed sign-in + workspace/thread/run write smoke | API base URL + live account | nightly/manual | planned |
 | LIVE-004 | live | deployed SSE connection and snapshot | API base URL + live account | nightly | planned |
 | LIVE-005 | live | deployed sandbox -> Control Plane ingest callback | API base URL + Vercel | nightly | planned |
 | LIVE-006 | live | deployed sandbox -> LLM proxy -> Redis stream -> SSE | API base URL + Vercel + Redis | manual/release | planned |
@@ -166,6 +170,10 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | LIVE-008 | live | real LLM basic completion and usage | API base URL + LLM | nightly | planned |
 | LIVE-009 | live | real LLM fallback and retry | API base URL + multi LLM | manual/release | planned |
 | LIVE-010 | live | long-context expensive run | API base URL + LLM | manual | planned |
+| DEPLOY-001 | live | `apps/api` independent Vercel project Ready | Vercel CLI/API | manual/release | planned |
+| DEPLOY-002 | live | `apps/web` independent Vercel project Ready and no root Next.js detection | Vercel CLI/API | manual/release | planned |
+| DEPLOY-003 | live | sandbox callback uses hosted API base URL | API base URL + Vercel | manual/release | planned |
+| RUNTIME-001 | workflow/live | Pi AI runtime replaces product self-written loop | API base URL + Vercel + Pi AI | manual/release | planned |
 
 ## 8. Acceptance Rules
 

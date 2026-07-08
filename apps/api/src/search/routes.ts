@@ -1,16 +1,16 @@
 import { Hono } from "hono";
 import { prisma } from "@cap/db";
-import { extractBearerRunToken, verifyRunToken } from "../run/run-token";
-import { isTerminalStatus, type RunStatus } from "../run/transitions";
-import { createSource } from "../sources/store";
-import { recordLLMUsage } from "../usage/store";
+import { extractBearerRunToken, verifyRunToken } from "../run/run-token.js";
+import { isTerminalStatus, type RunStatus } from "../run/transitions.js";
+import { createSource } from "../sources/store.js";
+import { recordLLMUsage } from "../usage/store.js";
 import {
   clampLimit,
   fakeSearch,
   searchWithExaProvider,
   searchWithHttpProvider,
   type SearchProviderResult,
-} from "./provider";
+} from "./provider.js";
 
 type AuthenticatedRun = {
   id: string;
@@ -42,7 +42,7 @@ searchRoutes.post("/api/search-proxy", async (c) => {
   }
 
   const parsed = parseSearchProxyBody(body);
-  if (!parsed.ok) {
+  if (parsed.ok === false) {
     return c.json({ code: 1006, message: parsed.message, data: null }, 400);
   }
 
@@ -51,7 +51,7 @@ searchRoutes.post("/api/search-proxy", async (c) => {
     parsed.limit,
     parsed.provider,
   );
-  if (!searched.ok) {
+  if (searched.ok === false) {
     return jsonResponse(searched.code, searched.message, searched.status);
   }
 
@@ -102,14 +102,15 @@ async function runSearchProvider(
       apiKey,
       backoffMs: parseBackoffMs(process.env.SEARCH_PROXY_BACKOFF_MS),
     });
-    return result.ok
-      ? result
-      : {
-          ok: false,
-          status: result.status,
-          code: result.code,
-          message: result.message,
-        };
+    if (result.ok === false) {
+      return {
+        ok: false,
+        status: result.status,
+        code: result.code,
+        message: result.message,
+      };
+    }
+    return result;
   }
 
   if (provider === "http") {
@@ -129,14 +130,15 @@ async function runSearchProvider(
       apiKey: process.env.SEARCH_PROXY_API_KEY?.trim(),
       backoffMs: parseBackoffMs(process.env.SEARCH_PROXY_BACKOFF_MS),
     });
-    return result.ok
-      ? result
-      : {
-          ok: false,
-          status: result.status,
-          code: result.code,
-          message: result.message,
-        };
+    if (result.ok === false) {
+      return {
+        ok: false,
+        status: result.status,
+        code: result.code,
+        message: result.message,
+      };
+    }
+    return result;
   }
 
   return { ok: true, result: fakeSearch(query, limit) };
@@ -229,7 +231,7 @@ async function authenticateRunToken(
   const verified = verifyRunToken(token, {
     expected: bodyRunId ? { runId: bodyRunId } : undefined,
   });
-  if (!verified.ok) {
+  if (verified.ok === false) {
     return jsonResponse(2002, "run token invalid", 401);
   }
 

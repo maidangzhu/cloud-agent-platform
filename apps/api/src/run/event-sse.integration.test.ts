@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
-import { createApp } from "../app";
-import { insertRunEvent } from "./event-store";
-import { issueRunToken } from "./run-token";
-import { deleteRunStream, disconnectRedis } from "../redis/streams";
+import { createApp } from "../app.js";
+import { insertRunEvent } from "./event-store.js";
+import { issueRunToken } from "./run-token.js";
+import { deleteRunStream, disconnectRedis } from "../redis/streams.js";
 
 // 连真实 Neon Postgres + 真实 Better Auth，不 mock。对应
 // docs/testing-strategy.md §4.5 SSE 22-28。业务事实事件通过

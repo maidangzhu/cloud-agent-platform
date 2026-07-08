@@ -3,12 +3,12 @@
 
 import { Hono } from "hono";
 import { prisma } from "@cap/db";
-import { requireUser } from "../require-user";
-import { deriveUiState } from "../run/derive-ui-state";
-import type { RunStatus } from "../run/transitions";
-import { createThreadIfWorkspaceActive } from "./create";
-import { deriveThreadTitle } from "./title";
-import { validateThreadTitle } from "./validation";
+import { requireUser } from "../require-user.js";
+import { deriveUiState } from "../run/derive-ui-state.js";
+import type { RunStatus } from "../run/transitions.js";
+import { createThreadIfWorkspaceActive } from "./create.js";
+import { deriveThreadTitle } from "./title.js";
+import { validateThreadTitle } from "./validation.js";
 
 type ThreadDTO = {
   id: string;

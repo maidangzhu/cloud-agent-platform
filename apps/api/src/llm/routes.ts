@@ -1,15 +1,15 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { prisma } from "@cap/db";
-import { extractBearerRunToken, verifyRunToken } from "../run/run-token";
-import { isTerminalStatus, type RunStatus } from "../run/transitions";
+import { extractBearerRunToken, verifyRunToken } from "../run/run-token.js";
+import { isTerminalStatus, type RunStatus } from "../run/transitions.js";
 import {
   completeWithRealProvider,
   fakeComplete,
   type LlmMessage,
   type LlmProviderResult,
-} from "./provider";
-import { recordLLMUsage } from "../usage/store";
+} from "./provider.js";
+import { recordLLMUsage } from "../usage/store.js";
 
 type AuthenticatedRun = {
   id: string;
@@ -49,7 +49,7 @@ llmRoutes.post("/api/llm-proxy", async (c) => {
   }
 
   const parsed = parseLlmProxyBody(body);
-  if (!parsed.ok) {
+  if (parsed.ok === false) {
     return c.json({ code: 1006, message: parsed.message, data: null }, 400);
   }
 
@@ -61,7 +61,7 @@ llmRoutes.post("/api/llm-proxy", async (c) => {
           modelHint: parsed.modelHint,
         })
       : { ok: true as const, result: fakeComplete(parsed.messages, parsed.modelHint) };
-  if (!result.ok) {
+  if (result.ok === false) {
     return jsonResponse(result.code, result.message, result.status);
   }
   await recordUsageBestEffort(run.id, result.result);
@@ -231,7 +231,7 @@ async function authenticateRunToken(
   const verified = verifyRunToken(token, {
     expected: bodyRunId ? { runId: bodyRunId } : undefined,
   });
-  if (!verified.ok) {
+  if (verified.ok === false) {
     return jsonResponse(2002, "run token invalid", 401);
   }
 

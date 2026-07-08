@@ -34,7 +34,8 @@ Group 17：Usage 遥测（原 Credits，ADR-0015）— 已完成
 Group 18：Sweep（含孤儿资源清理，ADR-0015；waiting_for_input 阈值，ADR-0019）— 代码已实现，待本轮提交确认
 Group 19：UI Shell — 主体已完成并提交，剩余前端协议细化见当前状态
 Group 20：Browser E2E
-Group 21：部署和运维
+Group 21：Hosted Control Plane 部署和运维 — 当前优先级最高
+Group 22：Pi AI Agent Runtime 替换
 ```
 
 ---
@@ -85,7 +86,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 - `apps/api/src/index.ts`：一个最小 Hono app，一个 `GET /health` 返回 `{ ok: true }`。
 - `apps/api/package.json` 加 `hono` 依赖（锁定具体版本号）和一个本地 dev 脚本（如用 `@hono/node-server` 本地跑，端口用一个不常见值如 `8787` 避免和 Next.js `:3000` 冲突）。
-- 暂不接 `@hono/vercel` adapter、暂不部署，先本地跑通。
+- 暂不接 Vercel Hono zero-config entry、暂不部署，先本地跑通。
 
 怎么测：
 
@@ -484,7 +485,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ### Step 14.2：真实 provider 接入 + finish_reason 归一化
 
-要写的东西：接入真实 LLM（复用现有 `@earendil-works/pi-ai` 中转站配置，[memory: llm-openai-protocol-relay](../../.claude/memory)——只用 openai-completions 协议），实现 finish_reason 归一化层（[ADR-0009](./decisions/0009-provider-anti-corruption-layer.md)）。
+要写的东西：接入真实 LLM（复用 Pi AI `@earendil-works/pi` 的中转站配置，[memory: llm-openai-protocol-relay](../../.claude/memory)——只用 openai-completions 协议），实现 finish_reason 归一化层（[ADR-0009](./decisions/0009-provider-anti-corruption-layer.md)）。
 
 需要用户补的 env 变量：确认现有 `OPENAI_API_KEY`/`OPENAI_BASE_URL`/`LLM_MODEL` 是否直接复用，还是要在 `apps/api` 下单独配一份。
 
@@ -716,7 +717,146 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ## Group 21：部署和运维
 
-覆盖 sweep 生产环境验证、secrets 管理、日志可观测性（能定位 runId/workspaceId 且不泄露敏感内容，具体方案见 [backend-audit-logging-plan.md](./backend-audit-logging-plan.md)）、[ADR-0022](./decisions/0022-monorepo-hono-backend.md) 的两个独立 Vercel 项目部署配置、cookie domain 生产配置。到达这个 Group 时展开具体子步骤。
+当前优先级调整：先把 hosted `apps/api` 打通，再继续依赖真实后端的前端/沙箱验证。详细执行入口见 [hosted-control-plane-deployment-plan.md](./hosted-control-plane-deployment-plan.md)。
+
+### Step 21.1：拆分 app 级 Vercel 配置 ✅
+
+要写的东西：
+
+- 根目录不再作为 Vercel deploy target；根 `vercel.json` 的职责迁到 `apps/web/vercel.json` / `apps/api/vercel.json`。
+- `apps/web` 保持 Next.js 项目，Root Directory 为 `apps/web`。
+- `apps/api` 独立为 Hono serverless 项目，Root Directory 为 `apps/api`。
+
+怎么测：本地 `pnpm --filter @cap/web build`、`pnpm --filter @cap/api typecheck` 通过；Vercel CLI preview deploy 不再从仓库根检测 Next.js。
+
+验收标准：仓库根目录只承担 pnpm workspace 职责；Vercel 项目不会再因为根 `package.json` 缺少 `next` 而报 `No Next.js version detected`。
+
+停下来确认。
+
+### Step 21.2：给 `apps/api` 增加 Vercel Hono 入口 ✅
+
+要写的东西：
+
+- 新增 Vercel Hono zero-config entry（`src/server.ts`），default export 同一份 Hono app。
+- 保留 `apps/api/src/index.ts` 的本地 `tsx watch` + `@hono/node-server` dev 入口。
+
+怎么测：
+
+- `pnpm --filter @cap/api typecheck`
+- `pnpm --filter @cap/api test`
+- 本地或 preview 环境访问 `/health`。
+
+验收标准：同一份 Hono app 能在本地 Node server 和 Vercel Hono runtime 下运行。
+
+停下来确认。
+
+### Step 21.3：创建独立 API Vercel 项目前确认命名和域名
+
+这一步涉及新建计费/部署资源，执行前必须向用户确认：
+
+- Vercel 项目名是否使用 `cloud-agent-platform-api`。
+- API 是否先用 Vercel 默认域名，还是绑定 `api.sandbox.maidang.me`。
+- Web 是否配套使用 `app.sandbox.maidang.me`，以便后续 cookie domain 使用 `.sandbox.maidang.me`。
+
+未确认前不新建项目、不绑定域名、不迁移 secrets。
+
+停下来确认。
+
+### Step 21.4：部署 hosted `apps/api` 并迁移环境变量
+
+要写的东西/操作：
+
+- 创建或链接 `apps/api` Vercel 项目，Root Directory 设为 `apps/api`。
+- 迁移现有环境变量名：`DATABASE_URL`、`BETTER_AUTH_SECRET`、`BETTER_AUTH_URL`、`REDIS_URL`、`OPENAI_*`、`EXA_API_KEY`、`VERCEL_TOKEN`/`VERCEL_OIDC_TOKEN` 等。
+- 不打印、不提交 secret 值，只验证变量存在和链路可用。
+
+怎么测：
+
+- `vercel deploy` preview Ready。
+- `curl https://<api-host>/health` 返回 200。
+- `CAP_API_BASE_URL=https://<api-host> pnpm --dir apps/api test:live` 至少跑过 deployed health / unauthenticated me smoke。
+
+验收标准：`apps/api` 线上 Ready，`/health` 公网可访问，sandbox 可从公网回调 Control Plane。
+
+停下来确认。
+
+### Step 21.5：部署 `apps/web` 并指向 hosted API
+
+要写的东西/操作：
+
+- `apps/web` Vercel 项目 Root Directory 固定为 `apps/web`。
+- 设置 `API_PROXY_TARGET=https://<api-host>`。
+- 修复首页默认状态 UX：登录后不自动选中历史 thread，发送首条消息后才创建/选中新 thread。
+
+怎么测：
+
+- `pnpm --filter @cap/web typecheck`
+- `pnpm --filter @cap/web build`
+- Web preview Ready。
+- 手动验证登录后首页为空 composer；发送消息后左侧出现 thread 且选中新 thread。
+
+验收标准：线上 web Ready，API rewrite 不指向 `localhost:8787`，不会再报 `No Next.js version detected`。
+
+停下来确认。
+
+### Step 21.6：生产链路验证清单
+
+怎么测：
+
+- `pnpm typecheck`
+- `pnpm build`
+- `pnpm test:integration`
+- `pnpm test:workflow`
+- `CAP_API_BASE_URL=https://<api-host> pnpm --dir apps/api test:live`
+- `openspec validate`（如果 CLI 可用）
+- 隐私扫描：确认 sandbox/runtime env 不含 `DATABASE_URL`、Better Auth secret、长期 LLM provider key。
+
+验收标准：明确回报 `apps/web` Ready、`apps/api` Ready、`/health` 公网可访问、首页默认空 composer、sandbox callback 走 hosted API。
+
+停下来确认。
+
+---
+
+## Group 22：Pi AI Agent Runtime 替换
+
+当前 `apps/api/src/agent-loop/*` 是为打通协议写的项目内 loop。产品方向改为 sandbox 内运行真实 Pi AI runtime（`@earendil-works/pi`）；自写 loop 只能保留为 deterministic fixture/迁移垫片，不能作为最终产品主路径。
+
+### Step 22.1：Pi AI runtime 接入调研和启动协议
+
+要写的东西：
+
+- 固定 Pi AI runtime 的安装方式、启动命令、配置格式、tool adapter 机制。
+- 明确 sandbox 内 runtime 需要的最小 env/config，禁止传入 DB/Auth/长期 provider secrets。
+
+怎么测：在真实 Vercel Sandbox 内手动启动 Pi AI runtime，跑通健康检查或最小 task。
+
+停下来确认。
+
+### Step 22.2：Control Plane adapter
+
+要写的东西：
+
+- Pi AI ingest client。
+- LLM proxy client。
+- search/fetch/file/artifact tools adapter。
+- cancel polling 和 heartbeat。
+
+怎么测：workflow test 使用 deterministic mode，证明 Pi AI runtime 通过 hosted API 完成 run。
+
+停下来确认。
+
+### Step 22.3：替换产品主路径
+
+要写的东西：
+
+- run 创建后的 sandbox 启动逻辑改为启动 Pi AI runtime。
+- 自写 loop 降级为测试 fixture 或删除。
+
+怎么测：`WF-010`、`LIVE-005`、`LIVE-006` 通过真实 hosted API + Vercel Sandbox 验证。
+
+验收标准：产品主路径不再依赖项目内自写 agent loop。
+
+停下来确认。
 
 ---
 
@@ -729,6 +869,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 - Group 19 UI Shell 主体已提交到 `35059ae finish web rebuild with run recovery`，本轮继续未提交改动：登录态首页改为默认 workspace + 中央 composer，首条消息自动创建 thread；SSE 前端从原生 `EventSource` 改为 `@microsoft/fetch-event-source`，通过 `POST /api/runs/:runId/events` 建连，服务端保留 GET 兼容并新增 POST。
 - 本轮已接上 run 创建后的真实 runner 调度入口：`POST /api/threads/:threadId/runs` 创建 run 后会按配置自动触发真实 Vercel Sandbox orchestration，签发 scoped run token，认领/创建 `WorkspaceSandboxInstance`，启动 `agent-loop` 脚本；runner 继续只通过 ingest/llm/control HTTP API 回写 heartbeat/events/files/artifacts/sources。测试环境默认不自动拉真实沙箱，显式 workflow/live 场景通过 `CAP_RUNNER_AUTO_START=true` 打开，并且需要一个沙箱内可访问的公网 Control Plane base URL（如 `PUBLIC_AGENT_LOOP_BASE_URL`/`CAP_API_BASE_URL`；localhost 型 `BETTER_AUTH_URL` 不能作为 Vercel Sandbox callback base）。
 - Group 19 仍有一个前端协议缺口：`frontend-shell` 要求 composer enabled 规则封装为共享 `useComposerEnabled` hook。
-- 下一步应按 [backend-audit-logging-plan.md](./backend-audit-logging-plan.md) 增加后台审计日志，然后进入 Group 20 Browser E2E。
+- 当前最高优先级改为 Group 21：先完成 hosted Hono Control Plane 部署，让本地/线上 web 和 Vercel Sandbox 都能打公网 API。后台审计日志、Browser E2E 顺延到 hosted API 可用之后。
+- Group 22 新增 Pi AI Agent Runtime 替换计划：现有自写 `apps/api/src/agent-loop/*` 不再视为最终产品 runtime，只能作为迁移期间 fixture。
 
 按规矩，每完成一个 Step 就停下来等确认，不会连续做完多个 Step。当前因为前端重做任务已经跨 Step 完成，本文档以真实提交/验证结果回填进度。

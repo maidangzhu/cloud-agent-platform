@@ -4,8 +4,8 @@
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@cap/db";
-import { requireUser } from "../require-user";
-import { validateWorkspaceTitle } from "./validation";
+import { requireUser } from "../require-user.js";
+import { validateWorkspaceTitle } from "./validation.js";
 
 type WorkspaceDTO = {
   id: string;

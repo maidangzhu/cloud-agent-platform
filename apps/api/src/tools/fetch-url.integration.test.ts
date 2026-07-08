@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
-import { createApp } from "../app";
-import { issueRunToken } from "../run/run-token";
-import { fetchUrlTool, type FetchUrlResult, type FetchUrlTransport } from "./fetch-url";
+import { createApp } from "../app.js";
+import { issueRunToken } from "../run/run-token.js";
+import { fetchUrlTool, type FetchUrlResult, type FetchUrlTransport } from "./fetch-url.js";
 
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 const HAS_SECRET = Boolean(process.env.BETTER_AUTH_SECRET);

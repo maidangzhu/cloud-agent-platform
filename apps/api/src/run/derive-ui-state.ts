@@ -1,7 +1,7 @@
 // DerivedUiState 纯函数（Step 6.1，见 docs/state-machines.md §2）。从
 // RunStatus 和心跳新鲜度推导前端展示状态，不接数据库。
 
-import type { RunStatus } from "./transitions";
+import type { RunStatus } from "./transitions.js";
 
 export type DerivedUiState =
   | "idle"

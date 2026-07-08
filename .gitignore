@@ -22,6 +22,7 @@ node_modules
 
 # production
 /build
+packages/db/dist
 
 # misc
 .DS_Store

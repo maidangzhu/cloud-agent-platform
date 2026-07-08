@@ -1,12 +1,12 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
-import { createApp } from "../app";
-import { issueRunToken } from "../run/run-token";
+import { createApp } from "../app.js";
+import { issueRunToken } from "../run/run-token.js";
 import {
   deleteRunStream,
   disconnectRedis,
   readRunStream,
-} from "./streams";
+} from "./streams.js";
 
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 const HAS_SECRET = Boolean(process.env.BETTER_AUTH_SECRET);

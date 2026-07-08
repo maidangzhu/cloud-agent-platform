@@ -1,7 +1,7 @@
 import { prisma } from "@cap/db";
-import { releaseWorkspaceSandboxForRun } from "../sandbox/workspace-sandbox";
-import { transitionRun } from "../run/transition-run";
-import type { RunStatus } from "../run/transitions";
+import { releaseWorkspaceSandboxForRun } from "../sandbox/workspace-sandbox.js";
+import { transitionRun } from "../run/transition-run.js";
+import type { RunStatus } from "../run/transitions.js";
 
 export type SweepStaleRunsOptions = {
   now?: Date;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deriveUiState } from "./derive-ui-state";
-import { TERMINAL_RUN_STATUSES, type RunStatus } from "./transitions";
+import { deriveUiState } from "./derive-ui-state.js";
+import { TERMINAL_RUN_STATUSES, type RunStatus } from "./transitions.js";
 
 // docs/testing-strategy.md §4.4 unit 8-11
 const NOW = new Date("2026-07-04T12:00:00Z");

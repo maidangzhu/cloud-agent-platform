@@ -51,7 +51,7 @@ export async function fetchUrlTool(params: {
   resolveHost?: FetchUrlResolver;
 }): Promise<FetchUrlResult> {
   const guard = validateFetchUrl(params.url);
-  if (!guard.ok) return { status: "rejected", error: guard.message };
+  if (guard.ok === false) return { status: "rejected", error: guard.message };
 
   const transport = params.transport ?? defaultTransport;
   const resolveHost = params.resolveHost ?? (params.transport ? undefined : defaultResolveHost);

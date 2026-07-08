@@ -1,22 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
-import { resolveVercelCredentials } from "../sandbox/vercel-credentials";
-import { createApp } from "../app";
+import { resolveVercelCredentials } from "../sandbox/vercel-credentials.js";
+import { createApp } from "../app.js";
 import {
   deleteRunStream,
   disconnectRedis,
   readRunStream,
-} from "../redis/streams";
-import { issueRunToken } from "../run/run-token";
+} from "../redis/streams.js";
+import { issueRunToken } from "../run/run-token.js";
 import {
   getOrCreateWorkspaceSandbox,
   installAgentLoopScriptInSandbox,
   runAgentLoopScriptInSandbox,
   stopWorkspaceSandboxByName,
   type WorkspaceSandboxClaim,
-} from "../sandbox/workspace-sandbox";
-import { runAgentLoop } from "./agent-loop";
+} from "../sandbox/workspace-sandbox.js";
+import { runAgentLoop } from "./agent-loop.js";
 
 type SseRecord = {
   event?: string;

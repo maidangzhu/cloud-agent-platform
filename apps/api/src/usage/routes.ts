@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { requireUser } from "../require-user";
-import { listUsageRecords } from "./store";
+import { requireUser } from "../require-user.js";
+import { listUsageRecords } from "./store.js";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -18,7 +18,7 @@ usageRoutes.get("/api/usage/records", async (c) => {
     limit: c.req.query("limit"),
     offset: c.req.query("offset"),
   });
-  if (!parsed.ok) {
+  if (parsed.ok === false) {
     return c.json({ code: 1006, message: parsed.message, data: null }, 400);
   }
 

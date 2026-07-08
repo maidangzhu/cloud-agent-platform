@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { createApp } from "./app";
+import { createApp } from "./app.js";
 import { prisma } from "@cap/db";
 
 // 连真实 Neon Postgres + 真实 Better Auth，不 mock。对应

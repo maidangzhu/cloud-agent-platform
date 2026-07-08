@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { webSearchTool } from "../tools/web-search";
+import { webSearchTool } from "../tools/web-search.js";
 
 export type ScriptedIngestFixtureMode =
   | "complete"

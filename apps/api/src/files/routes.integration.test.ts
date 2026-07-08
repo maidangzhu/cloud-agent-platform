@@ -1,11 +1,11 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
-import { createApp } from "../app";
-import { issueRunToken } from "../run/run-token";
+import { createApp } from "../app.js";
+import { issueRunToken } from "../run/run-token.js";
 import {
   MAX_INLINE_FILE_CONTENT_BYTES,
   computeContentHash,
-} from "./store";
+} from "./store.js";
 
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 const HAS_SECRET = Boolean(process.env.BETTER_AUTH_SECRET);

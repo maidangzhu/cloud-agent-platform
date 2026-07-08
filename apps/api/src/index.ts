@@ -1,7 +1,7 @@
 import path from "node:path";
 
 // 本地 dev 入口：用 @hono/node-server 跑一个 Node HTTP server。
-// 部署到 Vercel 时用 @hono/vercel adapter，这个文件只服务本地开发。
+// 部署到 Vercel 时用 src/server.ts 的 default export；这个文件只服务本地开发。
 //
 // 加载 monorepo 根目录的 .env 必须在 import ./app 之前完成——ES module 的
 // import 会被提升到文件顶部先求值，如果 .env 加载和 import 写在同一个文件里，

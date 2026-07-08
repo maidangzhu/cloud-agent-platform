@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canReadThread, canStartRunInThread } from "./policy";
+import { canReadThread, canStartRunInThread } from "./policy.js";
 
 // docs/testing-strategy.md §4.3 unit 3-4
 describe("thread archive policy", () => {

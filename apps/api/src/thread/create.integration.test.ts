@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@cap/db";
-import { createThreadIfWorkspaceActive } from "./create";
+import { createThreadIfWorkspaceActive } from "./create.js";
 
 // 连真实 Neon Postgres，不 mock。对应 docs/testing-strategy.md §4.3
 // route 13、Step 4.2 integration 16-17（迁移到 thread/ 目录，Step 5.1

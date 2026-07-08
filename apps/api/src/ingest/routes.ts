@@ -6,32 +6,32 @@ import {
   insertRunEvent,
   isRunEventType,
   type RunEventInput,
-} from "../run/event-store";
-import { extractBearerRunToken, verifyRunToken } from "../run/run-token";
-import { transitionRun } from "../run/transition-run";
-import { isTerminalStatus, type RunStatus } from "../run/transitions";
-import { releaseWorkspaceSandboxForRun } from "../sandbox/workspace-sandbox";
+} from "../run/event-store.js";
+import { extractBearerRunToken, verifyRunToken } from "../run/run-token.js";
+import { transitionRun } from "../run/transition-run.js";
+import { isTerminalStatus, type RunStatus } from "../run/transitions.js";
+import { releaseWorkspaceSandboxForRun } from "../sandbox/workspace-sandbox.js";
 import {
   toWorkspaceFileDTO,
   upsertWorkspaceFile,
   validateWorkspaceFileInput,
-} from "../files/store";
+} from "../files/store.js";
 import {
   createFirstArtifact,
   resolveArtifactContentFromPath,
   toArtifactDTO,
   updateArtifactVersion,
   validateArtifactInput,
-} from "../artifacts/store";
+} from "../artifacts/store.js";
 import {
   createSource,
   toSourceDTO,
   validateSourceInput,
-} from "../sources/store";
+} from "../sources/store.js";
 import {
   addRunStreamChunk,
   type StreamChunkType,
-} from "../redis/streams";
+} from "../redis/streams.js";
 
 type AuthenticatedRun = {
   id: string;
@@ -79,7 +79,7 @@ ingestRoutes.post("/api/ingest/events", async (c) => {
   if (run instanceof Response) return run;
 
   const event = parseEventBody(body, run.id);
-  if (!event.ok) {
+  if (event.ok === false) {
     return c.json({ code: 1006, message: event.message, data: null }, 400);
   }
 
@@ -108,7 +108,7 @@ ingestRoutes.post("/api/ingest/events", async (c) => {
   }
 
   const result = await insertRunEvent(event.input);
-  if (!result.ok) {
+  if (result.ok === false) {
     if (result.code === INGEST_SEQ_CONFLICT) {
       return c.json({ code: 2004, message: result.message, data: null }, 409);
     }
@@ -198,7 +198,7 @@ ingestRoutes.post("/api/ingest/tool-calls", async (c) => {
   }
 
   const parsed = parseToolCallBody(body);
-  if (!parsed.ok) {
+  if (parsed.ok === false) {
     return c.json({ code: 1006, message: parsed.message, data: null }, 400);
   }
 
@@ -275,7 +275,7 @@ ingestRoutes.post("/api/ingest/files", async (c) => {
   }
 
   const parsed = validateWorkspaceFileInput(body);
-  if (!parsed.ok) {
+  if (parsed.ok === false) {
     return c.json({ code: 1006, message: parsed.message, data: null }, 400);
   }
 
@@ -312,7 +312,7 @@ ingestRoutes.post("/api/ingest/artifacts", async (c) => {
   }
 
   const parsed = validateArtifactInput(body);
-  if (!parsed.ok) {
+  if (parsed.ok === false) {
     return c.json({ code: 1006, message: parsed.message, data: null }, 400);
   }
 
@@ -329,7 +329,7 @@ ingestRoutes.post("/api/ingest/artifacts", async (c) => {
     workspaceId: run.workspaceId,
     input: parsed.input,
   });
-  if (!resolved.ok) {
+  if (resolved.ok === false) {
     return c.json({ code: 1006, message: resolved.message, data: null }, 400);
   }
 
@@ -368,7 +368,7 @@ ingestRoutes.post("/api/ingest/artifacts", async (c) => {
             version: artifact.version,
           },
     });
-    if (!eventResult.ok) {
+    if (eventResult.ok === false) {
       if (eventResult.code === INGEST_SEQ_CONFLICT) {
         return c.json(
           { code: 2004, message: eventResult.message, data: null },
@@ -409,7 +409,7 @@ ingestRoutes.post("/api/ingest/sources", async (c) => {
   }
 
   const parsed = validateSourceInput(body);
-  if (!parsed.ok) {
+  if (parsed.ok === false) {
     return c.json({ code: 1006, message: parsed.message, data: null }, 400);
   }
 
@@ -443,7 +443,7 @@ ingestRoutes.post("/api/ingest/sources", async (c) => {
         ...(source.title ? { title: source.title } : {}),
       },
     });
-    if (!eventResult.ok) {
+    if (eventResult.ok === false) {
       if (eventResult.code === INGEST_SEQ_CONFLICT) {
         return c.json(
           { code: 2004, message: eventResult.message, data: null },
@@ -523,7 +523,7 @@ async function authenticateRunToken(
   const verified = verifyRunToken(token, {
     expected: bodyRunId ? { runId: bodyRunId } : undefined,
   });
-  if (!verified.ok) {
+  if (verified.ok === false) {
     return jsonResponse(2002, "run token invalid", 401);
   }
 

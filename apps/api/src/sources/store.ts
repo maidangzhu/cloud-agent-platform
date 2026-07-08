@@ -65,12 +65,15 @@ export function validateSourceInput(
       ? input.artifactId
       : undefined;
 
-  const eventSeq = input.eventSeq;
-  if (
-    eventSeq !== undefined &&
-    (typeof eventSeq !== "number" || !Number.isInteger(eventSeq))
-  ) {
-    return { ok: false, message: "eventSeq must be an integer" };
+  let eventSeq: number | undefined;
+  if (input.eventSeq !== undefined) {
+    if (
+      typeof input.eventSeq !== "number" ||
+      !Number.isInteger(input.eventSeq)
+    ) {
+      return { ok: false, message: "eventSeq must be an integer" };
+    }
+    eventSeq = input.eventSeq;
   }
 
   return {

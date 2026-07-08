@@ -3,7 +3,7 @@ import {
   allocateArtifactVersion,
   hasRecoverableArtifactContent,
   validateArtifactInput,
-} from "./store";
+} from "./store.js";
 
 describe("artifact store helpers", () => {
   it("artifact validation requires title and kind", () => {

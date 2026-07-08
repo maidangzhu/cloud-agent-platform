@@ -1,15 +1,19 @@
 {
-  "buildCommand": "pnpm build",
-  "outputDirectory": ".next",
-  "framework": "nextjs",
-  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "cd ../.. && pnpm --filter @cap/db generate && pnpm --filter @cap/db build && pnpm --filter @cap/api typecheck",
+  "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
   "devCommand": "pnpm dev",
   "regions": ["sin1"],
   "functions": {
-    "app/api/**/*.ts": {
+    "api/index.ts": {
       "maxDuration": 1800
     }
   },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api/index"
+    }
+  ],
   "crons": [
     {
       "path": "/api/sweep",

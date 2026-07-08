@@ -15,6 +15,8 @@ v1（`cloud-agent-platform-mvp`，已归档于 `openspec/changes/archive/2026-07
 - 新增 `POST /api/search-proxy` 端点及 `web_search`/`fetch_url` 工具的失败重试协议（ADR-0020，解决 DQ-3）。
 - 新增 Artifact 版本化规则：`artifactId` 已存在时产生 `artifact_updated` 事件而非 `artifact_created`（ADR-0020）。
 - 新增 sweep 职责范围扩大到清理孤儿沙箱和过期 Redis stream key（ADR-0015/0021）。
+- 新增 hosted Control Plane 部署约束：仓库根目录不作为 Vercel app root，`apps/web` 和 `apps/api` 分别作为独立 Vercel 项目部署，线上 web 通过 `API_PROXY_TARGET` 指向 hosted API。
+- 新增 Pi AI runtime 迁移约束：当前自写 agent loop 只作为 fixture/迁移垫片，产品主路径必须替换为 sandbox 内真实 Pi AI runtime（`@earendil-works/pi`）。
 
 ## Capabilities
 
@@ -36,6 +38,8 @@ v1（`cloud-agent-platform-mvp`，已归档于 `openspec/changes/archive/2026-07
 - `sweep-safety-net`：定时收敛非终态 run、清理孤儿沙箱与过期 stream key。
 - `monorepo-hono-backend`：pnpm workspaces 结构、Hono Control Plane、Better Auth 挂载位置、本地开发跨域代理。
 - `frontend-shell`：Workspace/Thread/Run/Artifact 的前端信息架构、composer 状态规则（`useComposerEnabled`）、artifact panel。
+- `hosted-control-plane-deployment`：hosted Hono API、app-level Vercel config、web/API 独立项目、public `/health`、live smoke。
+- `pi-ai-agent-runtime`：真实 Pi AI runtime、Control Plane adapters、deterministic verification。
 
 ### Modified Capabilities
 
@@ -43,8 +47,8 @@ v1（`cloud-agent-platform-mvp`，已归档于 `openspec/changes/archive/2026-07
 
 ## Impact
 
-- 受影响代码：`src/app/api/*`、`src/server/*` 全部迁移到 `apps/api`；`prisma/schema.prisma` 迁移到 `packages/db`。
-- 新增依赖：`hono`、`@hono/node-server`、`@hono/vercel`、`ioredis`（已装 5.11.1）、`better-auth`。
+- 受影响代码：`src/app/api/*`、`src/server/*` 全部迁移到 `apps/api`；`prisma/schema.prisma` 迁移到 `packages/db`；Vercel 部署配置迁移到 app 级目录；`apps/api` 增加 Hono zero-config Vercel entry；自写 agent loop 后续被 Pi AI runtime 替换。
+- 新增依赖：`hono`、`@hono/node-server`、`ioredis`（已装 5.11.1）、`better-auth`。
 - 新增外部服务依赖：Redis（Upstash，已通过 PoC 验证连通性，见 `scripts/poc/redis-ping.ts`）。
 - 数据模型变更：`RunStatus` 新增 `waiting_for_input`；`SandboxInstance` 新增 `currentRunId`；`CreditLedger`/`CreditBalance` 废弃替换为 `LLMUsageRecord`。
 - 详细决策论证见 `docs/decisions/`（ADR-0001~0022）；接口契约见 `docs/api-contract.md`；测试断言清单见 `docs/testing-strategy.md`；逐步执行计划见 `docs/implementation-roadmap.md`（本提案的 tasks.md 与其一一对应）。

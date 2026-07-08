@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { prisma, type SandboxStatus } from "@cap/db";
-import { AGENT_LOOP_SANDBOX_SCRIPT } from "../agent-loop/sandbox-script";
-import { transitionRun } from "../run/transition-run";
+import { AGENT_LOOP_SANDBOX_SCRIPT } from "../agent-loop/sandbox-script.js";
+import { transitionRun } from "../run/transition-run.js";
 
 type WorkspaceSandboxRow = Awaited<
   ReturnType<typeof prisma.workspaceSandboxInstance.findUniqueOrThrow>
@@ -333,7 +333,7 @@ async function getVercelSandboxByName(
   sandboxName: string,
   timeoutMs?: number,
 ): Promise<VercelSandboxHandle> {
-  const { getOrCreateSandbox } = await import("./factory");
+  const { getOrCreateSandbox } = await import("./factory.js");
   const result = await getOrCreateSandbox({
     sessionId: sandboxName.replace(/^cap-/, ""),
     timeoutMs,
@@ -344,7 +344,7 @@ async function getVercelSandboxByName(
 async function stopVercelSandboxByName(sandboxName: string): Promise<void> {
   const [{ Sandbox }, { resolveVercelCredentials }] = await Promise.all([
     import("@vercel/sandbox"),
-    import("./vercel-credentials"),
+    import("./vercel-credentials.js"),
   ]);
   const creds = resolveVercelCredentials();
   if (!creds) {

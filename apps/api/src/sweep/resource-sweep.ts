@@ -1,5 +1,5 @@
-import { cleanupExpiredRunStreams } from "../redis/streams";
-import { sweepOrphanWorkspaceSandboxes } from "../sandbox/workspace-sandbox";
+import { cleanupExpiredRunStreams } from "../redis/streams.js";
+import { sweepOrphanWorkspaceSandboxes } from "../sandbox/workspace-sandbox.js";
 
 export type SweepOrphanResourcesOptions = {
   now?: Date;

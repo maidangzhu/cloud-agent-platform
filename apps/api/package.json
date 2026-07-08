@@ -2,6 +2,7 @@
   "name": "@cap/api",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit",
@@ -11,6 +12,7 @@
     "test:live": "vitest run --config vitest.live.config.ts --passWithNoTests"
   },
   "dependencies": {
+    "@better-auth/prisma-adapter": "1.6.23",
     "@cap/db": "workspace:^",
     "@vercel/sandbox": "^2.2.1",
     "better-auth": "1.6.23",

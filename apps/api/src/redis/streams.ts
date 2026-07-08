@@ -1,6 +1,6 @@
 import Redis from "ioredis";
 import { prisma } from "@cap/db";
-import { TERMINAL_RUN_STATUSES } from "../run/transitions";
+import { TERMINAL_RUN_STATUSES } from "../run/transitions.js";
 
 export type StreamChunkType = "thinking" | "content";
 

@@ -8,9 +8,10 @@
 //   BETTER_AUTH_SECRET  用于签名 session token 的随机密钥
 //   BETTER_AUTH_URL     本地开发是 http://localhost:8787（Hono 监听端口）
 
-import { prismaAdapter } from "better-auth/adapters/prisma";
+import { prismaAdapter } from "@better-auth/prisma-adapter";
 import { betterAuth } from "better-auth";
 import { prisma } from "@cap/db";
+import { getTrustedOrigins } from "./origins.js";
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -38,20 +39,3 @@ export const auth = betterAuth({
     modelName: "authSession",
   },
 });
-
-function getTrustedOrigins() {
-  return [
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://localhost:3002",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001",
-    "http://127.0.0.1:3002",
-    process.env.WEB_ORIGIN,
-    process.env.NEXT_PUBLIC_APP_URL,
-    ...(process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
-      .split(",")
-      .map((origin) => origin.trim())
-      .filter(Boolean),
-  ].filter((origin): origin is string => Boolean(origin));
-}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveThreadTitle } from "./title";
+import { deriveThreadTitle } from "./title.js";
 
 // docs/testing-strategy.md §4.3 unit 1-2
 describe("deriveThreadTitle", () => {

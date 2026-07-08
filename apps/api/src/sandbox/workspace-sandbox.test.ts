@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   sandboxNameForWorkspace,
   sandboxStatusFromVercel,
-} from "./workspace-sandbox";
+} from "./workspace-sandbox.js";
 
 describe("workspace sandbox helpers", () => {
   it("sandbox name generation is deterministic and workspace-scoped", () => {

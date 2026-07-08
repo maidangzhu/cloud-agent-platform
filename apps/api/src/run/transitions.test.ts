@@ -4,7 +4,7 @@ import {
   isTerminalStatus,
   TERMINAL_RUN_STATUSES,
   type RunStatus,
-} from "./transitions";
+} from "./transitions.js";
 
 // docs/testing-strategy.md §4.4 unit 1-7；转移表本身对照
 // docs/state-machines.md §1"状态转移"小节。

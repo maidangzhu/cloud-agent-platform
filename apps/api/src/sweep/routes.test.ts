@@ -8,9 +8,9 @@ vi.mock("./resource-sweep", () => ({
   sweepOrphanResources: vi.fn(),
 }));
 
-import { createApp } from "../app";
-import { sweepStaleRuns } from "./run-sweep";
-import { sweepOrphanResources } from "./resource-sweep";
+import { createApp } from "../app.js";
+import { sweepStaleRuns } from "./run-sweep.js";
+import { sweepOrphanResources } from "./resource-sweep.js";
 
 const mockedSweepStaleRuns = vi.mocked(sweepStaleRuns);
 const mockedSweepOrphanResources = vi.mocked(sweepOrphanResources);

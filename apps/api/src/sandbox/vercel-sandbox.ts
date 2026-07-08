@@ -6,8 +6,8 @@ import type {
   ExecResult,
   Sandbox,
   SandboxState,
-} from "./interface";
-import { resolveWithinRoot } from "./path-guard";
+} from "./interface.js";
+import { resolveWithinRoot } from "./path-guard.js";
 
 // Vercel 沙箱的固定工作目录。
 export const VERCEL_WORKING_DIR = "/vercel/sandbox";

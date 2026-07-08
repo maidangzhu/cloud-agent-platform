@@ -4,10 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --parallel --filter @cap/api --filter @cap/web dev",
-    "build": "pnpm --filter @cap/db generate && pnpm --filter @cap/api typecheck && pnpm --filter @cap/web build",
+    "build": "pnpm --filter @cap/db generate && pnpm --filter @cap/db build && pnpm --filter @cap/api typecheck && pnpm --filter @cap/web build",
     "start": "pnpm --filter @cap/web start",
     "typecheck": "pnpm --filter @cap/api typecheck && pnpm --filter @cap/web typecheck",
-    "test": "pnpm --filter @cap/db test && pnpm --filter @cap/api test",
+    "test": "pnpm --filter @cap/db build && pnpm --filter @cap/db test && pnpm --filter @cap/api test",
     "test:watch": "pnpm --filter @cap/api test -- --watch",
     "test:integration": "pnpm --filter @cap/db test:integration && pnpm --filter @cap/api test:integration",
     "test:workflow": "pnpm --dir apps/api test:workflow",

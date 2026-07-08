@@ -6,7 +6,7 @@ import {
   normalizeOpenAiChatCompletion,
   resolveLlmModelChain,
   type LlmHttpTransport,
-} from "./provider";
+} from "./provider.js";
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -52,7 +52,7 @@ describe("LLM provider config resolution", () => {
     });
 
     expect(resolved.ok).toBe(false);
-    if (!resolved.ok) {
+    if (resolved.ok === false) {
       expect(resolved.message).toMatch(/OPENAI_API_KEY/);
     }
   });

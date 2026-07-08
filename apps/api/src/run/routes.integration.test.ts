@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { createApp } from "../app";
+import { createApp } from "../app.js";
 import { prisma } from "@cap/db";
-import { issueRunToken } from "./run-token";
+import { issueRunToken } from "./run-token.js";
 
 // 连真实 Neon Postgres + 真实 Better Auth，不 mock。对应
 // docs/testing-strategy.md §4.4 route 15-22、docs/implementation-roadmap.md

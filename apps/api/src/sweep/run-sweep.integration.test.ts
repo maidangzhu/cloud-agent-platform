@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
-import { transitionRun } from "../run/transition-run";
-import { sweepStaleRuns } from "./run-sweep";
+import { transitionRun } from "../run/transition-run.js";
+import { sweepStaleRuns } from "./run-sweep.js";
 
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 const suiteId = `${Date.now()}-${randomUUID().slice(0, 8)}`;

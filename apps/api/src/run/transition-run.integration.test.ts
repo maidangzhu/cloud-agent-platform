@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@cap/db";
-import { transitionRun } from "./transition-run";
-import type { RunStatus } from "./transitions";
+import { transitionRun } from "./transition-run.js";
+import type { RunStatus } from "./transitions.js";
 
 // 连真实 Neon Postgres，不 mock。对应 docs/testing-strategy.md §4.4
 // unit 12-14（ADR-0018 原文承认这批测试"需要真实数据库验证并发原子性，

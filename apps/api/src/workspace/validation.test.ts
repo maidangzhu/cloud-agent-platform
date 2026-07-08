@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateWorkspaceTitle } from "./validation";
+import { validateWorkspaceTitle } from "./validation.js";
 
 // docs/testing-strategy.md §4.2 unit 1-3
 describe("validateWorkspaceTitle", () => {

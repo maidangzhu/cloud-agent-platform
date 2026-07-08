@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateRunPrompt } from "./validation";
+import { validateRunPrompt } from "./validation.js";
 
 describe("validateRunPrompt", () => {
   it("rejects empty string", () => {

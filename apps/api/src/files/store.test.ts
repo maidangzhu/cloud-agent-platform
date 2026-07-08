@@ -4,7 +4,7 @@ import {
   computeContentHash,
   normalizeWorkspacePath,
   validateWorkspaceFileInput,
-} from "./store";
+} from "./store.js";
 
 describe("workspace file store helpers", () => {
   it("path guard rejects path traversal and absolute paths", () => {

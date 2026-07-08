@@ -16,7 +16,7 @@
 
 import { randomUUID } from "node:crypto";
 import { prisma } from "@cap/db";
-import { transitionRun } from "./transition-run";
+import { transitionRun } from "./transition-run.js";
 
 export type CreateRunIfActiveResult =
   | { created: true; runId: string }

@@ -9,8 +9,8 @@
 ```text
 apps/web         Next.js 前端（App Router），只做 UI，不再包含任何 /api route
 apps/api         Hono 后端（Control Plane 全部业务逻辑：auth、workspace/thread/run、
-                 ingest、LLM proxy、search proxy、SSE），部署为 Vercel Serverless
-                 Function（@hono/vercel adapter）
+                 ingest、LLM proxy、search proxy、SSE），部署为 Vercel Hono
+                 zero-config app（default export Hono app）
 packages/shared  前后端共享的 TS 类型/DTO/zod schema —— api-contract.md 里定义的
                  每个 DTO 在这里定义一次，前后端 import 同一份，不再依赖
                  "两份手写类型碰巧一致"
@@ -24,6 +24,8 @@ Auth（Better Auth）**挂在 `apps/api`**：Control Plane 概念上后端本就
 部署形态：`apps/web` 和 `apps/api` 各自作为独立 Vercel 项目/应用部署，同属一个 Vercel 团队/组织，生产环境走同一根域名的不同 subdomain（如 `app.example.com` 前端、`api.example.com` 后端），Better Auth cookie domain 设为 `.example.com`，`SameSite=Lax` 即可正常跨 subdomain 共享登录态。
 
 **本地开发的跨域 cookie 问题**：`apps/web`（如 `:3000`）和 `apps/api`（如 `:8787`）本地是不同 port，浏览器视为不同 origin，跨源 cookie 需要 `SameSite=None; Secure`，而 `Secure` 要求 HTTPS，本地默认没有。默认解法：`apps/web` 的 `next.config.ts` 增加一条 rewrite，把 `/api/*` 代理到本地 Hono 端口，让浏览器在本地开发时只看到一个 origin，不触发跨域 cookie 问题。生产环境不需要这层代理（走合法 subdomain cookie 共享）。这是按经验选的默认值，实现阶段如遇到具体问题可以调整。
+
+**2026-07-07 修订：hosted API 先行。** 当前部署策略调整为：`apps/api` 必须先作为独立 hosted Hono 服务部署到 Vercel，`apps/web` 在 preview/production 通过 `API_PROXY_TARGET` 将 `/api/*` 指向 hosted API。这样本地 web、线上 web 和 Vercel Sandbox 都能打同一个公网 Control Plane。长期是否改为浏览器直接访问 `api.*` 可在 cookie/domain 稳定后再定；当前执行口径是 web 项目保留 rewrite，但目标从本地 `localhost:8787` 改为公网 API。仓库根目录不再作为 Vercel app root，Vercel 配置下沉到各 app。
 
 ## 背景
 

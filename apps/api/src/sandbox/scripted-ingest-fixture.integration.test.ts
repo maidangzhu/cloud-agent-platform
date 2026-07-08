@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
-import { createApp } from "../app";
-import { issueRunToken } from "../run/run-token";
-import { runScriptedIngestFixture } from "./scripted-ingest-fixture";
+import { createApp } from "../app.js";
+import { issueRunToken } from "../run/run-token.js";
+import { runScriptedIngestFixture } from "./scripted-ingest-fixture.js";
 
 // 这是 ingest route fixture，不是 sandbox 覆盖。
 // 涉及 sandbox 创建、复用、runner 启动的集成测试必须使用真实 Vercel Sandbox；

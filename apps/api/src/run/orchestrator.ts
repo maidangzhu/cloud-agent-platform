@@ -3,10 +3,10 @@ import {
   getOrCreateWorkspaceSandbox,
   releaseWorkspaceSandboxForRun,
   runAgentLoopScriptInSandbox,
-} from "../sandbox/workspace-sandbox";
-import { issueRunToken } from "./run-token";
-import { transitionRun } from "./transition-run";
-import type { RunStatus } from "./transitions";
+} from "../sandbox/workspace-sandbox.js";
+import { issueRunToken } from "./run-token.js";
+import { transitionRun } from "./transition-run.js";
+import type { RunStatus } from "./transitions.js";
 
 type WaitUntil = (promise: Promise<unknown>) => void;
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeSourceUrl, validateSourceInput } from "./store";
+import { normalizeSourceUrl, validateSourceInput } from "./store.js";
 
 describe("source store helpers", () => {
   it("validates source kind", () => {

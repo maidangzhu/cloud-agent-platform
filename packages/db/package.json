@@ -2,8 +2,11 @@
   "name": "@cap/db",
   "version": "0.1.0",
   "private": true,
-  "main": "src/index.ts",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
+    "build": "rm -rf dist && tsc",
     "generate": "prisma generate",
     "db:push": "prisma db push",
     "test": "vitest run --exclude '**/*.integration.test.ts' --passWithNoTests",
@@ -12,6 +15,7 @@
   "dependencies": {
     "@prisma/adapter-pg": "7",
     "@prisma/client": "^7.8.0",
+    "@prisma/client-runtime-utils": "7.8.0",
     "pg": "^8.22.0"
   },
   "devDependencies": {

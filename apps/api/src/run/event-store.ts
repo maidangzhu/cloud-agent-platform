@@ -313,7 +313,7 @@ export async function insertRunEvent(
   }
 
   const payloadValidation = validateRunEventPayload(input.type, input.payload);
-  if (!payloadValidation.ok) {
+  if (payloadValidation.ok === false) {
     return {
       ok: false,
       code: VALIDATION_FAILED,

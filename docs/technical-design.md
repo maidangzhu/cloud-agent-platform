@@ -19,7 +19,7 @@ Browser
   | REST: create workspace / start run / cancel / read artifact
   | SSE: run stream
   v
-Control Plane (Next.js)
+Control Plane (Hono, apps/api, hosted Vercel service)
   |
   | Postgres: workspace / run / event / tool_call / source / artifact
   | Sandbox Provider: create or reuse sandbox
@@ -27,7 +27,7 @@ Control Plane (Next.js)
   v
 Sandbox
   |
-  | agent loop
+  | Pi AI runtime (product path)
   | tools: search / fetch / file / command
   | local workspace files
   | artifact writer
@@ -71,7 +71,7 @@ Control Plane 可以持有：
 
 职责：
 
-- 运行 agent loop
+- 运行 Pi AI runtime
 - 执行工具
 - 读写 workspace 文件
 - 写 artifact
@@ -196,47 +196,60 @@ interface SandboxHandle {
 
 P0 可支持：
 
-- local sandbox，用于开发和稳定 demo
-- Vercel sandbox，用于 cloud demo
+- Vercel Sandbox，用于产品主路径和真实链路验证。
 
-接口保持一致，避免业务层关心 provider。
+接口保持一致，避免业务层关心 provider。当前不把 local sandbox 作为产品路径；涉及 sandbox 的 workflow/live 验证必须跑真实 Vercel Sandbox。
 
-### 4.5 Sandbox Agent Runtime
+### 4.5 Sandbox Pi AI Runtime
 
-Sandbox 内提供一个 agent server：
+Sandbox 内运行真实 Pi AI runtime（`@earendil-works/pi`）。项目内自写 `apps/api/src/agent-loop/*` 只能作为 deterministic fixture 或迁移垫片，不能作为最终产品 runtime。
+
+Pi AI runtime 需要通过 Control Plane 注入单 run 配置：
 
 ```text
-GET  /health
-POST /runs
-POST /runs/:runId/cancel
-GET  /files
-GET  /files/*
-PUT  /files/*
-POST /exec
+run id / workspace id / thread id
+prompt and minimal context
+hosted ingest URL
+hosted LLM proxy URL
+hosted search/fetch URL
+scoped run token
+workspace root
+tool policy
+cancel/control URL
 ```
 
-`POST /runs` 输入：
+示例配置：
 
 ```json
 {
   "runId": "run_xxx",
   "workspaceId": "ws_xxx",
+  "threadId": "thr_xxx",
   "prompt": "research task",
-  "assistantProfile": {},
-  "ingestUrl": "https://control-plane/api/ingest",
-  "runToken": "scoped-token"
+  "ingestUrl": "https://api.example.com/api/ingest",
+  "llmProxyUrl": "https://api.example.com/api/llm-proxy",
+  "searchProxyUrl": "https://api.example.com/api/search-proxy",
+  "controlUrl": "https://api.example.com/api/runs/run_xxx/control",
+  "runToken": "scoped-token",
+  "workspaceRoot": "/workspace"
 }
 ```
 
-Sandbox agent loop 做：
+Pi AI adapter 做：
 
-1. 加载 prompt 和 assistant profile
+1. 加载 prompt 和最小上下文
 2. 加载 workspace 文件、notes、已有 artifacts
-3. 调 LLM
-4. 调工具
-5. 写事件
-6. 生成 artifact
-7. 上报 completed/failed/cancelled/timeout
+3. 通过 Control Plane LLM proxy 调 model，不持有长期 provider key
+4. 通过 adapter 执行 search/fetch/file/artifact tools
+5. 通过 ingest API 上报 heartbeat、event、tool call、file、artifact、source
+6. 通过 stream-chunk 转发 token 级输出
+7. 上报 completed/failed/cancelled/timeout/waiting_for_input
+
+禁止事项：
+
+- 不把 `DATABASE_URL`、Better Auth secret、长期 LLM provider key 注入 sandbox。
+- 不让 Pi AI runtime 直接写 Postgres/Redis。
+- 不依赖本地 `localhost` Control Plane；sandbox 回调必须使用 hosted API base URL。
 
 ### 4.6 Ingest API
 
@@ -507,16 +520,16 @@ POST /api/ingest
 2. Control Plane 创建 run(status=created)
 3. Control Plane 获取或创建 sandbox
 4. Control Plane 签发 scoped run token
-5. Control Plane 调 sandbox POST /runs
+5. Control Plane 在 sandbox 内启动 Pi AI runtime
 6. Control Plane 标记 run=running
 7. Browser 订阅 SSE
 ```
 
-### 7.2 Agent Execution
+### 7.2 Runtime Execution
 
 ```text
-1. Sandbox agent 收到 manifest
-2. 加载 assistant profile
+1. Pi AI runtime 收到单 run config
+2. 加载 prompt、thread context、workspace 文件和已有 artifacts
 3. 调 search/fetch/file/exec tools
 4. 每一步生成 event
 5. 通过 ingest API 上报
@@ -540,16 +553,16 @@ P0 不强依赖 Redis pub/sub。可以先用 DB polling + SSE。
 ```text
 1. Browser POST /api/runs/:id/cancel
 2. Control Plane status -> cancel_requested
-3. Control Plane 调 sandbox POST /runs/:id/cancel
-4. Sandbox abort controller 取消 agent loop
+3. Pi AI runtime 通过 control polling 或 cancellation marker 感知取消
+4. Sandbox abort controller 取消 active LLM/tool/command
 5. Sandbox 上报 run.cancelled
 6. Control Plane status -> cancelled
 ```
 
 要求：
 
-- sandbox cancel endpoint 必须快速返回
-- agent loop 必须把 abort signal 传给 LLM 和工具
+- runtime cancel check 必须足够频繁
+- Pi AI adapter 必须把 abort signal 传给 LLM 和工具
 - terminal status 不可被后续事件覆盖
 
 ### 7.5 Timeout
@@ -661,9 +674,9 @@ P1 再考虑：
 - 确认 LLM fallback/cancel 单测
 - 标注哪些还在 server，哪些已在 sandbox
 
-### Phase 3：Sandbox Agent Loop
+### Phase 3：Sandbox Pi AI Runtime
 
-- sandbox 内新增 runner
+- sandbox 内启动 Pi AI runtime
 - control plane 只负责编排
 - sandbox 上报事件
 
@@ -685,7 +698,7 @@ P1 再考虑：
 
 1. P0 的 web search 使用外部 search API，还是先用 fetch 用户给定 URL？
 2. Artifact content 存 DB，还是只存文件 path？
-3. local sandbox 是否作为 P0 demo 主路径？
+3. Pi AI runtime adapter 的最小 deterministic mode 怎么设计？
 4. Assistant Profile 是配置文件、DB 表，还是 UI 可编辑？
 5. P0 是否需要简单登录，还是固定单用户？
 
@@ -693,7 +706,6 @@ P1 再考虑：
 
 - search 先抽象 tool，具体 provider 可替换
 - artifact markdown 先存 DB，另写 workspace 文件
-- local sandbox 做稳定 demo，Vercel sandbox 做加分
+- hosted `apps/api` 先行，Vercel Sandbox 做真实链路验证；不把 local sandbox 作为 P0 主路径
 - profile 先用默认配置
 - P0 固定单用户
-

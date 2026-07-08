@@ -128,4 +128,20 @@
 
 ## 21. 部署和运维
 
-- [ ] 21.1 到达该 Group 时展开具体子步骤（两个独立 Vercel 项目、cookie domain、secrets、日志可观测性）
+- [ ] 21.1 根目录退出 Vercel app root；部署配置下沉到 `apps/web` / `apps/api`
+- [ ] 21.2 `apps/api` 增加 Hono zero-config Vercel entry，保留本地 node-server dev 入口
+- [ ] 21.3 向用户确认 API Vercel 项目名和域名方案（例如默认 Vercel 域名 vs `api.sandbox.maidang.me`）
+- [ ] 21.4 创建/链接独立 `apps/api` Vercel 项目，Root Directory=`apps/api`，迁移 API env 名
+- [ ] 21.5 部署并验证 hosted API Ready：公网 `/health` 200，live smoke 可打 `CAP_API_BASE_URL`
+- [ ] 21.6 `apps/web` Root Directory=`apps/web`，`API_PROXY_TARGET` 指向 hosted API，验证 web Ready
+- [ ] 21.7 修复并验证首页默认空 composer：登录后不自动选中历史 thread，首条消息后才创建/选中新 thread
+- [ ] 21.8 跑完整验证清单：typecheck / build / integration / workflow / live / openspec validate / 隐私扫描
+
+## 22. Pi AI Agent Runtime 替换
+
+- [ ] 22.1 固定 Pi AI runtime（`@earendil-works/pi`）安装、启动、配置和 tool adapter 方式
+- [ ] 22.2 实现 Pi AI ingest / LLM proxy / search / fetch / file / artifact adapter
+- [ ] 22.3 在真实 Vercel Sandbox 内启动 Pi AI runtime，使用 hosted API base URL 回调
+- [ ] 22.4 将产品主路径从自写 `apps/api/src/agent-loop/*` 切换到 Pi AI runtime
+- [ ] 22.5 自写 loop 降级为 deterministic fixture 或删除
+- [ ] 22.6 workflow/live 验证 Pi AI runtime 完成 run，且 sandbox env 不含 DB/Auth/长期 provider secrets

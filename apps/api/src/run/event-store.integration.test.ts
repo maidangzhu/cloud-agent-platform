@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
-import { INGEST_SEQ_CONFLICT, insertRunEvent } from "./event-store";
+import { INGEST_SEQ_CONFLICT, insertRunEvent } from "./event-store.js";
 
 // 连真实 Neon Postgres，不 mock。对应 docs/testing-strategy.md §4.5
 // unit 1-3；这些断言依赖 RunEvent 的真实 unique(runId, seq) 约束和

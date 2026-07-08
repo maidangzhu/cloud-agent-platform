@@ -2,7 +2,7 @@
 
 v2 的完整架构论证已经在 `docs/decisions/`（ADR-0001~0022）逐条记录——每条 ADR 都包含决策内容、背景、被否方案、连锁影响。本文档**不重复那些论证**，只做三件事：（1）汇总关键决策的落地形态供实现时速查，（2）列出跨 capability 的风险和缓解方式，（3）给出迁移顺序。要理解"为什么这么定"，去读对应的 ADR 链接；要理解"具体做什么"，看 specs/ 和 tasks.md。
 
-当前状态：v1（`cloud-agent-platform-mvp`）已归档，v2 已迁入 monorepo：`apps/web` 承载 Next.js 前端，`apps/api` 承载 Hono Control Plane，`packages/db` 承载 Prisma schema + client。旧根 `src/` 应被视为已废弃并删除；需要复用的沙箱封装已迁到 `apps/api/src/sandbox/`。
+当前状态：v1（`cloud-agent-platform-mvp`）已归档，v2 已迁入 monorepo：`apps/web` 承载 Next.js 前端，`apps/api` 承载 Hono Control Plane，`packages/db` 承载 Prisma schema + client。旧根 `src/` 应被视为已废弃并删除；需要复用的沙箱封装已迁到 `apps/api/src/sandbox/`。部署上必须优先打通 hosted `apps/api`，根目录不再作为 Vercel app root；runtime 上必须迁移到 sandbox 内真实 Pi AI runtime（`@earendil-works/pi`），当前自写 loop 只作为 fixture/迁移垫片。
 
 ## Goals / Non-Goals
 
@@ -29,6 +29,8 @@ v2 的完整架构论证已经在 `docs/decisions/`（ADR-0001~0022）逐条记�
 | Event payload schema | `AgentEventPayloadMap` 判别联合，按 `type` 校验形状；thinking/content 与 tool_call 字段互斥 | [ADR-0020](../../../docs/decisions/0020-agent-event-payload-schema-and-tool-retry.md) |
 | Token 转发 | Redis Streams（`XADD`/`XREAD`）+ cursor，取代 Pub/Sub；`Last-Event-ID` 映射为续读 cursor | [ADR-0021](../../../docs/decisions/0021-token-stream-relay-redis-streams.md)（修正 [ADR-0016](../../../docs/decisions/0016-token-stream-relay-redis-pubsub.md)） |
 | 后端框架/项目结构 | Hono（`apps/api`，Vercel Serverless）+ Next.js（`apps/web`）+ pnpm workspaces（无 Turborepo）；Better Auth 挂 `apps/api` | [ADR-0022](../../../docs/decisions/0022-monorepo-hono-backend.md) |
+| Hosted Control Plane | `apps/api` 独立 Vercel 项目，public `/health`；`apps/web` 通过 `API_PROXY_TARGET` 指向 hosted API；根目录不作为 Vercel app root | [hosted-control-plane-deployment-plan](../../../docs/hosted-control-plane-deployment-plan.md) |
+| Pi AI runtime | 产品主路径使用 sandbox 内真实 Pi AI runtime；自写 loop 只能作为 deterministic fixture/迁移垫片 | [agent-runtime-protocol](../../../docs/agent-runtime-protocol.md) |
 | Credit → 用量遥测 | `LLMUsageRecord` 替代 `CreditLedger`/`CreditBalance`，无 reserve/debit/refund，无余额拒绝路径 | [ADR-0015](../../../docs/decisions/0015-usage-telemetry-and-ops-priorities.md) |
 | Search proxy + 工具重试 | `POST /api/search-proxy`（5xx 重试 2 次，4xx 不重试）；`fetch_url` SSRF guard + 1 次重试，SSRF 触发判 rejected 非 failed | [ADR-0020](../../../docs/decisions/0020-agent-event-payload-schema-and-tool-retry.md) |
 | Artifact 版本化 | `artifactId` 已存在 → version+1 + `artifact_updated`；不存在 → version=1 + `artifact_created` | [ADR-0020](../../../docs/decisions/0020-agent-event-payload-schema-and-tool-retry.md) |
@@ -41,7 +43,9 @@ v2 的完整架构论证已经在 `docs/decisions/`（ADR-0001~0022）逐条记�
 
 - **[风险] Monorepo 迁移期间 v1 现有测试可能暂时性中断** → 缓解：`docs/implementation-roadmap.md` 的 Group 2 拆成 4 个小 Step，每步验证 `pnpm test`/`pnpm build` 不受影响后才停下确认，不做大爆炸式迁移。
 - **[风险] Redis 作为新增外部依赖，Upstash 服务不可用会影响 token 实时流** → 缓解：Redis 转发路径全程不落库（ADR-0011/0016），Redis 故障时业务事实（tool_call/file/artifact/终态）仍走独立的 ingest 可靠通道，只是 token 级实时体验降级，不影响正确性。
-- **[风险] Hono 迁移期间 Better Auth session cookie 跨域（本地开发 `apps/web:3000` vs `apps/api:8787`）** → 缓解：`apps/web` 的 `next.config.ts` rewrite 代理 `/api/*` 到本地 Hono 端口，浏览器视角只有一个 origin（ADR-0022）。
+- **[风险] Hono 迁移期间 Better Auth session cookie 跨域（本地开发 `apps/web:3000` vs `apps/api:8787`）** → 缓解：`apps/web` 的 `next.config.ts` rewrite 代理 `/api/*` 到本地 Hono 端口，浏览器视角只有一个 origin（ADR-0022）。生产/预览环境必须显式设置 `API_PROXY_TARGET` 到 hosted API，不能使用默认 localhost。
+- **[风险] 根目录 Vercel 配置继续触发错误的 Next.js 检测** → 缓解：配置下沉到 `apps/web`/`apps/api`，根目录只保留 workspace 职责，并用 preview deploy 验证不再出现 `No Next.js version detected`。
+- **[风险] 自写 loop 被继续扩展成事实产品 runtime** → 缓解：OpenSpec 和 roadmap 单列 Pi AI runtime 替换任务，完成前不把 runtime 主路径视为最终形态。
 - **[风险] `transitionRun` 原子 UPDATE 如果被某个调用点绕过，等于白做** → 缓解：测试矩阵（`docs/testing-strategy.md` §4.4）显式包含"并发调用只有一次生效"的断言，作为回归防线；代码 review 时检查是否有裸露的 `db.run.update` 调用。
 - **[Trade-off] 不做 consumer group，多 tab 查看同一个 run 各自独立 `XREAD`** → 接受：当前单人使用场景下多 tab 并发量极低，consumer group 的 ack/重新分配机制是不必要的复杂度（ADR-0021）。
 
@@ -51,7 +55,7 @@ v2 的完整架构论证已经在 `docs/decisions/`（ADR-0001~0022）逐条记�
 
 1. Monorepo 脚手架（Group 2）→ 2. Auth（Group 3）→ 3. Workspace/Thread（Group 4-5）→ 4. Run 状态机 + Event Store（Group 6，ADR-0018/0019 核心落地）→ 5. Scoped Token + Ingest 基线（Group 7-8）→ 6. Fake Runner（Group 9）→ 7. Files/Artifacts/Sources（Group 10-12）→ 8. Token Stream 转发（Group 13，ADR-0021）→ 9. LLM Proxy（Group 14）→ 10. Search Proxy + 工具协议（Group 15，ADR-0020）→ 11. 真实 Agent Loop（Group 16）→ 12. Usage 遥测（Group 17）→ 13. Sweep（Group 18）→ 14. UI（Group 19）→ 15. E2E（Group 20）→ 16. 部署（Group 21）。
 
-每步做完停下确认，不连续推进多个 Step（见 `docs/implementation-roadmap.md` 开头的使用规则）。回滚策略：Group 2 阶段 v1 代码原地不动，可随时放弃 monorepo 迁移回到纯 Next.js 结构；Group 3 之后的回滚需要具体到当时的 git commit，因为数据库 schema 会开始演进。
+当前优先级调整为先执行 Group 21 hosted Control Plane，再继续依赖真实后端的前端和 sandbox 验证；随后执行 Group 22 Pi AI runtime 替换。每步做完停下确认，不连续推进多个 Step（见 `docs/implementation-roadmap.md` 开头的使用规则）。回滚策略：Group 2 阶段 v1 代码原地不动，可随时放弃 monorepo 迁移回到纯 Next.js 结构；Group 3 之后的回滚需要具体到当时的 git commit，因为数据库 schema 会开始演进。
 
 ## Open Questions
 

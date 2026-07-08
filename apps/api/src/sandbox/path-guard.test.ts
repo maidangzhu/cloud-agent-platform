@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isWithinRoot, resolveWithinRoot } from "./path-guard";
+import { isWithinRoot, resolveWithinRoot } from "./path-guard.js";
 
 const ROOT = "/work/ws";
 

@@ -3,21 +3,21 @@
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { prisma } from "@cap/db";
-import { requireUser } from "../require-user";
-import { createRunIfThreadActive } from "./create";
-import { cancelRun } from "./cancel";
-import { validateRunPrompt } from "./validation";
-import { deriveUiState } from "./derive-ui-state";
-import { isTerminalStatus, type RunStatus } from "./transitions";
-import { toArtifactDTO } from "../artifacts/store";
-import { toSourceDTO } from "../sources/store";
-import { readRunStream, type RunStreamEntry } from "../redis/streams";
-import { extractBearerRunToken, verifyRunToken } from "./run-token";
+import { requireUser } from "../require-user.js";
+import { createRunIfThreadActive } from "./create.js";
+import { cancelRun } from "./cancel.js";
+import { validateRunPrompt } from "./validation.js";
+import { deriveUiState } from "./derive-ui-state.js";
+import { isTerminalStatus, type RunStatus } from "./transitions.js";
+import { toArtifactDTO } from "../artifacts/store.js";
+import { toSourceDTO } from "../sources/store.js";
+import { readRunStream, type RunStreamEntry } from "../redis/streams.js";
+import { extractBearerRunToken, verifyRunToken } from "./run-token.js";
 import {
   dispatchRunOrchestration,
   resolveRunOrchestratorApiBaseUrl,
   shouldAutoStartRunner,
-} from "./orchestrator";
+} from "./orchestrator.js";
 
 type RunDTO = {
   id: string;
@@ -268,7 +268,7 @@ runRoutes.get("/api/runs/:runId/control", async (c) => {
   }
 
   const verified = verifyRunToken(token, { expected: { runId } });
-  if (!verified.ok) {
+  if (verified.ok === false) {
     return c.json({ code: 2002, message: "run token invalid", data: null }, 401);
   }
 

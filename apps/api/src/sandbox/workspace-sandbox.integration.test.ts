@@ -1,16 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
-import { createApp } from "../app";
-import { issueRunToken } from "../run/run-token";
-import { resolveVercelCredentials } from "./vercel-credentials";
+import { createApp } from "../app.js";
+import { issueRunToken } from "../run/run-token.js";
+import { resolveVercelCredentials } from "./vercel-credentials.js";
 import {
   getOrCreateWorkspaceSandbox,
   runScriptedIngestRunnerInSandbox,
   sandboxNameForWorkspace,
   sweepOrphanWorkspaceSandboxes,
   type WorkspaceSandboxClaim,
-} from "./workspace-sandbox";
+} from "./workspace-sandbox.js";
 
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 const HAS_SECRET = Boolean(process.env.RUN_TOKEN_SECRET ?? process.env.BETTER_AUTH_SECRET);

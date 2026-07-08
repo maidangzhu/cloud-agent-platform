@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateThreadTitle } from "./validation";
+import { validateThreadTitle } from "./validation.js";
 
 describe("validateThreadTitle", () => {
   it("rejects empty string", () => {

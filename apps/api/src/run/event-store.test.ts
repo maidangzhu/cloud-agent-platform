@@ -5,7 +5,7 @@ import {
   validateRunEventPayload,
   type RunEventPayloadMap,
   type RunEventType,
-} from "./event-store";
+} from "./event-store.js";
 
 const VALID_PAYLOADS: { [T in RunEventType]: RunEventPayloadMap[T] } = {
   run_created: null,
