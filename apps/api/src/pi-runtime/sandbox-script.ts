@@ -129,7 +129,6 @@ function textResult(text, details) {
   return {
     content: [{ type: "text", text }],
     details,
-    terminate: true,
   };
 }
 

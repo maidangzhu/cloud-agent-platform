@@ -54,7 +54,28 @@ async function expectUnauthorized(path: string, init?: RequestInit) {
   });
 }
 
-async function signInLiveTestUser(): Promise<string> {
+async function authenticateLiveTestUser(): Promise<string> {
+  if (!LIVE_TEST_EMAIL || !LIVE_TEST_PASSWORD) {
+    const email = `cap-live-${Date.now()}-${randomUUID()}@example.test`;
+    const password = `CapLive-${randomUUID()}-Aa1!`;
+    const { response, body } = await deployedJson("/api/auth/sign-up/email", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "CAP Live Test",
+        email,
+        password,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `live test sign-up failed: ${response.status} ${JSON.stringify(body)}`,
+      );
+    }
+    const cookie = response.headers.get("set-cookie")?.split(";")[0];
+    if (!cookie) throw new Error("live test sign-up did not set a session cookie");
+    return cookie;
+  }
+
   const { response, body } = await deployedJson("/api/auth/sign-in/email", {
     method: "POST",
     body: JSON.stringify({
@@ -181,11 +202,11 @@ describe.skipIf(!DEPLOYED_API_BASE_URL)(
   },
 );
 
-describe.skipIf(
-  !DEPLOYED_API_BASE_URL || !LIVE_TEST_EMAIL || !LIVE_TEST_PASSWORD,
-)("Deployed API live workflow smoke（公网 API，专用测试账号）", () => {
+describe.skipIf(!DEPLOYED_API_BASE_URL)(
+  "Deployed API live workflow smoke（公网 API，真实账号会话）",
+  () => {
   it("signs in and exercises workspace/thread/run/read-only resource APIs", async () => {
-    const cookie = await signInLiveTestUser();
+    const cookie = await authenticateLiveTestUser();
     const title = `LIVE-Workflow-${Date.now()}`;
     let workspaceId = "";
     let threadId = "";
@@ -361,7 +382,7 @@ describe.skipIf(
   it(
     "creates a hosted run that uses Pi tools and persists files/artifacts through ingest",
     async () => {
-      const cookie = await signInLiveTestUser();
+      const cookie = await authenticateLiveTestUser();
       const title = `LIVE-Pi-E2E-${Date.now()}`;
       const expectedPath = `reports/${title}.md`;
       let workspaceId = "";

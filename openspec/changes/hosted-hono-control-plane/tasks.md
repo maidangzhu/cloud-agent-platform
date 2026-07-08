@@ -59,5 +59,5 @@
 - [x] 6.4 将产品主路径从自写 loop 切换到 Pi AI runtime（`run/orchestrator.ts` 改为 `runPiRuntimeInSandbox`；Pi sandbox script 执行 LLM proxy/tool loop，并通过 ingest 写 run events/tool calls/files/artifacts；真实 hosted workflow 通过）
 - [x] 6.5 自写 loop 降级为 deterministic fixture 或删除（产品 orchestrator 不再引用 `runAgentLoopScriptInSandbox`；旧 loop 仅保留给 deterministic workflow/fixture 测试）
 - [x] 6.6 workflow/live 验证 Pi AI runtime 通过 hosted API 完成 run（部署新版 API 后，`test:live` 通过；`pi-runtime.workflow.test.ts` 验证真实 sandbox 内 Pi runtime 通过 hosted API 写 run events/tool calls/files/artifacts；auto-start workflow 验证产品创建 run 后自动走 Pi runtime；sandbox stdout 断言 `forbiddenEnvPresent:false`）
-- [x] 6.7 LLM Proxy 在 hosted Control Plane 边界将 Pi-style tools 归一成 OpenAI function tools（provider + pi-runtime test、`@cap/api` typecheck 通过）
+- [x] 6.7 LLM Proxy 在 hosted Control Plane 边界将 Pi-style tools 归一成 OpenAI function tools，并修正 sandbox tool result 不能在首个工具后 `terminate`（provider + pi-runtime test、`@cap/api` typecheck 通过）
 - [ ] 6.8 部署新版 API 后跑公网 production E2E，确认真实 provider 触发 Pi tools 且 files/artifacts 通过 hosted API 可读
