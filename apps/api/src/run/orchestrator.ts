@@ -1,8 +1,9 @@
 import { prisma } from "@cap/db";
+import { buildPiRuntimeStartConfig } from "../pi-runtime/config.js";
 import {
   getOrCreateWorkspaceSandbox,
   releaseWorkspaceSandboxForRun,
-  runAgentLoopScriptInSandbox,
+  runPiRuntimeInSandbox,
 } from "../sandbox/workspace-sandbox.js";
 import { issueRunToken } from "./run-token.js";
 import { transitionRun } from "./transition-run.js";
@@ -170,12 +171,22 @@ export async function runCreatedRunOrchestration(params: {
       data: { startedAt: new Date() },
     });
 
-    const result = await runAgentLoopScriptInSandbox({
+    const result = await runPiRuntimeInSandbox({
       sandbox: claim.sandbox,
-      apiBaseUrl: params.apiBaseUrl,
-      runToken,
-      runId: run.id,
-      prompt: run.prompt,
+      config: buildPiRuntimeStartConfig({
+        apiBaseUrl: params.apiBaseUrl,
+        runToken,
+        run: {
+          id: run.id,
+          workspaceId: run.workspaceId,
+          threadId: run.threadId,
+          userId: run.userId,
+          prompt: run.prompt,
+          maxDurationSec: run.maxDurationSec,
+        },
+        llmProvider: resolvePiRuntimeLlmProvider(),
+        modelHint: process.env.CAP_PI_RUNTIME_MODEL_HINT ?? "pi-runtime",
+      }),
       execTimeoutMs: Math.max(30_000, run.maxDurationSec * 1000),
     });
 
@@ -224,4 +235,8 @@ async function failRunBestEffort(runId: string, error: string): Promise<void> {
 
 function trimRunError(error: string): string {
   return error.length > 1000 ? `${error.slice(0, 997)}...` : error;
+}
+
+function resolvePiRuntimeLlmProvider(): "fake" | "real" {
+  return process.env.CAP_PI_RUNTIME_LLM_PROVIDER === "fake" ? "fake" : "real";
 }

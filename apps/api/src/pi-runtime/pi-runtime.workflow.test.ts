@@ -42,6 +42,15 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
       for (const runId of created.runIds) {
         await releaseWorkspaceSandboxForRun(runId, "stopped").catch(() => undefined);
       }
+      await prisma.workspaceArtifactVersion.deleteMany({
+        where: { runId: { in: created.runIds } },
+      });
+      await prisma.workspaceArtifact.deleteMany({
+        where: { runId: { in: created.runIds } },
+      });
+      await prisma.workspaceFile.deleteMany({
+        where: { workspaceId: { in: created.workspaceIds } },
+      });
       await prisma.runEvent.deleteMany({
         where: { runId: { in: created.runIds } },
       });
@@ -94,6 +103,8 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
               prompt: "pi runtime hosted callback smoke",
               maxDurationSec: 180,
             },
+            llmProvider: "fake",
+            modelHint: "agent-loop-step16",
           }),
           installTimeoutMs: 240_000,
           execTimeoutMs: 120_000,
@@ -104,6 +115,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
         const output = parseLastJsonLine(result.stdout);
         expect(output).toMatchObject({
           piRuntimeStarted: true,
+          completed: true,
           runId: graph.runId,
           apiBaseUrl: PUBLIC_API_BASE_URL,
           forbiddenEnvPresent: false,
@@ -115,6 +127,44 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
         });
         expect(updated.lastHeartbeatAt).toBeTruthy();
         expect(updated.phase).toBe("finalize");
+        expect(updated.status).toBe("completed");
+
+        const events = await prisma.runEvent.findMany({
+          where: { runId: graph.runId },
+          orderBy: { seq: "asc" },
+        });
+        expect(events.map((event) => event.type)).toEqual([
+          "run_created",
+          "runner_started",
+          "agent_started",
+          "file_written",
+          "artifact_created",
+          "agent_message",
+          "run_completed",
+        ]);
+
+        const toolCalls = await prisma.runToolCall.findMany({
+          where: { runId: graph.runId },
+          orderBy: { startedAt: "asc" },
+        });
+        expect(toolCalls.map((tool) => `${tool.name}:${tool.status}`)).toEqual([
+          "write_file:completed",
+          "create_artifact:completed",
+        ]);
+
+        const file = await prisma.workspaceFile.findFirst({
+          where: { workspaceId: graph.workspaceId, path: "reports/agent-loop-report.md" },
+        });
+        expect(file?.latestRunId).toBe(graph.runId);
+        expect(file?.content).toContain("pi runtime hosted callback smoke");
+
+        const artifact = await prisma.workspaceArtifact.findFirst({
+          where: { runId: graph.runId, title: "Agent Loop Report" },
+        });
+        expect(artifact?.version).toBe(1);
+        expect(artifact?.contentSnapshot).toContain(
+          "pi runtime hosted callback smoke",
+        );
       },
       300_000,
     );

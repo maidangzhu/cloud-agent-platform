@@ -23,6 +23,8 @@ export type PiRuntimeStartConfig = {
   searchProxyUrl: string;
   controlUrl: string;
   runToken: string;
+  llmProvider: "fake" | "real";
+  modelHint: string;
   maxSteps: number;
   maxDurationSec: number;
   toolPolicy: PiRuntimeToolPolicy;
@@ -42,6 +44,8 @@ export type BuildPiRuntimeStartConfigInput = {
   };
   workspaceRoot?: string;
   maxSteps?: number;
+  llmProvider?: "fake" | "real";
+  modelHint?: string;
   toolPolicy?: Partial<PiRuntimeToolPolicy>;
 };
 
@@ -70,6 +74,8 @@ export function buildPiRuntimeStartConfig(
     searchProxyUrl: `${apiBaseUrl}/api/search-proxy`,
     controlUrl: `${apiBaseUrl}/api/runs/${runId}/control`,
     runToken: input.runToken,
+    llmProvider: input.llmProvider ?? "real",
+    modelHint: input.modelHint ?? "pi-runtime",
     maxSteps: input.maxSteps ?? 80,
     maxDurationSec: input.run.maxDurationSec,
     toolPolicy: {
@@ -110,6 +116,12 @@ export function validatePiRuntimeStartConfig(
   }
   if (!config.prompt.trim()) {
     return { ok: false, message: "prompt is required" };
+  }
+  if (config.llmProvider !== "fake" && config.llmProvider !== "real") {
+    return { ok: false, message: "llmProvider must be fake or real" };
+  }
+  if (!config.modelHint.trim()) {
+    return { ok: false, message: "modelHint is required" };
   }
   if (config.maxSteps < 1) {
     return { ok: false, message: "maxSteps must be positive" };

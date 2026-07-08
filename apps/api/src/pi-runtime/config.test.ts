@@ -29,6 +29,8 @@ describe("Pi runtime start protocol", () => {
       llmProxyUrl: "https://api.sandbox.maidang.me/api/llm-proxy",
       searchProxyUrl: "https://api.sandbox.maidang.me/api/search-proxy",
       controlUrl: "https://api.sandbox.maidang.me/api/runs/run_123/control",
+      llmProvider: "real",
+      modelHint: "pi-runtime",
       maxSteps: 80,
       workspaceRoot: "/workspace",
       packages: {

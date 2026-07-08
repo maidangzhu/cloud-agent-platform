@@ -593,7 +593,11 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       "auto-starts the real Vercel Sandbox agent loop after run creation",
       async () => {
         const previousAutoStart = process.env.CAP_RUNNER_AUTO_START;
+        const previousPiProvider = process.env.CAP_PI_RUNTIME_LLM_PROVIDER;
+        const previousPiModelHint = process.env.CAP_PI_RUNTIME_MODEL_HINT;
         process.env.CAP_RUNNER_AUTO_START = "true";
+        process.env.CAP_PI_RUNTIME_LLM_PROVIDER = "fake";
+        process.env.CAP_PI_RUNTIME_MODEL_HINT = "agent-loop-step16";
         let runId = "";
         try {
           const createRes = await app.request(`/api/threads/${threadId}/runs`, {
@@ -630,9 +634,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
             "run_created",
             "runner_started",
             "agent_started",
-            "agent_message",
             "file_written",
             "artifact_created",
+            "agent_message",
             "run_completed",
           ]);
 
@@ -663,6 +667,16 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
             delete process.env.CAP_RUNNER_AUTO_START;
           } else {
             process.env.CAP_RUNNER_AUTO_START = previousAutoStart;
+          }
+          if (previousPiProvider === undefined) {
+            delete process.env.CAP_PI_RUNTIME_LLM_PROVIDER;
+          } else {
+            process.env.CAP_PI_RUNTIME_LLM_PROVIDER = previousPiProvider;
+          }
+          if (previousPiModelHint === undefined) {
+            delete process.env.CAP_PI_RUNTIME_MODEL_HINT;
+          } else {
+            process.env.CAP_PI_RUNTIME_MODEL_HINT = previousPiModelHint;
           }
           if (runId) {
             const instances = await prisma.workspaceSandboxInstance.findMany({

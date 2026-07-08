@@ -142,6 +142,6 @@
 - [x] 22.1 固定 Pi AI runtime（`@earendil-works/pi-agent-core@0.80.3` + `@earendil-works/pi-ai@0.80.3`）安装、启动、配置和 tool adapter 方式（新增 `apps/api/src/pi-runtime/*` 启动协议与 Agent shell；`@cap/api` pi-runtime test/typecheck 通过）
 - [x] 22.2 实现 Pi AI ingest / LLM proxy / search / fetch / file / artifact adapter（新增 `control-plane-client.ts`、`adapters.ts`、`adapters.test.ts`；覆盖 scoped token 请求、LLM proxy stream 包装、search/fetch/file/artifact tool adapter；`pnpm --filter @cap/api test -- src/pi-runtime` 与 `pnpm --filter @cap/api typecheck` 通过）
 - [x] 22.3 在真实 Vercel Sandbox 内启动 Pi AI runtime，使用 hosted API base URL 回调（新增 `PI_RUNTIME_SANDBOX_SCRIPT`、`installPiRuntimeInSandbox`、`runPiRuntimeInSandbox`、真实 workflow smoke；`CAP_API_BASE_URL=https://api.sandbox.maidang.me pnpm --filter @cap/api test:workflow -- src/pi-runtime/pi-runtime.workflow.test.ts` 通过）
-- [ ] 22.4 将产品主路径从自写 `apps/api/src/agent-loop/*` 切换到 Pi AI runtime
-- [ ] 22.5 自写 loop 降级为 deterministic fixture 或删除
+- [x] 22.4 将产品主路径从自写 `apps/api/src/agent-loop/*` 切换到 Pi AI runtime（`run/orchestrator.ts` 改为 `runPiRuntimeInSandbox`；Pi sandbox script 执行 LLM proxy/tool loop，并通过 ingest 写 `RunEvent`、`RunToolCall`、`WorkspaceFile`、`WorkspaceArtifact`；真实 hosted workflow 通过）
+- [x] 22.5 自写 loop 降级为 deterministic fixture 或删除（产品 orchestrator 不再引用 `runAgentLoopScriptInSandbox`；旧 loop 仅保留给 deterministic workflow/fixture 测试）
 - [ ] 22.6 workflow/live 验证 Pi AI runtime 完成 run，且 sandbox env 不含 DB/Auth/长期 provider secrets
