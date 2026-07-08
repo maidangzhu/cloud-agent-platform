@@ -8,7 +8,7 @@
 - 根目录 `vercel.json` 会让 Vercel 零配置检测和构建命令继续混用旧的单应用假设。每个 deployable app 应该有自己的 Vercel 配置。
 - `apps/api` 目前只有本地 `tsx watch src/index.ts` + `@hono/node-server` 入口，没有 Vercel Hono zero-config 入口（default export Hono app）。
 - `apps/web/next.config.ts` 的默认 `API_PROXY_TARGET` 是 `http://localhost:8787`。本地开发可以这样，但线上必须指向 hosted `apps/api`。
-- 当前 `apps/api/src/agent-loop/*` 是项目内自写 loop。产品方向改为在 sandbox 内运行真实 Pi AI runtime（包名：`@earendil-works/pi`）；自写 loop 只能作为临时 fixture/迁移垫片，不能作为最终 Agent Runtime。
+- 当前 `apps/api/src/agent-loop/*` 是项目内自写 loop。产品方向改为在 sandbox 内运行真实 Pi AI runtime（`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`）；自写 loop 只能作为临时 fixture/迁移垫片，不能作为最终 Agent Runtime。
 
 ## 2. 目标拓扑
 
@@ -96,7 +96,7 @@ Workspace root
 
 ### Step E：替换自写 Agent Loop 为 Pi AI Runtime
 
-当前 `apps/api/src/agent-loop/*` 可以继续作为 deterministic fixture 和迁移基线，但最终 sandbox 内 runtime 必须替换为 Pi AI（`@earendil-works/pi`）。
+当前 `apps/api/src/agent-loop/*` 可以继续作为 deterministic fixture 和迁移基线，但最终 sandbox 内 runtime 必须替换为 Pi AI（`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`）。
 
 拆分步骤：
 

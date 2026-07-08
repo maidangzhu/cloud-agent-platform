@@ -16,7 +16,7 @@ v1（`cloud-agent-platform-mvp`，已归档于 `openspec/changes/archive/2026-07
 - 新增 Artifact 版本化规则：`artifactId` 已存在时产生 `artifact_updated` 事件而非 `artifact_created`（ADR-0020）。
 - 新增 sweep 职责范围扩大到清理孤儿沙箱和过期 Redis stream key（ADR-0015/0021）。
 - 新增 hosted Control Plane 部署约束：仓库根目录不作为 Vercel app root，`apps/web` 和 `apps/api` 分别作为独立 Vercel 项目部署，线上 web 通过 `API_PROXY_TARGET` 指向 hosted API。
-- 新增 Pi AI runtime 迁移约束：当前自写 agent loop 只作为 fixture/迁移垫片，产品主路径必须替换为 sandbox 内真实 Pi AI runtime（`@earendil-works/pi`）。
+- 新增 Pi AI runtime 迁移约束：当前自写 agent loop 只作为 fixture/迁移垫片，产品主路径必须替换为 sandbox 内真实 Pi AI runtime（`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`）。
 
 ## Capabilities
 

@@ -202,7 +202,7 @@ P0 可支持：
 
 ### 4.5 Sandbox Pi AI Runtime
 
-Sandbox 内运行真实 Pi AI runtime（`@earendil-works/pi`）。项目内自写 `apps/api/src/agent-loop/*` 只能作为 deterministic fixture 或迁移垫片，不能作为最终产品 runtime。
+Sandbox 内运行真实 Pi AI runtime（`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`，当前固定 `0.80.3`）。项目内自写 `apps/api/src/agent-loop/*` 只能作为 deterministic fixture 或迁移垫片，不能作为最终产品 runtime。
 
 Pi AI runtime 需要通过 Control Plane 注入单 run 配置：
 

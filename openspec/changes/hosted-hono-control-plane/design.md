@@ -32,7 +32,7 @@ repo root
 - `apps/api/src/index.ts` remains local dev only. Vercel uses `apps/api/src/server.ts` default export importing the shared Hono app.
 - `API_PROXY_TARGET` defaults to `http://localhost:8787` for local dev only. Preview/production web must set it to hosted API.
 - Hosted API must be verified before web/sandbox workflows are treated as production-ready.
-- Pi AI runtime (`@earendil-works/pi`) is the product runtime. The current self-written loop is transitional and can remain only as deterministic fixture until replacement is complete.
+- Pi AI runtime (`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`) is the product runtime. The current self-written loop is transitional and can remain only as deterministic fixture until replacement is complete.
 
 ## Risks / Mitigations
 

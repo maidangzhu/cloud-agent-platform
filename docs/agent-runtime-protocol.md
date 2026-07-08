@@ -6,7 +6,7 @@
 
 ## 1. 目标
 
-把完整 Agent Runtime 移到 sandbox 内运行，同时让持久化状态、凭证、认证、用量遥测和 UI streaming 仍由 Control Plane 管理。产品主路径使用真实 Pi AI runtime（`@earendil-works/pi`）；项目内自写 agent loop 只能作为 deterministic fixture 或迁移垫片。
+把完整 Agent Runtime 移到 sandbox 内运行，同时让持久化状态、凭证、认证、用量遥测和 UI streaming 仍由 Control Plane 管理。产品主路径使用真实 Pi AI runtime（`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`）；项目内自写 agent loop 只能作为 deterministic fixture 或迁移垫片。
 
 Control Plane 负责：
 
@@ -93,7 +93,7 @@ Sandbox 可以拿到：
 
 ## 4. Runtime 启动契约
 
-Control Plane 使用 JSON config 启动 sandbox 内 Pi AI runtime（`@earendil-works/pi`）。当前代码里的自写 loop 可以继续作为测试 fixture，但不能作为最终产品 runtime。
+Control Plane 使用 JSON config 启动 sandbox 内 Pi AI runtime（固定版本：`@earendil-works/pi-agent-core@0.80.3` + `@earendil-works/pi-ai@0.80.3`）。当前代码里的自写 loop 可以继续作为测试 fixture，但不能作为最终产品 runtime。
 
 示例：
 

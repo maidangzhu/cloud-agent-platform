@@ -170,7 +170,7 @@ export function AppShell() {
       setActiveThreadId((current) =>
         current && nextThreads.some((thread) => thread.id === current)
           ? current
-          : (nextThreads[0]?.id ?? null)
+          : null
       );
       setState("ready");
     } catch (err) {

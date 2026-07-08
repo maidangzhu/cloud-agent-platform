@@ -485,7 +485,7 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ### Step 14.2：真实 provider 接入 + finish_reason 归一化
 
-要写的东西：接入真实 LLM（复用 Pi AI `@earendil-works/pi` 的中转站配置，[memory: llm-openai-protocol-relay](../../.claude/memory)——只用 openai-completions 协议），实现 finish_reason 归一化层（[ADR-0009](./decisions/0009-provider-anti-corruption-layer.md)）。
+要写的东西：接入真实 LLM（复用 Pi AI `@earendil-works/pi-ai` 的 openai-completions 协议配置，[memory: llm-openai-protocol-relay](../../.claude/memory)），实现 finish_reason 归一化层（[ADR-0009](./decisions/0009-provider-anti-corruption-layer.md)）。
 
 需要用户补的 env 变量：确认现有 `OPENAI_API_KEY`/`OPENAI_BASE_URL`/`LLM_MODEL` 是否直接复用，还是要在 `apps/api` 下单独配一份。
 
@@ -819,13 +819,13 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ## Group 22：Pi AI Agent Runtime 替换
 
-当前 `apps/api/src/agent-loop/*` 是为打通协议写的项目内 loop。产品方向改为 sandbox 内运行真实 Pi AI runtime（`@earendil-works/pi`）；自写 loop 只能保留为 deterministic fixture/迁移垫片，不能作为最终产品主路径。
+当前 `apps/api/src/agent-loop/*` 是为打通协议写的项目内 loop。产品方向改为 sandbox 内运行真实 Pi AI runtime（`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`）；自写 loop 只能保留为 deterministic fixture/迁移垫片，不能作为最终产品主路径。
 
 ### Step 22.1：Pi AI runtime 接入调研和启动协议
 
 要写的东西：
 
-- 固定 Pi AI runtime 的安装方式、启动命令、配置格式、tool adapter 机制。
+- 固定 Pi AI runtime 的安装方式（`@earendil-works/pi-agent-core@0.80.3` + `@earendil-works/pi-ai@0.80.3`）、启动命令、配置格式、tool adapter 机制。
 - 明确 sandbox 内 runtime 需要的最小 env/config，禁止传入 DB/Auth/长期 provider secrets。
 
 怎么测：在真实 Vercel Sandbox 内手动启动 Pi AI runtime，跑通健康检查或最小 task。

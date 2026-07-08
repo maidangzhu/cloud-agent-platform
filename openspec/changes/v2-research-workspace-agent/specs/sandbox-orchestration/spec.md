@@ -19,7 +19,7 @@ Sandbox runner 的一切持久化事实 MUST 通过 ingest HTTP API 上报，不
 - **THEN** 全部通过 ingest API 完成，runner 进程中不存在任何数据库客户端连接
 
 ### Requirement: Run 创建后自动启动真实 Sandbox Runtime
-产品主路径 MUST 在 run 创建后自动启动真实 Vercel Sandbox runtime，不允许要求人工或测试 helper 手动调用 runtime，也不允许以 fake/local sandbox 作为产品主路径。产品 runtime MUST 迁移为真实 Pi AI runtime（`@earendil-works/pi`）；当前自写 loop 只允许作为 deterministic fixture 或迁移垫片。测试可以用 deterministic LLM 输出稳定断言，但 sandbox 运行边界必须是真实 Vercel Sandbox。
+产品主路径 MUST 在 run 创建后自动启动真实 Vercel Sandbox runtime，不允许要求人工或测试 helper 手动调用 runtime，也不允许以 fake/local sandbox 作为产品主路径。产品 runtime MUST 迁移为真实 Pi AI runtime（`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`）；当前自写 loop 只允许作为 deterministic fixture 或迁移垫片。测试可以用 deterministic LLM 输出稳定断言，但 sandbox 运行边界必须是真实 Vercel Sandbox。
 
 #### Scenario: 创建 run 后启动 agent loop
 - **WHEN** 浏览器创建 run

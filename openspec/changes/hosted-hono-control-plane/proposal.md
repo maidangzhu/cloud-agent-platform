@@ -6,7 +6,7 @@
 
 另一个问题是仓库根目录仍残留单 Next.js app 的部署假设。v2 已经是 pnpm workspace：`apps/web` 是 Next.js，`apps/api` 是 Hono，根目录不能再作为 Vercel 零配置检测的应用 root。
 
-同时，当前自写 `apps/api/src/agent-loop/*` 只能作为协议 fixture。产品主路径必须迁移到 sandbox 内真实 Pi AI runtime（`@earendil-works/pi`）。
+同时，当前自写 `apps/api/src/agent-loop/*` 只能作为协议 fixture。产品主路径必须迁移到 sandbox 内真实 Pi AI runtime（`@earendil-works/pi-agent-core` + `@earendil-works/pi-ai`）。
 
 ## What Changes
 

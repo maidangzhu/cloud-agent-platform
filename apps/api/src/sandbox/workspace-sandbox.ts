@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { prisma, type SandboxStatus } from "@cap/db";
 import { AGENT_LOOP_SANDBOX_SCRIPT } from "../agent-loop/sandbox-script.js";
+import { PI_RUNTIME_SANDBOX_SCRIPT } from "../pi-runtime/sandbox-script.js";
+import type { PiRuntimeStartConfig } from "../pi-runtime/config.js";
 import { transitionRun } from "../run/transition-run.js";
 
 type WorkspaceSandboxRow = Awaited<
@@ -272,6 +274,43 @@ export async function runAgentLoopScriptInSandbox(params: {
       stderr: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export async function installPiRuntimeInSandbox(params: {
+  sandbox: VercelSandboxHandle;
+  config: PiRuntimeStartConfig;
+}): Promise<void> {
+  const packageJson = {
+    type: "module",
+    private: true,
+    dependencies: {
+      [params.config.packages.agentCore]: params.config.packages.version,
+      [params.config.packages.ai]: params.config.packages.version,
+    },
+  };
+  await params.sandbox.writeFile(
+    "pi-runtime-config.json",
+    JSON.stringify(params.config),
+  );
+  await params.sandbox.writeFile("pi-runtime.mjs", PI_RUNTIME_SANDBOX_SCRIPT);
+  await params.sandbox.writeFile("package.json", JSON.stringify(packageJson));
+}
+
+export async function runPiRuntimeInSandbox(params: {
+  sandbox: VercelSandboxHandle;
+  config: PiRuntimeStartConfig;
+  installTimeoutMs?: number;
+  execTimeoutMs?: number;
+}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  await installPiRuntimeInSandbox(params);
+  const install = await params.sandbox.exec(
+    "test -d node_modules/@earendil-works/pi-agent-core || npm install --omit=dev --no-audit --no-fund",
+    { timeoutMs: params.installTimeoutMs ?? 180_000 },
+  );
+  if (install.exitCode !== 0) return install;
+  return params.sandbox.exec("node pi-runtime.mjs", {
+    timeoutMs: params.execTimeoutMs ?? 120_000,
+  });
 }
 
 function isSandboxExecTimeoutError(error: unknown): boolean {

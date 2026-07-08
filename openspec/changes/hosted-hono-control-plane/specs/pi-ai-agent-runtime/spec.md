@@ -2,7 +2,7 @@
 
 ### Requirement: Pi AI Runtime Is The Product Runtime
 
-The product sandbox execution path MUST run the real Pi AI runtime from `@earendil-works/pi`. The self-written project loop MAY remain only as a deterministic fixture or migration aid.
+The product sandbox execution path MUST run the real Pi AI runtime from `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai`. The self-written project loop MAY remain only as a deterministic fixture or migration aid.
 
 #### Scenario: Product run starts Pi AI
 
