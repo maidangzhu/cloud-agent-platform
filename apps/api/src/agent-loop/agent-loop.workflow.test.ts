@@ -641,7 +641,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
           ]);
 
           const artifact = await prisma.workspaceArtifact.findFirst({
-            where: { runId, title: "Agent Loop Report" },
+            where: { runId, path: "reports/agent-loop-report.md" },
           });
           expect(artifact?.version).toBe(1);
 
