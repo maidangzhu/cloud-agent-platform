@@ -226,6 +226,23 @@ describe("Pi runtime Control Plane adapters", () => {
     });
   });
 
+  it("constrains artifact kind in the tool schema", () => {
+    const client = new PiRuntimeControlPlaneClient({ config });
+    const tool = createPiRuntimeAdapterTools(client).find(
+      (item) => item.name === "create_artifact",
+    );
+    const parameters = tool?.parameters as {
+      properties?: { kind?: { enum?: string[] } };
+    };
+
+    expect(parameters.properties?.kind?.enum).toEqual([
+      "text",
+      "code",
+      "sheet",
+      "image",
+    ]);
+  });
+
   it("runs fetch_url through the local SSRF-guarded fetch tool", async () => {
     vi.stubGlobal(
       "fetch",

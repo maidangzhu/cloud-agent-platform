@@ -38,6 +38,9 @@ describe("Pi runtime sandbox install", () => {
     expect(writes["pi-runtime.mjs"]).toContain("@earendil-works/pi-ai");
     expect(writes["pi-runtime.mjs"]).toContain("/heartbeat");
     expect(writes["pi-runtime.mjs"]).not.toContain("terminate: true");
+    expect(writes["pi-runtime.mjs"]).toContain(
+      'Type.Enum(["text", "code", "sheet", "image"])',
+    );
     expect(writes["package.json"]).toContain("@earendil-works/pi-agent-core");
     expect(writes["package.json"]).toContain("@earendil-works/pi-ai");
     const configText = writes["pi-runtime-config.json"];

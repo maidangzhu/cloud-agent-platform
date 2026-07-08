@@ -169,10 +169,10 @@ const tools = [
   {
     name: "create_artifact",
     label: "Create artifact",
-    description: "Create or update a workspace artifact through hosted ingest APIs.",
+    description: "Create or update a workspace artifact through hosted ingest APIs. Use kind text, code, sheet, or image.",
     parameters: Type.Object({
       title: Type.String(),
-      kind: Type.String(),
+      kind: Type.Enum(["text", "code", "sheet", "image"]),
       path: Type.Optional(Type.String()),
       contentSnapshot: Type.Optional(Type.String()),
       storageKey: Type.Optional(Type.String()),
