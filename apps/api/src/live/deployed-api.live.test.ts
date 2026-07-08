@@ -445,7 +445,7 @@ describe.skipIf(!DEPLOYED_API_BASE_URL)(
           ]),
         );
         expect(detail.data?.toolCalls?.map((toolCall) => toolCall.name)).toEqual(
-          expect.arrayContaining(["write_file", "create_artifact"]),
+          expect.arrayContaining(["write_file"]),
         );
         expect(
           detail.data?.toolCalls?.every(

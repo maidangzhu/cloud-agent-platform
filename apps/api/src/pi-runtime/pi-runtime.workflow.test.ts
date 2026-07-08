@@ -149,7 +149,6 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
         });
         expect(toolCalls.map((tool) => `${tool.name}:${tool.status}`)).toEqual([
           "write_file:completed",
-          "create_artifact:completed",
         ]);
 
         const file = await prisma.workspaceFile.findFirst({
@@ -159,7 +158,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
         expect(file?.content).toContain("pi runtime hosted callback smoke");
 
         const artifact = await prisma.workspaceArtifact.findFirst({
-          where: { runId: graph.runId, title: "Agent Loop Report" },
+          where: { runId: graph.runId, path: "reports/agent-loop-report.md" },
         });
         expect(artifact?.version).toBe(1);
         expect(artifact?.contentSnapshot).toContain(

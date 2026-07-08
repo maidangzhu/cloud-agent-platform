@@ -166,11 +166,23 @@ const tools = [
           contentHash: file.contentHash || contentHash,
         },
       });
+      if (completedArtifactCount === 0) {
+        const artifactTitle = (file.path || params.path).split("/").pop() || (file.path || params.path);
+        const artifactEventSeq = seq++;
+        await postJson(config.ingestUrl + "/artifacts", {
+          title: artifactTitle,
+          kind: "text",
+          path: file.path || params.path,
+          contentSnapshot: params.content,
+          eventSeq: artifactEventSeq,
+        });
+        completedArtifactCount += 1;
+      }
       writtenFiles.push({
         path: file.path || params.path,
         content: params.content,
       });
-      return textResult("Wrote " + (file.path || params.path), file);
+      return textResult("Wrote " + (file.path || params.path), file, true);
     }),
   },
   {
