@@ -147,9 +147,10 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
           where: { runId: graph.runId },
           orderBy: { startedAt: "asc" },
         });
-        expect(toolCalls.map((tool) => `${tool.name}:${tool.status}`)).toEqual([
-          "write_file:completed",
-        ]);
+        expect(toolCalls.map((tool) => `${tool.name}:${tool.status}`)).toEqual(
+          expect.arrayContaining(["write_file:completed"]),
+        );
+        expect(toolCalls.every((tool) => tool.status === "completed")).toBe(true);
 
         const file = await prisma.workspaceFile.findFirst({
           where: { workspaceId: graph.workspaceId, path: "reports/agent-loop-report.md" },

@@ -10,6 +10,7 @@ const startedAt = Date.now();
 let seq = 1;
 const writtenFiles = [];
 let completedArtifactCount = 0;
+let latestArtifact = null;
 
 const forbiddenEnvKeys = [
   "DATABASE_URL",
@@ -176,6 +177,11 @@ const tools = [
           contentSnapshot: params.content,
           eventSeq: artifactEventSeq,
         });
+        latestArtifact = {
+          title: artifactTitle,
+          kind: "text",
+          path: file.path || params.path,
+        };
         completedArtifactCount += 1;
       }
       writtenFiles.push({
@@ -198,6 +204,13 @@ const tools = [
       artifactId: Type.Optional(Type.String()),
     }),
     execute: async (toolCallId, params) => runTrackedTool(toolCallId, "create_artifact", params, async (eventSeq) => {
+      if (completedArtifactCount > 0) {
+        return textResult(
+          "Artifact already exists for this run",
+          latestArtifact || params,
+          true,
+        );
+      }
       const artifactData = await postJson(config.ingestUrl + "/artifacts", {
         ...(params.artifactId ? { artifactId: params.artifactId } : {}),
         title: params.title,
@@ -208,6 +221,7 @@ const tools = [
         eventSeq,
       });
       const artifact = artifactData.artifact || {};
+      latestArtifact = artifact;
       completedArtifactCount += 1;
       return textResult("Created artifact " + (artifact.title || params.title), artifact, true);
     }),
@@ -236,6 +250,7 @@ async function ensureArtifactsForWrittenFiles() {
           eventSeq,
         });
         const artifact = artifactData.artifact || {};
+        latestArtifact = artifact;
         completedArtifactCount += 1;
         return textResult("Created artifact " + (artifact.title || title), artifact, true);
       },
