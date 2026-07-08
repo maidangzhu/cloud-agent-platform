@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import { buildPiRuntimeStartConfig } from "./config.js";
 import { PiRuntimeControlPlaneClient, type PiRuntimeTransport } from "./control-plane-client.js";
@@ -144,6 +147,7 @@ describe("Pi runtime Control Plane adapters", () => {
   });
 
   it("writes files through ingest files plus file_written event", async () => {
+    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "cap-pi-tools-"));
     const { calls, transport } = recordingTransport((url) => {
       if (url.endsWith("/api/ingest/tool-calls")) return ok({ toolCall: {} });
       if (url.endsWith("/api/ingest/files")) {
@@ -159,36 +163,114 @@ describe("Pi runtime Control Plane adapters", () => {
       if (url.endsWith("/api/ingest/events")) return ok({ eventId: "event_1" });
       return error(404, "unexpected path");
     });
-    const client = new PiRuntimeControlPlaneClient({ config, transport });
+    const client = new PiRuntimeControlPlaneClient({
+      config: buildPiRuntimeStartConfig({
+        apiBaseUrl: "https://api.sandbox.maidang.me",
+        runToken: "run-token",
+        workspaceRoot,
+        run: {
+          id: "run_1",
+          workspaceId: "workspace_1",
+          threadId: "thread_1",
+          userId: "user_1",
+          prompt: "Research adapter behavior",
+          maxDurationSec: 120,
+        },
+      }),
+      transport,
+    });
     const tool = createPiRuntimeAdapterTools(client).find(
       (item) => item.name === "write_file",
     );
 
-    const result = await tool?.execute("tool_file_1", {
-      path: "reports/a.md",
-      content: "hello",
-      mimeType: "text/markdown",
-    });
+    try {
+      const result = await tool?.execute("tool_file_1", {
+        path: "reports/a.md",
+        content: "hello",
+        mimeType: "text/markdown",
+      });
 
-    expect(result?.details).toMatchObject({ id: "file_1", path: "reports/a.md" });
-    expect(result?.terminate).toBeUndefined();
-    expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
-      "/api/ingest/tool-calls",
-      "/api/ingest/files",
-      "/api/ingest/events",
-      "/api/ingest/tool-calls",
-    ]);
-    expect(calls[1].body).toMatchObject({
-      path: "reports/a.md",
-      kind: "text",
-      size: 5,
-      content: "hello",
+      expect(result?.details).toMatchObject({ id: "file_1", path: "reports/a.md" });
+      expect(result?.terminate).toBeUndefined();
+      await expect(readFile(path.join(workspaceRoot, "reports/a.md"), "utf8"))
+        .resolves.toBe("hello");
+      expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
+        "/api/ingest/tool-calls",
+        "/api/ingest/files",
+        "/api/ingest/events",
+        "/api/ingest/tool-calls",
+      ]);
+      expect(calls[1].body).toMatchObject({
+        path: "reports/a.md",
+        kind: "text",
+        size: 5,
+        content: "hello",
+      });
+      expect(calls[2].body).toMatchObject({
+        seq: 1,
+        type: "file_written",
+        payload: { fileId: "file_1", path: "reports/a.md" },
+      });
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reads files, lists directories, and runs bash in the workspace", async () => {
+    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "cap-pi-tools-"));
+    const { calls, transport } = recordingTransport((url) => {
+      if (url.endsWith("/api/ingest/tool-calls")) return ok({ toolCall: {} });
+      return error(404, "unexpected path");
     });
-    expect(calls[2].body).toMatchObject({
-      seq: 1,
-      type: "file_written",
-      payload: { fileId: "file_1", path: "reports/a.md" },
+    const client = new PiRuntimeControlPlaneClient({
+      config: buildPiRuntimeStartConfig({
+        apiBaseUrl: "https://api.sandbox.maidang.me",
+        runToken: "run-token",
+        workspaceRoot,
+        run: {
+          id: "run_1",
+          workspaceId: "workspace_1",
+          threadId: "thread_1",
+          userId: "user_1",
+          prompt: "Research adapter behavior",
+          maxDurationSec: 120,
+        },
+      }),
+      transport,
     });
+    const tools = createPiRuntimeAdapterTools(client);
+
+    try {
+      await writeFile(path.join(workspaceRoot, "README.md"), "hello", "utf8");
+      const read = await tools.find((item) => item.name === "read_file")?.execute(
+        "tool_read_1",
+        { path: "README.md" },
+      );
+      const list = await tools
+        .find((item) => item.name === "list_directory")
+        ?.execute("tool_list_1", { path: "." });
+      const run = await tools.find((item) => item.name === "run_command")?.execute(
+        "tool_run_1",
+        { command: "pwd && cat README.md", timeoutMs: 5000 },
+      );
+
+      expect(read?.details).toMatchObject({ path: "README.md", content: "hello" });
+      expect(list?.details).toMatchObject({
+        entries: [expect.objectContaining({ name: "README.md", kind: "file" })],
+      });
+      expect(run?.details).toMatchObject({ exitCode: 0, timedOut: false });
+      expect(JSON.stringify(run?.details)).toContain("hello");
+      expect(calls.map((call) => call.body.status)).toEqual([
+        "running",
+        "completed",
+        "running",
+        "completed",
+        "running",
+        "completed",
+      ]);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("creates artifacts through ingest artifacts with the current event seq", async () => {

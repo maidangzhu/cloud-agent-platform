@@ -7,6 +7,9 @@ import {
   type Model,
   type ToolCall,
 } from "@earendil-works/pi-ai";
+import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { AgentTool, AgentToolResult, StreamFn } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { fetchUrlTool, type FetchUrlResult } from "../tools/fetch-url.js";
@@ -66,6 +69,81 @@ export function createPiRuntimeAdapterTools(
   searchProvider?: "fake" | "http" | "exa",
 ): AgentTool[] {
   return [
+    {
+      name: "read_file",
+      label: "Read file",
+      description: "Read a UTF-8 text file from the sandbox workspace.",
+      parameters: Type.Object({
+        path: Type.String(),
+      }),
+      execute: async (toolCallId, rawParams) => {
+        const params = rawParams as { path: string };
+        return runTrackedTool(client, {
+          toolCallId,
+          name: "read_file",
+          args: params,
+          run: async () => {
+            const resolved = resolveWorkspacePath(client.config.workspaceRoot, params.path);
+            const stat = await fs.stat(resolved.absolute);
+            if (!stat.isFile()) throw new Error("path is not a file");
+            const content = await fs.readFile(resolved.absolute, "utf8");
+            const details = {
+              path: resolved.relative,
+              content,
+              size: stat.size,
+              truncated: false,
+            };
+            return toolResult([content || "(empty file)"], details);
+          },
+        });
+      },
+    },
+    {
+      name: "list_directory",
+      label: "List directory",
+      description: "List files and directories under a sandbox workspace directory.",
+      parameters: Type.Object({
+        path: Type.Optional(Type.String()),
+      }),
+      execute: async (toolCallId, rawParams) => {
+        const params = rawParams as { path?: string };
+        return runTrackedTool(client, {
+          toolCallId,
+          name: "list_directory",
+          args: params,
+          run: async () => {
+            const details = await listWorkspaceDirectory(
+              client.config.workspaceRoot,
+              params.path,
+            );
+            return toolResult([JSON.stringify(details.entries, null, 2)], details);
+          },
+        });
+      },
+    },
+    {
+      name: "list_files",
+      label: "List files",
+      description: "Alias for list_directory.",
+      parameters: Type.Object({
+        path: Type.Optional(Type.String()),
+      }),
+      execute: async (toolCallId, rawParams) => {
+        const params = rawParams as { path?: string };
+        return runTrackedTool(client, {
+          toolCallId,
+          name: "list_files",
+          args: params,
+          run: async () => {
+            const details = await listWorkspaceDirectory(
+              client.config.workspaceRoot,
+              params.path,
+            );
+            return toolResult([JSON.stringify(details.entries, null, 2)], details);
+          },
+        });
+      },
+    },
     {
       name: "web_search",
       label: "Web search",
@@ -140,8 +218,11 @@ export function createPiRuntimeAdapterTools(
           name: "write_file",
           args: params,
           run: async (eventSeq) => {
+            const resolved = resolveWorkspacePath(client.config.workspaceRoot, params.path);
+            await fs.mkdir(path.dirname(resolved.absolute), { recursive: true });
+            await fs.writeFile(resolved.absolute, params.content, "utf8");
             const result = await client.writeTextFile({
-              path: params.path,
+              path: resolved.relative,
               content: params.content,
               mimeType: params.mimeType,
               eventSeq,
@@ -150,6 +231,44 @@ export function createPiRuntimeAdapterTools(
               [`Wrote ${stringField(result.file.path) ?? params.path}`],
               result.file,
             );
+          },
+        });
+      },
+    },
+    {
+      name: "run_command",
+      label: "Run command",
+      description:
+        "Run a bash command inside the sandbox workspace with timeout, denylist, and output truncation.",
+      parameters: Type.Object({
+        command: Type.String(),
+        timeoutMs: Type.Optional(Type.Number()),
+      }),
+      execute: async (toolCallId, rawParams) => {
+        const params = rawParams as { command: string; timeoutMs?: number };
+        return runTrackedTool(client, {
+          toolCallId,
+          name: "run_command",
+          args: params,
+          run: async () => {
+            const command = assertCommandAllowed(client.config, params.command);
+            const timeoutMs = Math.min(
+              Math.max(params.timeoutMs ?? 120_000, 1000),
+              Math.max(client.config.maxDurationSec * 1000, 1000),
+            );
+            const details = await runBashCommand({
+              command,
+              cwd: client.config.workspaceRoot,
+              timeoutMs,
+            });
+            const output = [
+              `$ ${command}`,
+              details.stdout,
+              details.stderr,
+              details.timedOut ? "(command timed out)" : "",
+              details.exitCode === 0 ? "" : `(exit code ${details.exitCode})`,
+            ].filter(Boolean).join("\n");
+            return toolResult([output || "(no output)"], details);
           },
         });
       },
@@ -332,6 +451,183 @@ async function runTrackedTool<TDetails>(
     });
     throw err;
   }
+}
+
+const MAX_LIST_ENTRIES = 200;
+const MAX_COMMAND_OUTPUT_CHARS = 20_000;
+
+function resolveWorkspacePath(
+  workspaceRoot: string,
+  inputPath: string | undefined,
+): { relative: string; absolute: string } {
+  const rawPath = (inputPath ?? ".").trim();
+  if (!rawPath || rawPath.includes("\0")) {
+    throw new Error("path is required");
+  }
+  if (path.isAbsolute(rawPath)) {
+    throw new Error("absolute paths are not allowed");
+  }
+  const normalized = path.normalize(rawPath).replace(/^\.\//, "");
+  if (
+    normalized === ".." ||
+    normalized.startsWith("../") ||
+    normalized.includes("/../")
+  ) {
+    throw new Error("path must stay inside workspace");
+  }
+  const root = path.resolve(workspaceRoot);
+  const absolute = path.resolve(root, normalized || ".");
+  if (absolute !== root && !absolute.startsWith(`${root}${path.sep}`)) {
+    throw new Error("path must stay inside workspace");
+  }
+  return { relative: normalized || ".", absolute };
+}
+
+async function listWorkspaceDirectory(
+  workspaceRoot: string,
+  inputPath: string | undefined,
+): Promise<{
+  path: string;
+  entries: Array<{ name: string; path: string; kind: "file" | "directory"; size: number }>;
+  truncated: boolean;
+}> {
+  const resolved = resolveWorkspacePath(workspaceRoot, inputPath);
+  const dirents = await fs.readdir(resolved.absolute, { withFileTypes: true });
+  const entries = await Promise.all(
+    dirents.slice(0, MAX_LIST_ENTRIES).map(async (entry) => {
+      const childPath = path.join(resolved.absolute, entry.name);
+      const stat = await fs.stat(childPath);
+      return {
+        name: entry.name,
+        path: path.relative(workspaceRoot, childPath) || ".",
+        kind: entry.isDirectory() ? ("directory" as const) : ("file" as const),
+        size: entry.isDirectory() ? 0 : stat.size,
+      };
+    }),
+  );
+  return {
+    path: resolved.relative,
+    entries,
+    truncated: dirents.length > MAX_LIST_ENTRIES,
+  };
+}
+
+function assertCommandAllowed(
+  config: PiRuntimeStartConfig,
+  commandValue: string,
+): string {
+  if (config.toolPolicy.allowRunCommand !== true) {
+    throw new Error("run_command is disabled by policy");
+  }
+  const command = commandValue.trim();
+  if (!command) throw new Error("command is required");
+  const lower = command.toLowerCase();
+  for (const denied of config.toolPolicy.denyCommands) {
+    if (denied && lower.includes(denied.toLowerCase())) {
+      throw new Error(`command rejected by policy: ${denied}`);
+    }
+  }
+  if (
+    lower.includes(":(){") ||
+    lower.includes("mkfs") ||
+    lower.includes("shutdown") ||
+    lower.includes("reboot") ||
+    lower.includes("> /dev/") ||
+    lower.includes(" /etc/") ||
+    lower.includes(" /root/")
+  ) {
+    throw new Error("command rejected by policy");
+  }
+  return command;
+}
+
+async function runBashCommand(input: {
+  command: string;
+  cwd: string;
+  timeoutMs: number;
+}): Promise<{
+  command: string;
+  exitCode: number | null;
+  signal?: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  durationMs: number;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+}> {
+  await fs.mkdir(input.cwd, { recursive: true });
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    let stdout = "";
+    let stderr = "";
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
+    let timedOut = false;
+    const child = spawn("bash", ["-lc", input.command], {
+      cwd: input.cwd,
+      env: {
+        PATH: process.env.PATH,
+        LANG: process.env.LANG,
+        LC_ALL: process.env.LC_ALL,
+        TMPDIR: process.env.TMPDIR,
+        HOME: input.cwd,
+        npm_config_cache: path.join(input.cwd, ".npm"),
+        npm_config_yes: "true",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), 2000).unref();
+    }, input.timeoutMs);
+    child.stdout.on("data", (chunk: Buffer) => {
+      const next = truncateText(stdout + chunk.toString("utf8"));
+      stdout = next.text;
+      stdoutTruncated = stdoutTruncated || next.truncated;
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      const next = truncateText(stderr + chunk.toString("utf8"));
+      stderr = next.text;
+      stderrTruncated = stderrTruncated || next.truncated;
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      resolve({
+        command: input.command,
+        exitCode: null,
+        stdout,
+        stderr: stderr || error.message,
+        timedOut: false,
+        durationMs: Date.now() - startedAt,
+        stdoutTruncated,
+        stderrTruncated,
+      });
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({
+        command: input.command,
+        exitCode: code,
+        signal,
+        stdout,
+        stderr,
+        timedOut,
+        durationMs: Date.now() - startedAt,
+        stdoutTruncated,
+        stderrTruncated,
+      });
+    });
+    timer.unref();
+  });
+}
+
+function truncateText(value: string): { text: string; truncated: boolean } {
+  if (value.length <= MAX_COMMAND_OUTPUT_CHARS) {
+    return { text: value, truncated: false };
+  }
+  return { text: value.slice(0, MAX_COMMAND_OUTPUT_CHARS), truncated: true };
 }
 
 function createAssistantMessage(input: {

@@ -51,7 +51,7 @@ export type BuildPiRuntimeStartConfigInput = {
 
 const DEFAULT_TOOL_POLICY: PiRuntimeToolPolicy = {
   allowNetwork: true,
-  allowRunCommand: false,
+  allowRunCommand: true,
   denyCommands: ["rm -rf", "sudo", "dd"],
 };
 

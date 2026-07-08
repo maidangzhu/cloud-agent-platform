@@ -116,7 +116,7 @@ describe("fake provider agent-loop fixture", () => {
     });
   });
 
-  it("stops Step 16 fake tool calls after tool results are present", () => {
+	  it("stops Step 16 fake tool calls after tool results are present", () => {
     const result = fakeComplete(
       [
         { role: "user", content: "produce report" },
@@ -127,9 +127,30 @@ describe("fake provider agent-loop fixture", () => {
 
     expect(result.finishReason).toBe("stop");
     expect(result.toolCalls).toEqual([]);
-    expect(result.content).toContain("produce report");
-  });
-});
+	    expect(result.content).toContain("produce report");
+	  });
+
+	  it("returns complete filesystem and command tool calls for Pi runtime tool smoke", () => {
+	    const result = fakeComplete(
+	      [{ role: "user", content: "execute a command" }],
+	      "pi-runtime-tools",
+	    );
+
+	    expect(result.finishReason).toBe("tool_calls");
+	    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+	      "run_command",
+	      "list_directory",
+	      "read_file",
+	    ]);
+	    expect(JSON.parse(result.toolCalls[0]?.arguments ?? "{}")).toMatchObject({
+	      command: expect.stringContaining("maidang-smoke"),
+	      timeoutMs: 5000,
+	    });
+	    expect(JSON.parse(result.toolCalls[2]?.arguments ?? "{}")).toMatchObject({
+	      path: "command-output.txt",
+	    });
+	  });
+	});
 
 describe("OpenAI-compatible response normalization", () => {
   const entry = { model: "configured-model" };

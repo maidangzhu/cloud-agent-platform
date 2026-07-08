@@ -1,6 +1,8 @@
 export const PI_RUNTIME_SANDBOX_SCRIPT = `
 import fs from "node:fs";
+import path from "node:path";
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { Type, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 
@@ -21,6 +23,10 @@ const forbiddenEnvKeys = [
   "EXA_API_KEY",
   "REDIS_URL",
 ];
+const MAX_FILE_READ_BYTES = 120000;
+const MAX_LIST_ENTRIES = 200;
+const MAX_COMMAND_OUTPUT_CHARS = 20000;
+const DEFAULT_COMMAND_TIMEOUT_MS = 120000;
 
 function jsonHeaders() {
   return {
@@ -136,20 +142,238 @@ function textResult(text, details, terminate = false) {
   };
 }
 
+function ensureWorkspaceRoot() {
+  fs.mkdirSync(config.workspaceRoot, { recursive: true });
+}
+
+function resolveWorkspacePath(inputPath) {
+  const rawPath = String(inputPath || ".").trim();
+  if (!rawPath || rawPath.includes("\\0")) {
+    throw new Error("path is required");
+  }
+  if (path.isAbsolute(rawPath)) {
+    throw new Error("absolute paths are not allowed");
+  }
+  const normalized = path.normalize(rawPath).replace(/^\\.\\//, "");
+  if (normalized === ".." || normalized.startsWith("../") || normalized.includes("/../")) {
+    throw new Error("path must stay inside workspace");
+  }
+  const absolute = path.resolve(config.workspaceRoot, normalized || ".");
+  const root = path.resolve(config.workspaceRoot);
+  if (absolute !== root && !absolute.startsWith(root + path.sep)) {
+    throw new Error("path must stay inside workspace");
+  }
+  return { relative: normalized || ".", absolute };
+}
+
+function truncateText(value, maxLength = MAX_COMMAND_OUTPUT_CHARS) {
+  if (value.length <= maxLength) return { text: value, truncated: false };
+  return { text: value.slice(0, maxLength), truncated: true };
+}
+
+function safeCommandEnv() {
+  const env = {};
+  for (const key of ["PATH", "LANG", "LC_ALL", "TMPDIR", "CI"]) {
+    if (process.env[key]) env[key] = process.env[key];
+  }
+  env.HOME = config.workspaceRoot;
+  env.npm_config_cache = path.join(config.workspaceRoot, ".npm");
+  env.npm_config_yes = "true";
+  return env;
+}
+
+function assertCommandAllowed(command) {
+  if (config.toolPolicy?.allowRunCommand !== true) {
+    throw new Error("run_command is disabled by policy");
+  }
+  const normalized = String(command || "").trim();
+  if (!normalized) throw new Error("command is required");
+  const lower = normalized.toLowerCase();
+  const denyCommands = Array.isArray(config.toolPolicy?.denyCommands)
+    ? config.toolPolicy.denyCommands
+    : [];
+  for (const denied of denyCommands) {
+    if (denied && lower.includes(String(denied).toLowerCase())) {
+      throw new Error("command rejected by policy: " + denied);
+    }
+  }
+  if (
+    lower.includes(":(){") ||
+    lower.includes("mkfs") ||
+    lower.includes("shutdown") ||
+    lower.includes("reboot") ||
+    lower.includes("> /dev/") ||
+    lower.includes(" /etc/") ||
+    lower.includes(" /root/")
+  ) {
+    throw new Error("command rejected by policy");
+  }
+  return normalized;
+}
+
+function runBashCommand(command, timeoutMs) {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    let stdout = "";
+    let stderr = "";
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
+    let timedOut = false;
+    const child = spawn("bash", ["-lc", command], {
+      cwd: config.workspaceRoot,
+      env: safeCommandEnv(),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), 2000).unref();
+    }, timeoutMs);
+    child.stdout.on("data", (chunk) => {
+      const next = truncateText(stdout + chunk.toString("utf8"));
+      stdout = next.text;
+      stdoutTruncated = stdoutTruncated || next.truncated;
+    });
+    child.stderr.on("data", (chunk) => {
+      const next = truncateText(stderr + chunk.toString("utf8"));
+      stderr = next.text;
+      stderrTruncated = stderrTruncated || next.truncated;
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      resolve({
+        command,
+        exitCode: null,
+        stdout,
+        stderr: stderr || error.message,
+        timedOut: false,
+        durationMs: Date.now() - startedAt,
+        stdoutTruncated,
+        stderrTruncated,
+      });
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({
+        command,
+        exitCode: code,
+        signal,
+        stdout,
+        stderr,
+        timedOut,
+        durationMs: Date.now() - startedAt,
+        stdoutTruncated,
+        stderrTruncated,
+      });
+    });
+    timer.unref();
+  });
+}
+
 const tools = [
+  {
+    name: "read_file",
+    label: "Read file",
+    description: "Read a UTF-8 text file from the sandbox workspace.",
+    parameters: Type.Object({
+      path: Type.String(),
+    }),
+    execute: async (toolCallId, params) => runTrackedTool(toolCallId, "read_file", params, async () => {
+      ensureWorkspaceRoot();
+      const resolved = resolveWorkspacePath(params.path);
+      const stat = fs.statSync(resolved.absolute);
+      if (!stat.isFile()) throw new Error("path is not a file");
+      const content = fs.readFileSync(resolved.absolute, "utf8");
+      const truncated = byteLength(content) > MAX_FILE_READ_BYTES;
+      const kept = truncated
+        ? Buffer.from(content, "utf8").subarray(0, MAX_FILE_READ_BYTES).toString("utf8")
+        : content;
+      const details = {
+        path: resolved.relative,
+        content: kept,
+        size: stat.size,
+        truncated,
+      };
+      return textResult(kept || "(empty file)", details);
+    }),
+  },
+  {
+    name: "list_directory",
+    label: "List directory",
+    description: "List files and directories under a sandbox workspace directory.",
+    parameters: Type.Object({
+      path: Type.Optional(Type.String()),
+    }),
+    execute: async (toolCallId, params) => runTrackedTool(toolCallId, "list_directory", params, async () => {
+      ensureWorkspaceRoot();
+      const resolved = resolveWorkspacePath(params.path || ".");
+      const entries = fs.readdirSync(resolved.absolute, { withFileTypes: true })
+        .slice(0, MAX_LIST_ENTRIES)
+        .map((entry) => {
+          const childPath = path.join(resolved.absolute, entry.name);
+          const stat = fs.statSync(childPath);
+          return {
+            name: entry.name,
+            path: path.relative(config.workspaceRoot, childPath) || ".",
+            kind: entry.isDirectory() ? "directory" : "file",
+            size: entry.isDirectory() ? 0 : stat.size,
+          };
+        });
+      const details = {
+        path: resolved.relative,
+        entries,
+        truncated: entries.length >= MAX_LIST_ENTRIES,
+      };
+      return textResult(JSON.stringify(entries, null, 2), details);
+    }),
+  },
+  {
+    name: "list_files",
+    label: "List files",
+    description: "Alias for list_directory.",
+    parameters: Type.Object({
+      path: Type.Optional(Type.String()),
+    }),
+    execute: async (toolCallId, params) => runTrackedTool(toolCallId, "list_files", params, async () => {
+      ensureWorkspaceRoot();
+      const resolved = resolveWorkspacePath(params.path || ".");
+      const entries = fs.readdirSync(resolved.absolute, { withFileTypes: true })
+        .slice(0, MAX_LIST_ENTRIES)
+        .map((entry) => {
+          const childPath = path.join(resolved.absolute, entry.name);
+          const stat = fs.statSync(childPath);
+          return {
+            name: entry.name,
+            path: path.relative(config.workspaceRoot, childPath) || ".",
+            kind: entry.isDirectory() ? "directory" : "file",
+            size: entry.isDirectory() ? 0 : stat.size,
+          };
+        });
+      const details = {
+        path: resolved.relative,
+        entries,
+        truncated: entries.length >= MAX_LIST_ENTRIES,
+      };
+      return textResult(JSON.stringify(entries, null, 2), details);
+    }),
+  },
   {
     name: "write_file",
     label: "Write file",
-    description: "Write a workspace file through hosted ingest APIs.",
+    description: "Write a UTF-8 text file under the sandbox workspace and persist it through hosted ingest APIs.",
     parameters: Type.Object({
       path: Type.String(),
       content: Type.String(),
       mimeType: Type.Optional(Type.String()),
     }),
     execute: async (toolCallId, params) => runTrackedTool(toolCallId, "write_file", params, async (eventSeq) => {
+      ensureWorkspaceRoot();
+      const resolved = resolveWorkspacePath(params.path);
+      fs.mkdirSync(path.dirname(resolved.absolute), { recursive: true });
+      fs.writeFileSync(resolved.absolute, params.content, "utf8");
       const contentHash = sha256(params.content);
       const fileData = await postJson(config.ingestUrl + "/files", {
-        path: params.path,
+        path: resolved.relative,
         kind: "text",
         mimeType: params.mimeType || "text/markdown",
         size: byteLength(params.content),
@@ -162,33 +386,59 @@ const tools = [
         type: "file_written",
         payload: {
           fileId: file.id || params.path,
-          path: file.path || params.path,
+          path: file.path || resolved.relative,
           size: typeof file.size === "number" ? file.size : byteLength(params.content),
           contentHash: file.contentHash || contentHash,
         },
       });
       if (completedArtifactCount === 0) {
-        const artifactTitle = (file.path || params.path).split("/").pop() || (file.path || params.path);
+        const artifactTitle = (file.path || resolved.relative).split("/").pop() || (file.path || resolved.relative);
         const artifactEventSeq = seq++;
         await postJson(config.ingestUrl + "/artifacts", {
           title: artifactTitle,
           kind: "text",
-          path: file.path || params.path,
+          path: file.path || resolved.relative,
           contentSnapshot: params.content,
           eventSeq: artifactEventSeq,
         });
         latestArtifact = {
           title: artifactTitle,
           kind: "text",
-          path: file.path || params.path,
+          path: file.path || resolved.relative,
         };
         completedArtifactCount += 1;
       }
       writtenFiles.push({
-        path: file.path || params.path,
+        path: file.path || resolved.relative,
         content: params.content,
       });
-      return textResult("Wrote " + (file.path || params.path), file, true);
+      return textResult("Wrote " + (file.path || resolved.relative), file, true);
+    }),
+  },
+  {
+    name: "run_command",
+    label: "Run command",
+    description: "Run a bash command inside the sandbox workspace with timeout, denylist, and output truncation.",
+    parameters: Type.Object({
+      command: Type.String(),
+      timeoutMs: Type.Optional(Type.Number()),
+    }),
+    execute: async (toolCallId, params) => runTrackedTool(toolCallId, "run_command", params, async () => {
+      ensureWorkspaceRoot();
+      const command = assertCommandAllowed(params.command);
+      const timeoutMs = Math.min(
+        Math.max(Number(params.timeoutMs || DEFAULT_COMMAND_TIMEOUT_MS), 1000),
+        Math.max(Number(config.maxDurationSec || 120) * 1000, 1000),
+      );
+      const details = await runBashCommand(command, timeoutMs);
+      const output = [
+        "$ " + command,
+        details.stdout ? details.stdout : "",
+        details.stderr ? details.stderr : "",
+        details.timedOut ? "(command timed out)" : "",
+        details.exitCode === 0 ? "" : "(exit code " + details.exitCode + ")",
+      ].filter(Boolean).join("\\n");
+      return textResult(output || "(no output)", details);
     }),
   },
   {
@@ -411,11 +661,13 @@ try {
   const agent = new Agent({
     sessionId: config.runId,
     initialState: {
-      systemPrompt: [
-        "You are a research workspace agent running inside an isolated Vercel Sandbox.",
-        "Use tools to write durable workspace files and create artifacts.",
-        "Never access database, Redis, auth, or long-lived provider credentials directly.",
-      ].join("\\n"),
+	      systemPrompt: [
+	        "You are a research workspace agent running inside an isolated Vercel Sandbox.",
+	        "Use read_file, write_file, list_directory, list_files, and run_command for workspace filesystem and bash tasks.",
+	        "When the user asks to run a command, execute it with run_command and report the stdout, stderr, and exit code.",
+	        "Use tools to write durable workspace files and create artifacts.",
+	        "Never access database, Redis, auth, or long-lived provider credentials directly.",
+	      ].join("\\n"),
       model,
       thinkingLevel: "off",
       tools,

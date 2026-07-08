@@ -167,9 +167,80 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
         );
       },
       300_000,
-    );
-  },
-);
+	    );
+
+	    it(
+	      "runs filesystem and bash tools inside real sandbox workspace",
+	      async () => {
+	        const graph = await createGraph(`${suiteId}-tools`, created);
+	        const runToken = issueRunToken({
+	          userId: graph.userId,
+	          workspaceId: graph.workspaceId,
+	          threadId: graph.threadId,
+	          runId: graph.runId,
+	          ttlSeconds: 900,
+	        });
+	        const claim = await getOrCreateWorkspaceSandbox({
+	          workspaceId: graph.workspaceId,
+	          runId: graph.runId,
+	          timeoutMs: 60_000,
+	        });
+	        created.sandboxes.push(claim.sandbox);
+
+	        const result = await runPiRuntimeInSandbox({
+	          sandbox: claim.sandbox,
+	          config: buildPiRuntimeStartConfig({
+	            apiBaseUrl: PUBLIC_API_BASE_URL!,
+	            runToken,
+	            run: {
+	              id: graph.runId,
+	              workspaceId: graph.workspaceId,
+	              threadId: graph.threadId,
+	              userId: graph.userId,
+	              prompt: "pi runtime filesystem and bash tool smoke",
+	              maxDurationSec: 180,
+	            },
+	            llmProvider: "fake",
+	            modelHint: "pi-runtime-tools",
+	          }),
+	          installTimeoutMs: 240_000,
+	          execTimeoutMs: 120_000,
+	        });
+
+	        expect(result.exitCode).toBe(0);
+	        expect(result.stderr).toBe("");
+	        const output = parseLastJsonLine(result.stdout);
+	        expect(output).toMatchObject({
+	          piRuntimeStarted: true,
+	          completed: true,
+	          runId: graph.runId,
+	          apiBaseUrl: PUBLIC_API_BASE_URL,
+	          forbiddenEnvPresent: false,
+	        });
+
+	        const updated = await prisma.agentRun.findUniqueOrThrow({
+	          where: { id: graph.runId },
+	        });
+	        expect(updated.status).toBe("completed");
+
+	        const toolCalls = await prisma.runToolCall.findMany({
+	          where: { runId: graph.runId },
+	          orderBy: { startedAt: "asc" },
+	        });
+	        expect(toolCalls.map((tool) => `${tool.name}:${tool.status}`)).toEqual([
+	          "run_command:completed",
+	          "list_directory:completed",
+	          "read_file:completed",
+	        ]);
+	        const runCommand = toolCalls.find((tool) => tool.name === "run_command");
+	        const readFile = toolCalls.find((tool) => tool.name === "read_file");
+	        expect(JSON.stringify(runCommand?.result)).toContain("maidang-smoke");
+	        expect(JSON.stringify(readFile?.result)).toContain("maidang-smoke");
+	      },
+	      300_000,
+	    );
+	  },
+	);
 
 function publicUrlOrUndefined(value: string | undefined): string | undefined {
   if (!value) return undefined;

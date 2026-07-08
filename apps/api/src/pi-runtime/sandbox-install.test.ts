@@ -39,8 +39,13 @@ describe("Pi runtime sandbox install", () => {
       "pi-runtime.mjs",
     ]);
     expect(writes["pi-runtime.mjs"]).toContain("@earendil-works/pi-agent-core");
-    expect(writes["pi-runtime.mjs"]).toContain("@earendil-works/pi-ai");
-    expect(writes["pi-runtime.mjs"]).toContain("/heartbeat");
+	    expect(writes["pi-runtime.mjs"]).toContain("@earendil-works/pi-ai");
+	    expect(writes["pi-runtime.mjs"]).toContain('name: "read_file"');
+	    expect(writes["pi-runtime.mjs"]).toContain('name: "list_directory"');
+	    expect(writes["pi-runtime.mjs"]).toContain('name: "list_files"');
+	    expect(writes["pi-runtime.mjs"]).toContain('name: "run_command"');
+	    expect(writes["pi-runtime.mjs"]).toContain('spawn("bash"');
+	    expect(writes["pi-runtime.mjs"]).toContain("/heartbeat");
     expect(writes["pi-runtime.mjs"]).toContain(
       'Type.Enum(["text", "code", "sheet", "image"])',
     );

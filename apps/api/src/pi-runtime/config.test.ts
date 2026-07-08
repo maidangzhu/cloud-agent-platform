@@ -23,7 +23,7 @@ describe("Pi runtime start protocol", () => {
       run,
     });
 
-    expect(config).toMatchObject({
+	    expect(config).toMatchObject({
       apiBaseUrl: "https://api.sandbox.maidang.me",
       ingestUrl: "https://api.sandbox.maidang.me/api/ingest",
       llmProxyUrl: "https://api.sandbox.maidang.me/api/llm-proxy",
@@ -31,9 +31,14 @@ describe("Pi runtime start protocol", () => {
       controlUrl: "https://api.sandbox.maidang.me/api/runs/run_123/control",
       llmProvider: "real",
       modelHint: "pi-runtime",
-      maxSteps: 80,
-      workspaceRoot: "/workspace",
-      packages: {
+	      maxSteps: 80,
+	      workspaceRoot: "/workspace",
+	      toolPolicy: {
+	        allowNetwork: true,
+	        allowRunCommand: true,
+	        denyCommands: ["rm -rf", "sudo", "dd"],
+	      },
+	      packages: {
         agentCore: "@earendil-works/pi-agent-core",
         ai: "@earendil-works/pi-ai",
         version: "0.80.3",
@@ -78,12 +83,16 @@ describe("Pi runtime start protocol", () => {
 
     expect(shell.model.provider).toBe("cap-control-plane");
     expect(shell.model.baseUrl).toBe(config.llmProxyUrl);
-    expect(shell.agent.state.tools.map((tool) => tool.name)).toEqual([
-      "web_search",
-      "fetch_url",
-      "write_file",
-      "create_artifact",
-    ]);
+	    expect(shell.agent.state.tools.map((tool) => tool.name)).toEqual([
+	      "read_file",
+	      "list_directory",
+	      "list_files",
+	      "web_search",
+	      "fetch_url",
+	      "write_file",
+	      "run_command",
+	      "create_artifact",
+	    ]);
     expect(shell.agent.state.messages).toEqual([]);
   });
 });

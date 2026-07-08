@@ -156,6 +156,9 @@ export function fakeComplete(
     modelHint === "agent-loop-step16" &&
     !messages.some((message) => message.role === "tool")
       ? fakeAgentLoopToolCalls(prompt)
+      : modelHint === "pi-runtime-tools" &&
+          !messages.some((message) => message.role === "tool")
+        ? fakePiRuntimeToolCalls()
       : [];
   const inputTokens = estimateTokens(messages.map((message) => message.content));
   const outputTokens = estimateTokens([
@@ -215,6 +218,33 @@ function fakeAgentLoopToolCalls(prompt: string): LlmToolCall[] {
         title: "Agent Loop Report",
         kind: "text",
         path,
+      }),
+    },
+  ];
+}
+
+function fakePiRuntimeToolCalls(): LlmToolCall[] {
+  return [
+    {
+      id: "fake-run-command",
+      name: "run_command",
+      arguments: JSON.stringify({
+        command: "printf 'maidang-smoke\\n' > command-output.txt && cat command-output.txt",
+        timeoutMs: 5000,
+      }),
+    },
+    {
+      id: "fake-list-directory",
+      name: "list_directory",
+      arguments: JSON.stringify({
+        path: ".",
+      }),
+    },
+    {
+      id: "fake-read-file",
+      name: "read_file",
+      arguments: JSON.stringify({
+        path: "command-output.txt",
       }),
     },
   ];
