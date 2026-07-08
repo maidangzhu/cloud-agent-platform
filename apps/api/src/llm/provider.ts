@@ -333,6 +333,7 @@ async function postOpenAiChatCompletion(params: {
   timeoutMs: number;
 }): Promise<unknown> {
   const url = `${params.entry.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  const tools = normalizeOpenAiTools(params.tools);
   const response = await withTimeout(
     params.timeoutMs,
     (signal) =>
@@ -346,9 +347,7 @@ async function postOpenAiChatCompletion(params: {
         body: JSON.stringify({
           model: params.entry.model,
           messages: params.messages,
-          ...(params.tools && params.tools.length > 0
-            ? { tools: params.tools }
-            : {}),
+          ...(tools.length > 0 ? { tools } : {}),
           stream: false,
         }),
       }),
@@ -358,6 +357,44 @@ async function postOpenAiChatCompletion(params: {
     throw new Error(`LLM provider returned ${response.status}`);
   }
   return response.json();
+}
+
+function normalizeOpenAiTools(tools: unknown[] | undefined): unknown[] {
+  if (!tools || tools.length === 0) return [];
+
+  return tools
+    .map((tool) => {
+      const record = asRecord(tool);
+      if (record.type === "function") {
+        const fn = asRecord(record.function);
+        const name = stringField(fn.name);
+        if (!name) return null;
+        return {
+          type: "function",
+          function: {
+            name,
+            ...(stringField(fn.description)
+              ? { description: stringField(fn.description) }
+              : {}),
+            parameters: asRecord(fn.parameters),
+          },
+        };
+      }
+
+      const name = stringField(record.name);
+      if (!name) return null;
+      return {
+        type: "function",
+        function: {
+          name,
+          ...(stringField(record.description)
+            ? { description: stringField(record.description) }
+            : {}),
+          parameters: asRecord(record.parameters),
+        },
+      };
+    })
+    .filter((tool) => tool !== null);
 }
 
 async function defaultTransport(

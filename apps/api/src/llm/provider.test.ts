@@ -281,6 +281,86 @@ describe("real provider retry/fallback/timeout shell", () => {
     }
   });
 
+  it("normalizes Pi-style tools to OpenAI function tools before provider calls", async () => {
+    let requestBody: Record<string, unknown> = {};
+    const transport: LlmHttpTransport = async (_url, init) => {
+      requestBody = JSON.parse(String(init.body));
+      return response({
+        model: "m1",
+        choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+      });
+    };
+
+    const result = await completeWithRealProvider({
+      messages: [{ role: "user", content: "write a file" }],
+      tools: [
+        {
+          name: "write_file",
+          description: "Write a workspace file.",
+          parameters: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"],
+          },
+        },
+      ],
+      env,
+      transport,
+      maxRetries: 0,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(requestBody.tools).toEqual([
+      {
+        type: "function",
+        function: {
+          name: "write_file",
+          description: "Write a workspace file.",
+          parameters: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"],
+          },
+        },
+      },
+    ]);
+  });
+
+  it("preserves already normalized OpenAI function tools", async () => {
+    let requestBody: Record<string, unknown> = {};
+    const transport: LlmHttpTransport = async (_url, init) => {
+      requestBody = JSON.parse(String(init.body));
+      return response({
+        model: "m1",
+        choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+      });
+    };
+
+    const normalizedTool = {
+      type: "function",
+      function: {
+        name: "create_artifact",
+        description: "Create an artifact.",
+        parameters: {
+          type: "object",
+          properties: { title: { type: "string" } },
+          required: ["title"],
+        },
+      },
+    };
+
+    const result = await completeWithRealProvider({
+      messages: [{ role: "user", content: "create artifact" }],
+      tools: [normalizedTool],
+      env,
+      transport,
+      maxRetries: 0,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(requestBody.tools).toEqual([normalizedTool]);
+  });
+
   it("times out a hanging provider attempt and retries", async () => {
     let calls = 0;
     const transport: LlmHttpTransport = async (_url, init) => {

@@ -12,6 +12,14 @@ const LIVE_TEST_EMAIL =
   process.env.CAP_LIVE_TEST_EMAIL ?? process.env.LIVE_TEST_EMAIL ?? "";
 const LIVE_TEST_PASSWORD =
   process.env.CAP_LIVE_TEST_PASSWORD ?? process.env.LIVE_TEST_PASSWORD ?? "";
+const WEB_ORIGIN = process.env.CAP_WEB_ORIGIN ?? "https://sandbox.maidang.me";
+const TERMINAL_RUN_STATUSES = new Set([
+  "completed",
+  "failed",
+  "timeout",
+  "cancelled",
+  "interrupted",
+]);
 
 async function deployedFetch(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${DEPLOYED_API_BASE_URL}${path}`, {
@@ -27,6 +35,7 @@ async function deployedJson<T = Record<string, unknown>>(
   const response = await deployedFetch(path, {
     ...init,
     headers: {
+      Origin: WEB_ORIGIN,
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
       ...init?.headers,
     },
@@ -61,6 +70,41 @@ async function signInLiveTestUser(): Promise<string> {
   const cookie = response.headers.get("set-cookie")?.split(";")[0];
   if (!cookie) throw new Error("live test sign-in did not set a session cookie");
   return cookie;
+}
+
+type RunDetailBody = {
+  data?: {
+    run?: { id: string; status: string; error?: string };
+    events?: Array<{ type: string; seq: number }>;
+    toolCalls?: Array<{ name: string; status: string }>;
+    artifacts?: Array<{ id: string; title: string; path?: string }>;
+    sources?: unknown[];
+  };
+};
+
+async function waitForTerminalRun(
+  runId: string,
+  cookie: string,
+): Promise<RunDetailBody> {
+  const deadline = Date.now() + 180_000;
+  let latest: RunDetailBody = {};
+
+  while (Date.now() < deadline) {
+    const detail = await deployedJson<RunDetailBody>(`/api/runs/${runId}`, {
+      headers: { cookie },
+    });
+    expect(detail.response.status).toBe(200);
+    latest = detail.body;
+    const status = latest.data?.run?.status;
+    if (status && TERMINAL_RUN_STATUSES.has(status)) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+
+  throw new Error(
+    `run ${runId} did not reach terminal status; last detail: ${JSON.stringify(
+      latest,
+    )}`,
+  );
 }
 
 describe.skipIf(!DEPLOYED_API_BASE_URL)(
@@ -313,4 +357,150 @@ describe.skipIf(
       }
     }
   });
+
+  it(
+    "creates a hosted run that uses Pi tools and persists files/artifacts through ingest",
+    async () => {
+      const cookie = await signInLiveTestUser();
+      const title = `LIVE-Pi-E2E-${Date.now()}`;
+      const expectedPath = `reports/${title}.md`;
+      let workspaceId = "";
+      let threadId = "";
+      let runId = "";
+
+      try {
+        const workspace = await deployedJson<{
+          data?: { workspace?: { id: string; title: string } };
+        }>("/api/workspaces", {
+          method: "POST",
+          headers: { cookie },
+          body: JSON.stringify({ title }),
+        });
+        expect(workspace.response.status).toBe(200);
+        workspaceId = workspace.body.data?.workspace?.id ?? "";
+        expect(workspaceId).toBeTruthy();
+
+        const thread = await deployedJson<{
+          data?: { thread?: { id: string; workspaceId: string } };
+        }>(`/api/workspaces/${workspaceId}/threads`, {
+          method: "POST",
+          headers: { cookie },
+          body: JSON.stringify({
+            title: `${title}-Thread`,
+            initialPrompt: "hosted Pi runtime e2e",
+          }),
+        });
+        expect(thread.response.status).toBe(200);
+        threadId = thread.body.data?.thread?.id ?? "";
+        expect(threadId).toBeTruthy();
+
+        const run = await deployedJson<{
+          data?: { run?: { id: string; status: string } };
+        }>(`/api/threads/${threadId}/runs`, {
+          method: "POST",
+          headers: { cookie },
+          body: JSON.stringify({
+            prompt: [
+              "Production E2E validation: you must use the write_file tool",
+              `to create ${expectedPath} with a short markdown report,`,
+              "then use the create_artifact tool for that same path.",
+              "Do not answer with only plain text.",
+            ].join(" "),
+          }),
+        });
+        expect(run.response.status).toBe(200);
+        runId = run.body.data?.run?.id ?? "";
+        expect(runId).toBeTruthy();
+
+        const detail = await waitForTerminalRun(runId, cookie);
+        expect(detail.data?.run?.status).toBe("completed");
+        expect(detail.data?.events?.map((event) => event.type)).toEqual(
+          expect.arrayContaining([
+            "run_created",
+            "runner_started",
+            "agent_started",
+            "file_written",
+            "run_completed",
+          ]),
+        );
+        expect(detail.data?.toolCalls?.map((toolCall) => toolCall.name)).toEqual(
+          expect.arrayContaining(["write_file", "create_artifact"]),
+        );
+        expect(
+          detail.data?.toolCalls?.every(
+            (toolCall) => toolCall.status === "completed",
+          ),
+        ).toBe(true);
+        expect(detail.data?.artifacts?.map((artifact) => artifact.path)).toContain(
+          expectedPath,
+        );
+
+        const files = await deployedJson<{
+          data?: { files?: Array<{ path: string; kind: string }> };
+        }>(`/api/workspaces/${workspaceId}/files`, { headers: { cookie } });
+        expect(files.response.status).toBe(200);
+        expect(files.body.data?.files).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ path: expectedPath, kind: "text" }),
+          ]),
+        );
+
+        const content = await deployedJson<{
+          data?: { content?: string };
+        }>(
+          `/api/workspaces/${workspaceId}/files/content?path=${encodeURIComponent(
+            expectedPath,
+          )}`,
+          { headers: { cookie } },
+        );
+        expect(content.response.status).toBe(200);
+        expect((content.body.data?.content ?? "").length).toBeGreaterThan(0);
+
+        const artifacts = await deployedJson<{
+          data?: { artifacts?: Array<{ id: string; path?: string }> };
+        }>(`/api/workspaces/${workspaceId}/artifacts`, {
+          headers: { cookie },
+        });
+        expect(artifacts.response.status).toBe(200);
+        const artifact = artifacts.body.data?.artifacts?.find(
+          (item) => item.path === expectedPath,
+        );
+        expect(artifact?.id).toBeTruthy();
+
+        const artifactDetail = await deployedJson<{
+          data?: { artifact?: { id: string; path?: string } };
+        }>(`/api/artifacts/${artifact?.id}`, { headers: { cookie } });
+        expect(artifactDetail.response.status).toBe(200);
+        expect(artifactDetail.body.data?.artifact).toMatchObject({
+          id: artifact?.id,
+          path: expectedPath,
+        });
+      } finally {
+        if (runId) {
+          await deployedFetch(`/api/runs/${runId}/cancel`, {
+            method: "POST",
+            headers: { cookie, Origin: WEB_ORIGIN },
+          }).catch(() => undefined);
+        }
+        if (threadId) {
+          await deployedFetch(`/api/threads/${threadId}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              cookie,
+              Origin: WEB_ORIGIN,
+            },
+            body: JSON.stringify({ status: "archived" }),
+          }).catch(() => undefined);
+        }
+        if (workspaceId) {
+          await deployedFetch(`/api/workspaces/${workspaceId}`, {
+            method: "DELETE",
+            headers: { cookie, Origin: WEB_ORIGIN },
+          }).catch(() => undefined);
+        }
+      }
+    },
+    240_000,
+  );
 });
