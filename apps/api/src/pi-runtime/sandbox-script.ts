@@ -8,6 +8,8 @@ const configFile = process.env.CAP_PI_RUNTIME_CONFIG_FILE || "pi-runtime-config.
 const config = JSON.parse(fs.readFileSync(configFile, "utf8"));
 const startedAt = Date.now();
 let seq = 1;
+const writtenFiles = [];
+let completedArtifactCount = 0;
 
 const forbiddenEnvKeys = [
   "DATABASE_URL",
@@ -163,6 +165,10 @@ const tools = [
           contentHash: file.contentHash || contentHash,
         },
       });
+      writtenFiles.push({
+        path: file.path || params.path,
+        content: params.content,
+      });
       return textResult("Wrote " + (file.path || params.path), file);
     }),
   },
@@ -189,10 +195,40 @@ const tools = [
         eventSeq,
       });
       const artifact = artifactData.artifact || {};
+      completedArtifactCount += 1;
       return textResult("Created artifact " + (artifact.title || params.title), artifact);
     }),
   },
 ];
+
+async function ensureArtifactsForWrittenFiles() {
+  if (completedArtifactCount > 0 || writtenFiles.length === 0) return;
+  for (const [index, file] of writtenFiles.entries()) {
+    const title = file.path.split("/").pop() || file.path;
+    await runTrackedTool(
+      "runtime-create-artifact-" + (index + 1),
+      "create_artifact",
+      {
+        title,
+        kind: "text",
+        path: file.path,
+        contentSnapshot: file.content,
+      },
+      async (eventSeq) => {
+        const artifactData = await postJson(config.ingestUrl + "/artifacts", {
+          title,
+          kind: "text",
+          path: file.path,
+          contentSnapshot: file.content,
+          eventSeq,
+        });
+        const artifact = artifactData.artifact || {};
+        completedArtifactCount += 1;
+        return textResult("Created artifact " + (artifact.title || title), artifact);
+      },
+    );
+  }
+}
 
 function toLlmMessages(context) {
   const messages = [];
@@ -362,6 +398,7 @@ try {
     toolExecution: "sequential",
   });
   await agent.prompt(config.prompt);
+  await ensureArtifactsForWrittenFiles();
   await postHeartbeat("finalize");
 
   const assistant = [...agent.state.messages].reverse().find((message) => message.role === "assistant");

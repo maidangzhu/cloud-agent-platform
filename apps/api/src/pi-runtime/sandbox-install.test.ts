@@ -41,6 +41,7 @@ describe("Pi runtime sandbox install", () => {
     expect(writes["pi-runtime.mjs"]).toContain(
       'Type.Enum(["text", "code", "sheet", "image"])',
     );
+    expect(writes["pi-runtime.mjs"]).toContain("runtime-create-artifact");
     expect(writes["package.json"]).toContain("@earendil-works/pi-agent-core");
     expect(writes["package.json"]).toContain("@earendil-works/pi-ai");
     const configText = writes["pi-runtime-config.json"];
