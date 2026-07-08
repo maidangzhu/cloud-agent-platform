@@ -193,6 +193,7 @@ export function createPiRuntimeAdapterTools(
             return toolResult(
               [`Created artifact ${stringField(result.artifact.title) ?? params.title}`],
               result.artifact,
+              true,
             );
           },
         });
@@ -431,10 +432,12 @@ function normalizeToolCalls(value: unknown): ToolCall[] {
 function toolResult<TDetails>(
   text: string[],
   details: TDetails,
+  terminate = false,
 ): AgentToolResult<TDetails> {
   return {
     content: text.map((content) => ({ type: "text" as const, text: content })),
     details,
+    ...(terminate ? { terminate: true } : {}),
   };
 }
 

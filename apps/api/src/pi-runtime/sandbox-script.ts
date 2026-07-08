@@ -127,10 +127,11 @@ function byteLength(value) {
   return new TextEncoder().encode(value).byteLength;
 }
 
-function textResult(text, details) {
+function textResult(text, details, terminate = false) {
   return {
     content: [{ type: "text", text }],
     details,
+    ...(terminate ? { terminate: true } : {}),
   };
 }
 
@@ -196,7 +197,7 @@ const tools = [
       });
       const artifact = artifactData.artifact || {};
       completedArtifactCount += 1;
-      return textResult("Created artifact " + (artifact.title || params.title), artifact);
+      return textResult("Created artifact " + (artifact.title || params.title), artifact, true);
     }),
   },
 ];
@@ -224,7 +225,7 @@ async function ensureArtifactsForWrittenFiles() {
         });
         const artifact = artifactData.artifact || {};
         completedArtifactCount += 1;
-        return textResult("Created artifact " + (artifact.title || title), artifact);
+        return textResult("Created artifact " + (artifact.title || title), artifact, true);
       },
     );
   }

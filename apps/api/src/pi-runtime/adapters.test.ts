@@ -171,6 +171,7 @@ describe("Pi runtime Control Plane adapters", () => {
     });
 
     expect(result?.details).toMatchObject({ id: "file_1", path: "reports/a.md" });
+    expect(result?.terminate).toBeUndefined();
     expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
       "/api/ingest/tool-calls",
       "/api/ingest/files",
@@ -217,6 +218,7 @@ describe("Pi runtime Control Plane adapters", () => {
     });
 
     expect(result?.details).toMatchObject({ id: "artifact_1", title: "Report" });
+    expect(result?.terminate).toBe(true);
     expect(calls[1].url).toBe(`${config.ingestUrl}/artifacts`);
     expect(calls[1].body).toMatchObject({
       eventSeq: 1,

@@ -41,11 +41,11 @@ describe("Pi runtime sandbox install", () => {
     expect(writes["pi-runtime.mjs"]).toContain("@earendil-works/pi-agent-core");
     expect(writes["pi-runtime.mjs"]).toContain("@earendil-works/pi-ai");
     expect(writes["pi-runtime.mjs"]).toContain("/heartbeat");
-    expect(writes["pi-runtime.mjs"]).not.toContain("terminate: true");
     expect(writes["pi-runtime.mjs"]).toContain(
       'Type.Enum(["text", "code", "sheet", "image"])',
     );
     expect(writes["pi-runtime.mjs"]).toContain("runtime-create-artifact");
+    expect(writes["pi-runtime.mjs"]).toContain("terminate: true");
     expect(writes["pi-runtime.mjs"]).toContain("process.exit(0)");
     expect(writes["package.json"]).toContain("@earendil-works/pi-agent-core");
     expect(writes["package.json"]).toContain("@earendil-works/pi-ai");
