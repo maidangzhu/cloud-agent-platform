@@ -100,7 +100,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_REDIS)(
   () => {
     const app = createApp();
     const userEmail = `it-sse-${Date.now()}@example.com`;
+    const otherUserEmail = `it-sse-other-${Date.now()}@example.com`;
     let cookie = "";
+    let otherCookie = "";
     let workspaceId = "";
     let threadId = "";
     const runIds: string[] = [];
@@ -141,7 +143,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_REDIS)(
           where: { id: { in: workspaceIds } },
         });
       }
-      await prisma.user.deleteMany({ where: { email: userEmail } });
+      await prisma.user.deleteMany({
+        where: { email: { in: [userEmail, otherUserEmail] } },
+      });
       await disconnectRedis();
       await prisma.$disconnect();
     });
@@ -188,6 +192,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_REDIS)(
 
     it("准备：注册用户，建 workspace + thread", async () => {
       cookie = await signUpAndGetCookie(app, userEmail);
+      otherCookie = await signUpAndGetCookie(app, otherUserEmail);
 
       const wsRes = await app.request("/api/workspaces", {
         method: "POST",
@@ -216,6 +221,39 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_REDIS)(
       const res = await app.request(`/api/runs/${runId}/events`);
 
       expect(res.status).toBe(401);
+    });
+
+    it("rejects another user's SSE request without leaking snapshot data", async () => {
+      const runId = await createRun("cross-user sse check");
+      await insertRunEvent({
+        runId,
+        seq: 1,
+        type: "agent_message",
+        content: "private answer",
+        payload: { messageId: "msg_private" },
+      });
+
+      const getRes = await app.request(`/api/runs/${runId}/events`, {
+        headers: { cookie: otherCookie },
+      });
+      const postRes = await app.request(`/api/runs/${runId}/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie: otherCookie },
+        body: JSON.stringify({ lastEventId: "0-0" }),
+      });
+
+      expect(getRes.status).toBe(404);
+      expect(await getRes.json()).toEqual({
+        code: 1004,
+        message: "not found",
+        data: null,
+      });
+      expect(postRes.status).toBe(404);
+      expect(await postRes.json()).toEqual({
+        code: 1004,
+        message: "not found",
+        data: null,
+      });
     });
 
     it("snapshot includes existing historical events", async () => {
@@ -252,6 +290,52 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_REDIS)(
         "run_created",
         "agent_message",
       ]);
+    });
+
+    it("snapshot includes tool call lifecycle events", async () => {
+      const runId = await createRun("tool lifecycle snapshot check");
+      await insertRunEvent({
+        runId,
+        seq: 1,
+        type: "tool_call_started",
+        payload: {
+          toolCallId: "tool_sse_1",
+          name: "run_command",
+          args: { command: "echo hi" },
+        },
+      });
+      await insertRunEvent({
+        runId,
+        seq: 2,
+        type: "tool_call_completed",
+        payload: {
+          toolCallId: "tool_sse_1",
+          name: "run_command",
+          result: { exitCode: 0 },
+        },
+      });
+      await prisma.agentRun.update({
+        where: { id: runId },
+        data: { status: "completed" },
+      });
+
+      const res = await app.request(`/api/runs/${runId}/events`, {
+        headers: { cookie },
+      });
+
+      expect(res.status).toBe(200);
+      const records = parseSseRecords(await res.text());
+      const snapshot = records.find((record) => record.event === "snapshot");
+      expect(snapshot).toBeTruthy();
+      const data = JSON.parse(snapshot?.data ?? "{}");
+      expect(data.events.map((event: { type: string }) => event.type)).toEqual([
+        "tool_call_started",
+        "tool_call_completed",
+      ]);
+      expect(data.events[0].payload).toMatchObject({
+        toolCallId: "tool_sse_1",
+        name: "run_command",
+      });
     });
 
     it("POST SSE snapshot includes existing historical events", async () => {

@@ -232,6 +232,16 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       ).toBe(true);
     });
 
+    it("filter by another user's runId returns no usage records", async () => {
+      const res = await app.request(`/api/usage/records?runId=${runBId}`, {
+        headers: { cookie: cookieA },
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.data.records).toEqual([]);
+    });
+
     it("filter by provider/model", async () => {
       const res = await app.request(
         "/api/usage/records?provider=fake&model=fake-beta",

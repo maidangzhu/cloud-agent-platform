@@ -162,24 +162,26 @@ export async function runAgentLoop(
     if (toolCall.name === "create_artifact" && config.updateArtifactId) {
       args.artifactId = config.updateArtifactId;
     }
+    const startedEventSeq = seq++;
     await post("/api/ingest/tool-calls", {
       id: toolCallId,
-      eventSeq: seq,
+      eventSeq: startedEventSeq,
       name: toolCall.name,
       status: "running",
       args,
     });
 
+    const toolEffectEventSeq = seq++;
     const result: ToolExecutionResult =
       toolCall.name === "write_file"
-        ? await executeWriteFile(post, args, seq++)
+        ? await executeWriteFile(post, args, toolEffectEventSeq)
         : toolCall.name === "create_artifact"
-          ? await executeCreateArtifact(post, args, seq++)
+          ? await executeCreateArtifact(post, args, toolEffectEventSeq)
           : { ok: false, error: `unsupported tool: ${toolCall.name}` };
 
     await post("/api/ingest/tool-calls", {
       id: toolCallId,
-      eventSeq: seq - 1,
+      eventSeq: seq++,
       name: toolCall.name,
       status: result.ok ? "completed" : "failed",
       args,

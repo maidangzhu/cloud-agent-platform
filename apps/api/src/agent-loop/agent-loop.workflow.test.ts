@@ -279,11 +279,15 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(eventTypes).toEqual([
         "run_created",
         "runner_started",
-        "agent_started",
-        "agent_message",
-        "file_written",
-        "artifact_created",
-        "run_completed",
+	"agent_started",
+	"agent_message",
+	"tool_call_started",
+	"file_written",
+	"tool_call_completed",
+	"tool_call_started",
+	"artifact_created",
+	"tool_call_completed",
+	"run_completed",
       ]);
     });
 

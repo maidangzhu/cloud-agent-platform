@@ -307,5 +307,16 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       const body = await res.json();
       expect(body.code).toBe(1003);
     });
+
+    it("rejects another user's workspace file content access", async () => {
+      const res = await app.request(
+        `/api/workspaces/${workspaceId}/files/content?path=notes/research.md`,
+        { headers: { cookie: otherCookie } },
+      );
+
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.code).toBe(1003);
+    });
   },
 );

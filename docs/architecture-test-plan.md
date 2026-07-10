@@ -189,8 +189,8 @@ gap        已知缺口，需要新增或改测试
 | ID | 层级 | 用例 | Oracle | 状态 | 测试文件 |
 | --- | --- | --- | --- | --- | --- |
 | CP-OWN-001 | integration | user cannot read another workspace | 404/403 policy result, no data leak | existing | `workspace/routes.integration.test.ts`："user A cannot read user B's workspace -> 404"、"user A cannot archive user B's workspace" |
-| CP-OWN-002 | integration | user cannot list another thread/files/artifacts/sources | stable forbidden/not found envelope | existing | `thread/routes.integration.test.ts`："user A cannot access user B's thread -> 404"；`files/routes.integration.test.ts`："rejects another user's workspace file access"；`artifacts/routes.integration.test.ts`："user A cannot read user B's artifact" |
-| CP-OWN-003 | integration | run detail requires owning user | no cross-user run/tool/artifact leak | existing（复核后改为 existing，见下） | `run/routes.integration.test.ts`："user B cannot read or cancel user A's run -> 404"（`run/routes.integration.test.ts:308`）。该用例已覆盖 run detail 层的跨用户拒绝；但它只断言 `GET /api/runs/:id` 和 `cancel` 两个端点返回 404，没有专门断言 toolCalls/artifacts 是否随 run 一起被拒绝读取（这两者本身挂在 run 下，未单独暴露跨 run 的读取入口，暂不需要额外用例） |
+| CP-OWN-002 | integration | user cannot list another thread/files/artifacts/sources | stable forbidden/not found envelope | existing（已补子资源覆盖） | `thread/routes.integration.test.ts`："user A cannot access user B's thread -> 404"；`files/routes.integration.test.ts`："rejects another user's workspace file access"、"rejects another user's workspace file content access"；`artifacts/routes.integration.test.ts`："user A cannot read user B's artifact"、"user A cannot list, version, or download user B's artifacts"；`sources/routes.integration.test.ts`："rejects another user's source list access" |
+| CP-OWN-003 | integration | run detail requires owning user | no cross-user run/tool/artifact leak | existing（已补 SSE/usage 边界覆盖） | `run/routes.integration.test.ts`："user B cannot read or cancel user A's run -> 404"；`run/event-sse.integration.test.ts`："rejects another user's SSE request without leaking snapshot data"；`usage/routes.integration.test.ts`："filter by another user's runId returns no usage records" |
 | CP-OWN-004 | integration | scoped run token cannot write another run | 401 run token invalid | existing | `run/run-token.test.ts`："rejects token for the wrong run"、"rejects token for the wrong workspace"；`ingest/routes.integration.test.ts`："reject token for wrong run -> RUN_TOKEN_INVALID" |
 
 #### CP-RUN-STATE
@@ -229,7 +229,7 @@ gap        已知缺口，需要新增或改测试
 | CP-TOOL-002 | integration | tool call running -> failed/rejected/timeout | status/error persisted | existing | `ingest/routes.integration.test.ts`："records running -> failed and running -> rejected distinctly" |
 | CP-TOOL-003 | integration | invalid tool transition rejected | 409 invalid transition | existing | `ingest/routes.integration.test.ts`："terminal tool call cannot later be completed" |
 | CP-TOOL-004 | integration | tool call id from another run rejected | 401 run token invalid | gap（无用例，见下）| 无现有测试对 `/api/ingest/tool-calls` 专门验证跨 run 复用同一 `toolCallId` 的场景；`apps/api/src/ingest/routes.ts:208-209` 已实现该拒绝逻辑（`existing.runId !== run.id` -> 401 `run token invalid`），只是缺自动化用例，不是实现缺口 |
-| CP-TOOL-005 | workflow | tool lifecycle appears in SSE timeline | `tool_call_started/completed/failed` events visible | gap | 无现有测试；详见 §4.4a |
+| CP-TOOL-005 | workflow | tool lifecycle appears in SSE timeline | `tool_call_started/completed/failed` events visible | existing（2026-07-10 补齐） | `ingest/routes.integration.test.ts`："records tool call pending -> running -> completed" 断言 `tool_call_started`/`tool_call_completed`；"records running -> failed and running -> rejected distinctly" 断言 `tool_call_failed`；`sandbox/scripted-ingest-fixture.integration.test.ts`："scripted ingest fixture completes run through ingest HTTP" |
 | CP-TOOL-006 | workflow | failed tool maps to run policy | run failed/interrupted/can continue according to policy | planned | 无现有测试，暂不在本轮范围 |
 
 **复核过程中发现并修复的并发 bug（2026-07-10）**：`POST /api/ingest/tool-calls` 的 `existing -> update` 分支之前是 `prisma.runToolCall.update({ where: { id: existing.id }, ... })`——只用 `id` 做 `where`，没有像 `transitionRun`（ADR-0018）那样带上"当前状态必须还是刚读到的 existing.status"这个条件。两个并发的终态上报（例如同一个 `run_command` 调用，一个上报 `completed`、一个上报 `failed`）会各自读到相同的 `existing.status === "running"`，都通过 `isLegalToolCallTransition` 检查，然后都无条件写入成功——用一条新增的并发测试实测验证过：修复前两次请求都返回 `200`，最终状态由"最后落盘的那次"决定，跟两次调用实际发生的时间顺序无关，且没有任何错误或日志能暴露这次竞态。这是静默数据损坏，比 CP-EVT-003/004 那两个 bug 更隐蔽（那两个至少会抛异常或返回明确的冲突码）。
@@ -270,7 +270,7 @@ gap        已知缺口，需要新增或改测试
 | CP-SSE-002 | integration | live DB events stream until terminal done | event order + done | existing | `run/event-sse.integration.test.ts`："active run streams new events as they're ingested"、"terminal run sends done after snapshot" |
 | CP-SSE-003 | integration | Redis stream chunk cursor `0` replay | no lost chunk | existing | `run/event-sse.integration.test.ts`：'new connection without Last-Event-ID reads full stream from start (cursor "0")'；`redis/stream-chunk.integration.test.ts`："accepts chunk for active run, does not create RunEvent, and XREAD can immediately read it" |
 | CP-SSE-004 | integration | Last-Event-ID resume | no duplicate/no lost chunk | existing | `run/event-sse.integration.test.ts`："reconnect with Last-Event-ID resumes from correct cursor, no duplicate delivery"、"reconnect with Last-Event-ID resumes through reconnect gap, no lost chunk" |
-| CP-SSE-005 | workflow | tool call lifecycle merged into SSE timeline | tool events visible in order | gap | 无现有测试；依赖 CP-TOOL-005 先落地；详见 §4.4a |
+| CP-SSE-005 | workflow | tool call lifecycle merged into SSE timeline | tool events visible in order | existing（2026-07-10 补齐） | `run/event-sse.integration.test.ts`："snapshot includes tool call lifecycle events"；`ingest/routes.integration.test.ts` 已验证真实 ingest 会生产 `tool_call_started/completed/failed` |
 | CP-SSE-006 | workflow | content chunk arrives before final agent_message | stream chunk before semantic event | existing（复核后改为 existing，归属见 §4.4b） | `agent-loop/agent-loop.workflow.test.ts`："streams LLM chunks to Redis before semantic events are persisted"（等同 `testing-case-catalog.md` 的 `AGENT-W-002`） |
 
 #### CP-PROXY
@@ -294,25 +294,15 @@ gap        已知缺口，需要新增或改测试
 | CP-SWEEP-003 | integration | orphan Redis stream cleanup | old stream deleted only | existing | `redis/stream-cleanup.integration.test.ts`："deletes stream key for terminal run older than grace and is idempotent"、"does not delete active or terminal streams still inside grace" |
 | CP-SWEEP-004 | integration | orphan sandbox cleanup does not recreate sandbox | stop via get, not getOrCreate | existing | `sandbox/workspace-sandbox.integration.test.ts`："orphan WorkspaceSandboxInstance is swept and marked stopped"（属于 Part 2 Sandbox Substrate 文件，但用例本身验证的是 Control Plane sweep 调用 sandbox 层的收口方式，故在此保留映射） |
 
-### 4.4a CP-TOOL-005 / CP-SSE-005 缺口详情
+### 4.4a CP-TOOL-005 / CP-SSE-005 收敛记录
 
-现状（已读代码确认，未改代码）：
+已完成（2026-07-10）：
 
-- `POST /api/ingest/tool-calls`（`apps/api/src/ingest/routes.ts:181-256`）只写 `prisma.runToolCall`（`create`/`update`），从未调用 `insertRunEvent`。对照同文件里的 `/api/ingest/artifacts`（`apps/api/src/ingest/routes.ts:336-380`），后者在写完 artifact 后会显式调用 `insertRunEvent` 落 `artifact_created`/`artifact_updated` 事件；tool-calls 路由没有等价调用。
-- `run/event-store.ts` 里 `RunEventType` 已经定义了 `tool_call_started` / `tool_call_completed` / `tool_call_failed`，payload schema（`RunEventPayloadMap`，L49-61）和先后顺序规则（`EVENT_ORDER_GROUPS`，L141-142：`tool_call_started` 在 `tool_call_completed|tool_call_failed` 之前）都已就位，但全仓库搜索这三个类型字符串，除了 schema/测试文件本身，没有任何调用点会真的构造出这三种事件——定义了但从未被生产。
-- Pi runtime 侧调用路径是 `apps/api/src/pi-runtime/adapters.ts` 的 `runTrackedTool`（L411-449），它只调 `client.postToolCall(...)`（映射到 `/api/ingest/tool-calls`），不会调用事件 ingest 端点。
-- 因此 SSE 侧天然也没有东西可以透出：`run/event-sse.integration.test.ts` 的测试 helper 是直接写 `RunEvent`（文件头注释 L8-11 说明业务事实事件绕过真实 ingest HTTP，直接用 helper 写 `RunEvent`；stream chunk 才走真实 HTTP），该文件里没有任何测试 seed 或断言 `tool_call_*`。`pi-runtime.workflow.test.ts`（L132-153）实测了真实 sandbox 内跑一次 Pi runtime 后 `RunEvent` 的完整序列：`["run_created","runner_started","agent_started","file_written","artifact_created","agent_message","run_completed"]`，里面没有任何 `tool_call_*`，印证了这是真实链路上的缺口，不只是测试盲点。
-
-需要新增的实现（不在本轮做，留给下一轮）：
-
-1. `/api/ingest/tool-calls` 路由在创建时（-> `tool_call_started`）和终态转移时（-> `tool_call_completed`/`tool_call_failed`）调用 `insertRunEvent`。需要决定 `rejected`/`timeout` 两个终态怎么映射（目前只有 3 种 `tool_call_*` 事件类型，但 `RunToolCallStatus` 有 4 种终态：`completed/failed/timeout/rejected`）。
-2. 决定事件 `seq` 的来源：目前 `RunToolCall.eventSeq` 和 `RunEvent.seq` 是同一命名空间（Pi runtime `client.nextSeq()` 统一分配），需要确认 tool 事件复用 `eventSeq` 还是需要独立分配，避免和其他事件类型抢占 seq 造成冲突。
-
-需要新增的测试（CP-TOOL-005 归属 workflow 层，CP-SSE-005 归属 SSE 层，二者应在同一批改动里一起补齐）：
-
-- `ingest/routes.integration.test.ts`（或新增 workflow 测试）：ingest 一次 tool call `pending/running -> completed`，断言除 `RunToolCall` 行更新外，还产生了 `tool_call_started` 和 `tool_call_completed` 两条 `RunEvent`，且 `payload.toolCallId` 与 `RunToolCall.id` 一致。
-- `run/event-sse.integration.test.ts`：新增一条测试，seed 一个 `tool_call_started` + `tool_call_completed` 事件对（或改为通过真实 ingest 端点触发），断言 SSE snapshot/live 流里能看到这两个事件，且顺序在其他事件之间正确（依据 `EVENT_ORDER_GROUPS`）。
-- 可选：更新 `pi-runtime.workflow.test.ts` 的事件序列断言，加入 `tool_call_started`/`tool_call_completed`（针对 `write_file` 那次工具调用），验证真实链路而不仅是 ingest 层单元契约。
+- `POST /api/ingest/tool-calls` 在 `running` 创建/转移后写 `tool_call_started`，在 `completed` 后写 `tool_call_completed`，在 `failed`/`rejected`/`timeout` 后写 `tool_call_failed`。`rejected` 和 `timeout` 保留 `RunToolCall.status` 原值，同时在用户可见 timeline 上按失败类事件呈现。
+- `RunToolCall.eventSeq` 与 `RunEvent.seq` 共用同一个 run 内递增命名空间；调用方必须为 tool start、工具副作用事件（如 `file_written`/`artifact_created`/`source_recorded`）、tool terminal 分配不同 seq。为此同步更新了 Pi runtime adapter、sandbox script、旧 deterministic agent-loop 和 scripted fixture，避免 tool lifecycle event 与副作用事件抢占同一 seq。
+- `ingest/routes.integration.test.ts` 现在验证 `pending/running -> completed` 会产生 `tool_call_started`/`tool_call_completed`，验证 `failed`/`rejected` 会产生 `tool_call_failed`，并保留并发终态上报"只有一个赢家"的测试。
+- `run/event-sse.integration.test.ts` 新增 tool lifecycle snapshot 覆盖，确认 `tool_call_started`/`tool_call_completed` 会进入 SSE snapshot。
+- `sandbox/scripted-ingest-fixture.integration.test.ts` 更新 fixture 主路径断言，确认真实 ingest HTTP 路径下 run timeline 包含 tool lifecycle 事件。
 
 ### 4.4b CP-SSE-006 归属澄清
 
@@ -330,10 +320,10 @@ gap        已知缺口，需要新增或改测试
 Control Plane 进入下一部分前，必须完成：
 
 1. 把 `existing` case 映射到具体测试文件。—— 已完成，见 §4.3 各表「测试文件」列。
-2. 将 `CP-TOOL-005` 和 `CP-SSE-005` 从 `gap` 做到 `done`。—— 仍是 `gap`；缺口范围和最小新增测试计划见 §4.4a，尚未实现。
+2. 将 `CP-TOOL-005` 和 `CP-SSE-005` 从 `gap` 做到 `done`。—— 已完成，见 §4.4a。
 3. 将 `CP-SSE-006` 明确归属到 Redis Streaming 或 Control Plane，不允许两边都不负责。—— 已归属 Redis Streaming（Part 4），见 §4.4b；Control Plane 侧不再需要为它新增测试。
-4. `pnpm test`、`pnpm test:integration`、相关 `pnpm test:workflow` 全绿。—— 待跑（本轮只做映射，未改代码，预期不受影响）。
-5. 文档更新 `testing-case-catalog.md`，不能只在本文件标 done。—— 待做：需要把 `CP-TOOL-005`/`CP-SSE-005` 的缺口和 `CP-SSE-006` 的归属结论同步过去。
+4. `pnpm test`、`pnpm test:integration`、相关 `pnpm test:workflow` 全绿。—— 待最终验证。
+5. 文档更新 `testing-case-catalog.md`，不能只在本文件标 done。—— 已同步。
 
 ## 5. Part 2: Sandbox Substrate
 

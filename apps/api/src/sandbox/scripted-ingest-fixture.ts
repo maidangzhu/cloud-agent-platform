@@ -130,7 +130,10 @@ export async function runScriptedIngestFixture(
     });
   }
 
+  let nextSeq = 3;
+
   if (options.mode === "file-write") {
+    const fileEventSeq = nextSeq++;
     const fileResponse = await post("/api/ingest/files", {
       path: FIXTURE_FILE_PATH,
       kind: "text",
@@ -138,11 +141,11 @@ export async function runScriptedIngestFixture(
       size: byteLength(FIXTURE_FILE_CONTENT),
       contentHash: sha256(FIXTURE_FILE_CONTENT),
       content: FIXTURE_FILE_CONTENT,
-      eventSeq: 3,
+      eventSeq: fileEventSeq,
     });
     const file = (await fileResponse.json()).data.file;
     await post("/api/ingest/events", {
-      seq: 3,
+      seq: fileEventSeq,
       type: "file_written",
       payload: {
         fileId: file.id,
@@ -160,7 +163,7 @@ export async function runScriptedIngestFixture(
       kind: "text",
       contentSnapshot:
         options.artifactContent ?? "scripted ingest fixture artifact content\n",
-      eventSeq: 3,
+      eventSeq: nextSeq++,
     });
   }
 
@@ -170,7 +173,7 @@ export async function runScriptedIngestFixture(
       uri: options.sourceUri ?? "https://example.com",
       title: options.sourceTitle ?? "Example",
       ...(options.artifactId ? { artifactId: options.artifactId } : {}),
-      eventSeq: 3,
+      eventSeq: nextSeq++,
     });
   }
 
@@ -181,7 +184,7 @@ export async function runScriptedIngestFixture(
     const query = options.searchQuery ?? "redis streams";
     await post("/api/ingest/tool-calls", {
       id: searchToolCallId,
-      eventSeq: 3,
+      eventSeq: nextSeq++,
       name: "web_search",
       status: "running",
       args: { query, limit: 2 },
@@ -200,7 +203,7 @@ export async function runScriptedIngestFixture(
     });
     await post("/api/ingest/tool-calls", {
       id: searchToolCallId,
-      eventSeq: 3,
+      eventSeq: nextSeq++,
       name: "web_search",
       status: searchResult.status,
       args: { query, limit: 2 },
@@ -210,14 +213,15 @@ export async function runScriptedIngestFixture(
     });
   }
 
-  const terminalSeq = options.mode === "complete" ? 3 : 4;
+  const startedSeq = nextSeq++;
   await post("/api/ingest/tool-calls", {
     id: toolCallId,
-    eventSeq: terminalSeq,
+    eventSeq: startedSeq,
     name: "fake_tool",
     status: "running",
     args: { mode: options.mode },
   });
+  const terminalSeq = nextSeq++;
   await post("/api/ingest/tool-calls", {
     id: toolCallId,
     eventSeq: terminalSeq,
@@ -227,7 +231,7 @@ export async function runScriptedIngestFixture(
     result: { ok: true },
   });
   await post("/api/ingest/events", {
-    seq: terminalSeq + 1,
+    seq: nextSeq++,
     type: "run_completed",
     payload: { durationMs: 1 },
   });

@@ -174,6 +174,8 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(events.map((event) => event.type)).toEqual([
         "run_created",
         "agent_started",
+        "tool_call_started",
+        "tool_call_completed",
         "run_completed",
       ]);
 

@@ -385,7 +385,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         },
         body: JSON.stringify({
           id: "tool_completed_1",
-          eventSeq: 1,
+          eventSeq: 2,
           name: "fetch_url",
           status: "running",
           args: { url: "https://example.com" },
@@ -401,7 +401,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         },
         body: JSON.stringify({
           id: "tool_completed_1",
-          eventSeq: 1,
+          eventSeq: 3,
           name: "fetch_url",
           status: "completed",
           args: { url: "https://example.com" },
@@ -414,15 +414,36 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         where: { id: "tool_completed_1" },
       });
       expect(row?.status).toBe("completed");
+      expect(row?.eventSeq).toBe(2);
       expect(row?.result).toEqual({ title: "Example" });
       expect(row?.completedAt).toBeInstanceOf(Date);
+
+      const events = await prisma.runEvent.findMany({
+        where: { runId: run.id },
+        orderBy: { seq: "asc" },
+      });
+      expect(events.map((event) => event.type)).toEqual([
+        "tool_call_started",
+        "tool_call_completed",
+      ]);
+      expect(events.map((event) => event.seq)).toEqual([2, 3]);
+      expect(events[0]?.raw).toMatchObject({
+        toolCallId: "tool_completed_1",
+        name: "fetch_url",
+        args: { url: "https://example.com" },
+      });
+      expect(events[1]?.raw).toMatchObject({
+        toolCallId: "tool_completed_1",
+        name: "fetch_url",
+        result: { title: "Example" },
+      });
     });
 
     it("records running -> failed and running -> rejected distinctly", async () => {
       const run = await createRun("tool call failed rejected check");
       const token = tokenFor(run);
 
-      for (const id of ["tool_failed_1", "tool_rejected_1"]) {
+      for (const id of ["tool_failed_1"]) {
         const running = await app.request("/api/ingest/tool-calls", {
           method: "POST",
           headers: {
@@ -431,7 +452,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
           },
           body: JSON.stringify({
             id,
-            eventSeq: id === "tool_failed_1" ? 2 : 3,
+            eventSeq: 2,
             name: "fetch_url",
             status: "running",
             args: { url: "https://example.com" },
@@ -448,7 +469,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         },
         body: JSON.stringify({
           id: "tool_failed_1",
-          eventSeq: 2,
+          eventSeq: 3,
           name: "fetch_url",
           status: "failed",
           args: { url: "https://example.com" },
@@ -457,7 +478,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       });
       expect(failed.status).toBe(200);
 
-      const rejected = await app.request("/api/ingest/tool-calls", {
+      const rejectedRunning = await app.request("/api/ingest/tool-calls", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -465,15 +486,30 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         },
         body: JSON.stringify({
           id: "tool_rejected_1",
-          eventSeq: 3,
+          eventSeq: 4,
+          name: "fetch_url",
+          status: "running",
+          args: { url: "http://127.0.0.1" },
+        }),
+      });
+      expect(rejectedRunning.status).toBe(200);
+
+      const rejectedTerminal = await app.request("/api/ingest/tool-calls", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id: "tool_rejected_1",
+          eventSeq: 5,
           name: "fetch_url",
           status: "rejected",
           args: { url: "http://127.0.0.1" },
           error: "SSRF guard rejected private address",
         }),
       });
-      expect(rejected.status).toBe(200);
-
+      expect(rejectedTerminal.status).toBe(200);
       const rows = await prisma.runToolCall.findMany({
         where: { runId: run.id },
         orderBy: { eventSeq: "asc" },
@@ -483,11 +519,47 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         "network retries exhausted",
         "SSRF guard rejected private address",
       ]);
+
+      const events = await prisma.runEvent.findMany({
+        where: { runId: run.id },
+        orderBy: { seq: "asc" },
+      });
+      expect(events.map((event) => event.type)).toEqual([
+        "tool_call_started",
+        "tool_call_failed",
+        "tool_call_started",
+        "tool_call_failed",
+      ]);
+      expect(events.map((event) => event.seq)).toEqual([2, 3, 4, 5]);
+      expect(events[1]?.raw).toMatchObject({
+        toolCallId: "tool_failed_1",
+        error: "network retries exhausted",
+      });
+      expect(events[3]?.raw).toMatchObject({
+        toolCallId: "tool_rejected_1",
+        error: "SSRF guard rejected private address",
+      });
     });
 
     it("terminal tool call cannot later be completed", async () => {
       const run = await createRun("tool call terminal check");
       const token = tokenFor(run);
+
+      const running = await app.request("/api/ingest/tool-calls", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id: "tool_terminal_1",
+          eventSeq: 4,
+          name: "run_command",
+          status: "running",
+          args: { command: "rm -rf /" },
+        }),
+      });
+      expect(running.status).toBe(200);
 
       const rejected = await app.request("/api/ingest/tool-calls", {
         method: "POST",
@@ -497,7 +569,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         },
         body: JSON.stringify({
           id: "tool_terminal_1",
-          eventSeq: 4,
+          eventSeq: 5,
           name: "run_command",
           status: "rejected",
           args: { command: "rm -rf /" },
@@ -514,7 +586,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         },
         body: JSON.stringify({
           id: "tool_terminal_1",
-          eventSeq: 4,
+          eventSeq: 6,
           name: "run_command",
           status: "completed",
           args: { command: "rm -rf /" },
@@ -569,7 +641,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
           },
           body: JSON.stringify({
             id: "tool_concurrent_terminal_1",
-            eventSeq: 9,
+            eventSeq: 10,
             name: "run_command",
             status: "completed",
             args: { command: "echo hi" },
@@ -584,7 +656,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
           },
           body: JSON.stringify({
             id: "tool_concurrent_terminal_1",
-            eventSeq: 9,
+            eventSeq: 11,
             name: "run_command",
             status: "failed",
             args: { command: "echo hi" },
@@ -605,6 +677,15 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         where: { id: "tool_concurrent_terminal_1" },
       });
       expect(["completed", "failed"]).toContain(row?.status);
+
+      const events = await prisma.runEvent.findMany({
+        where: { runId: run.id },
+        orderBy: { seq: "asc" },
+      });
+      expect(events.map((event) => event.type)).toEqual([
+        "tool_call_started",
+        row?.status === "completed" ? "tool_call_completed" : "tool_call_failed",
+      ]);
     });
   },
 );

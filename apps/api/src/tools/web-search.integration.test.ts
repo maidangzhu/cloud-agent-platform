@@ -168,6 +168,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         },
         body: JSON.stringify({
           ...base,
+          eventSeq: 2,
           status: params.result.status,
           ...(params.result.status === "completed"
             ? { result: params.result.result }

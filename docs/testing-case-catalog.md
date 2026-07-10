@@ -141,7 +141,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | SBX-W-103 | workflow | sandbox script calls deployed search proxy | Deployed API/Vercel/Exa or fake | planned |
 | SBX-W-104 | workflow | cancel request stops sandbox runner | Deployed API/Vercel | done |
 | SBX-W-105 | workflow | waiting_for_input releases sandbox warm and Stage2 reuses it | Deployed API/Vercel | done |
-| SBX-W-106 | workflow | Pi runtime tool calls emit user-visible timeline/SSE start/completed/failed events | Deployed API/Vercel | planned |
+| SBX-W-106 | workflow | Pi runtime tool calls emit user-visible timeline/SSE start/completed/failed events | Deployed API/Vercel | partial |
 | SBX-W-107 | workflow | Pi runtime `run_command` failure/timeout/rejection maps to visible tool events and terminal policy | Deployed API/Vercel | planned |
 | SBX-L-101 | live | cold start duration and ready latency telemetry | Deployed API/Vercel | planned |
 | SBX-L-102 | live | snapshot/write-file stability before future snapshot migration | Vercel | planned |
@@ -161,14 +161,14 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | WF-008 | workflow | tool rejected by policy/SSRF creates rejected tool call | planned |
 | WF-009 | workflow | stale heartbeat sweep interrupts run | done |
 | WF-010 | workflow | deployed sandbox callback completes full run | planned |
-| WF-011 | workflow | tool call lifecycle is visible in timeline/SSE, not only run detail `toolCalls` | planned |
+| WF-011 | workflow | tool call lifecycle is visible in timeline/SSE, not only run detail `toolCalls` | done |
 | WF-012 | workflow | Pi runtime content/reasoning stream before final semantic event | planned（不受本次复核影响，见下方交叉引用第二条的区分说明） |
 
 ### 6.1 与 architecture-test-plan.md 的交叉引用
 
 [architecture-test-plan.md §4.3](./architecture-test-plan.md#43-control-plane-用例清单) 的 Control Plane 用例清单里，以下 case 已复核，结论如下：
 
-- `CP-TOOL-005`（tool lifecycle appears in SSE timeline）和 `CP-SSE-005`（tool call lifecycle merged into SSE timeline）目前是同一个缺口：`/api/ingest/tool-calls` 只写 `RunToolCall`，从未调用 `insertRunEvent` 写 `tool_call_started/completed/failed`，所以 SSE 没有东西可以透出。这正是本表 `WF-011` 的缺口来源，两者是同一件事，落地时应合并成一组测试，不要重复建两条 workflow case。
+- `CP-TOOL-005`（tool lifecycle appears in SSE timeline）和 `CP-SSE-005`（tool call lifecycle merged into SSE timeline）已在同一批改动中收敛：`/api/ingest/tool-calls` 会生产 `tool_call_started`/`tool_call_completed`/`tool_call_failed` RunEvent，`run/event-sse.integration.test.ts` 验证 SSE snapshot 可见，`ingest/routes.integration.test.ts` 和 `sandbox/scripted-ingest-fixture.integration.test.ts` 验证真实 ingest HTTP 路径会产生这些事件。因此本表 `WF-011` 标记为 done。`SBX-W-106` 仍标 partial，是因为 Deployed API + Vercel Sandbox 维度的 release gate 仍属于 Sandbox/Full Product Path 后续验收。
 - `CP-SSE-006`（content chunk arrives before final agent_message）验证的是"Redis stream chunk 先于语义 RunEvent 落库"这个协议机制本身，这个机制已经有自动化测试覆盖：`AGENT-W-002`（`agent-loop/agent-loop.workflow.test.ts`："streams LLM chunks to Redis before semantic events are persisted"）。但该测试跑的是旧的自写 agent-loop + fake LLM（`stream: true`），不是 Pi runtime 真实链路。**这不等于 `WF-012`/`LLM-W-106` 已完成**——Pi runtime 当前 LLM proxy 仍是 `stream:false`，一次性写 `agent_message`（见 `openspec/changes/hosted-hono-control-plane/tasks.md` 6.12、`v2-research-workspace-agent/tasks.md` 22.12），真实链路里根本没有 chunk 先于事件这件事发生。结论：机制层面（Redis/SSE 协议本身）的 `CP-SSE-006` 归属 Redis Streaming（architecture-test-plan.md Part 4）并标记 existing/done；但 Pi runtime 真实流式（`WF-012`/`LLM-W-106`/`LLM-W-107`）仍是 planned，留给 Pi runtime thinking/streaming 收敛阶段处理，不在本轮 Control Plane 范围内。
 
 ## 7. Live / Expensive Case Matrix

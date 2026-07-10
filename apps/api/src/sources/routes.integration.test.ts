@@ -29,7 +29,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
   () => {
     const app = createApp();
     const userEmail = `it-sources-${Date.now()}@example.com`;
+    const otherUserEmail = `it-sources-other-${Date.now()}@example.com`;
     let cookie = "";
+    let otherCookie = "";
     let workspaceId = "";
     let threadId = "";
     let runId = "";
@@ -75,7 +77,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
           where: { id: { in: workspaceIds } },
         });
       }
-      await prisma.user.deleteMany({ where: { email: userEmail } });
+      await prisma.user.deleteMany({
+        where: { email: { in: [userEmail, otherUserEmail] } },
+      });
       await prisma.$disconnect();
     });
 
@@ -95,6 +99,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
 
     it("准备：注册用户，建 workspace + thread + run + artifact", async () => {
       cookie = await signUpAndGetCookie(app, userEmail);
+      otherCookie = await signUpAndGetCookie(app, otherUserEmail);
 
       const wsRes = await app.request("/api/workspaces", {
         method: "POST",
@@ -203,6 +208,21 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(body.data.sources.map((s: { id: string }) => s.id)).toContain(
         sourceId,
       );
+    });
+
+    it("rejects another user's source list access", async () => {
+      const workspaceRes = await app.request(
+        `/api/workspaces/${workspaceId}/sources`,
+        { headers: { cookie: otherCookie } },
+      );
+      expect(workspaceRes.status).toBe(403);
+      expect((await workspaceRes.json()).code).toBe(1003);
+
+      const runRes = await app.request(`/api/runs/${runId}/sources`, {
+        headers: { cookie: otherCookie },
+      });
+      expect(runRes.status).toBe(403);
+      expect((await runRes.json()).code).toBe(1003);
     });
 
     it("artifact detail includes referencing sources", async () => {

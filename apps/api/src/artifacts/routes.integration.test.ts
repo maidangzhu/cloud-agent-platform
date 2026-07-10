@@ -360,6 +360,28 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(body.code).toBe(1003);
     });
 
+    it("user A cannot list, version, or download user B's artifacts", async () => {
+      const listRes = await app.request(`/api/workspaces/${workspaceId}/artifacts`, {
+        headers: { cookie: otherCookie },
+      });
+      expect(listRes.status).toBe(403);
+      expect((await listRes.json()).code).toBe(1003);
+
+      const versionsRes = await app.request(
+        `/api/artifacts/${createdArtifactId}/versions`,
+        { headers: { cookie: otherCookie } },
+      );
+      expect(versionsRes.status).toBe(403);
+      expect((await versionsRes.json()).code).toBe(1003);
+
+      const downloadRes = await app.request(
+        `/api/artifacts/${createdArtifactId}/download`,
+        { headers: { cookie: otherCookie } },
+      );
+      expect(downloadRes.status).toBe(403);
+      expect((await downloadRes.json()).code).toBe(1003);
+    });
+
     // 复核 Control Plane 时的怀疑：createFirstArtifact 用调用方传入的
     // artifactId 当主键 create()，/api/ingest/artifacts 路由里
     // "existing = findUnique(...)；existing ? update : create" 这段判断

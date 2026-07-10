@@ -141,7 +141,7 @@ describe("Pi runtime Control Plane adapters", () => {
     });
     expect(calls[2].body).toMatchObject({
       id: "tool_search_1",
-      eventSeq: 1,
+      eventSeq: 3,
       status: "completed",
     });
   });
@@ -207,9 +207,13 @@ describe("Pi runtime Control Plane adapters", () => {
         content: "hello",
       });
       expect(calls[2].body).toMatchObject({
-        seq: 1,
+        seq: 2,
         type: "file_written",
         payload: { fileId: "file_1", path: "reports/a.md" },
+      });
+      expect(calls[3].body).toMatchObject({
+        eventSeq: 3,
+        status: "completed",
       });
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -303,7 +307,7 @@ describe("Pi runtime Control Plane adapters", () => {
     expect(result?.terminate).toBe(true);
     expect(calls[1].url).toBe(`${config.ingestUrl}/artifacts`);
     expect(calls[1].body).toMatchObject({
-      eventSeq: 1,
+      eventSeq: 2,
       title: "Report",
       kind: "text",
       path: "reports/a.md",

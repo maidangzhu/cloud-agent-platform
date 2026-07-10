@@ -92,19 +92,19 @@ async function postToolCall(input) {
 }
 
 async function runTrackedTool(toolCallId, name, args, run) {
-  const eventSeq = seq++;
+  const startedEventSeq = seq++;
   await postToolCall({
     id: toolCallId,
-    eventSeq,
+    eventSeq: startedEventSeq,
     name,
     status: "running",
     args,
   });
   try {
-    const result = await run(eventSeq);
+    const result = await run(seq++);
     await postToolCall({
       id: toolCallId,
-      eventSeq,
+      eventSeq: seq++,
       name,
       status: "completed",
       args,
@@ -115,7 +115,7 @@ async function runTrackedTool(toolCallId, name, args, run) {
   } catch (error) {
     await postToolCall({
       id: toolCallId,
-      eventSeq,
+      eventSeq: seq++,
       name,
       status: "failed",
       args,

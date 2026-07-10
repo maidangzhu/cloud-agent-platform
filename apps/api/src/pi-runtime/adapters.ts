@@ -418,19 +418,19 @@ async function runTrackedTool<TDetails>(
     run: (eventSeq: number) => Promise<AgentToolResult<TDetails>>;
   },
 ): Promise<AgentToolResult<TDetails>> {
-  const eventSeq = client.nextSeq();
+  const startedEventSeq = client.nextSeq();
   await client.postToolCall({
     id: input.toolCallId,
-    eventSeq,
+    eventSeq: startedEventSeq,
     name: input.name,
     status: "running",
     args: input.args,
   });
   try {
-    const result = await input.run(eventSeq);
+    const result = await input.run(client.nextSeq());
     await client.postToolCall({
       id: input.toolCallId,
-      eventSeq,
+      eventSeq: client.nextSeq(),
       name: input.name,
       status: "completed",
       args: input.args,
@@ -442,7 +442,7 @@ async function runTrackedTool<TDetails>(
     const error = err instanceof Error ? err.message : String(err);
     await client.postToolCall({
       id: input.toolCallId,
-      eventSeq,
+      eventSeq: client.nextSeq(),
       name: input.name,
       status: "failed",
       args: input.args,

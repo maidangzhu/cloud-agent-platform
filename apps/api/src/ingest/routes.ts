@@ -232,6 +232,9 @@ ingestRoutes.post("/api/ingest/tool-calls", async (c) => {
     const updateResult = await prisma.runToolCall.updateMany({
       where: { id: existing.id, status: existing.status },
       data: {
+        ...(existing.status === "pending" && parsed.input.status === "running"
+          ? { eventSeq: parsed.input.eventSeq }
+          : {}),
         status: parsed.input.status,
         result: parsed.input.result as Prisma.InputJsonValue | undefined,
         error: parsed.input.error ?? null,
@@ -249,6 +252,22 @@ ingestRoutes.post("/api/ingest/tool-calls", async (c) => {
     const updated = await prisma.runToolCall.findUniqueOrThrow({
       where: { id: existing.id },
     });
+    const eventInput = toolCallRunEventInput(run.id, parsed.input.eventSeq, updated);
+    if (eventInput) {
+      const eventResult = await insertRunEvent(eventInput);
+      if (eventResult.ok === false) {
+        if (eventResult.code === INGEST_SEQ_CONFLICT) {
+          return c.json(
+            { code: 2004, message: eventResult.message, data: null },
+            409,
+          );
+        }
+        return c.json(
+          { code: 1006, message: eventResult.message, data: null },
+          400,
+        );
+      }
+    }
     return c.json({ code: 0, message: "ok", data: { toolCall: updated } });
   }
 
@@ -274,6 +293,23 @@ ingestRoutes.post("/api/ingest/tool-calls", async (c) => {
       completedAt: parsed.input.completedAt,
     },
   });
+
+  const eventInput = toolCallRunEventInput(run.id, parsed.input.eventSeq, created);
+  if (eventInput) {
+    const eventResult = await insertRunEvent(eventInput);
+    if (eventResult.ok === false) {
+      if (eventResult.code === INGEST_SEQ_CONFLICT) {
+        return c.json(
+          { code: 2004, message: eventResult.message, data: null },
+          409,
+        );
+      }
+      return c.json(
+        { code: 1006, message: eventResult.message, data: null },
+        400,
+      );
+    }
+  }
 
   return c.json({ code: 0, message: "ok", data: { toolCall: created } });
 });
@@ -637,6 +673,66 @@ function getArtifactId(payload: unknown): string | null {
     return null;
   }
   return payload.artifactId;
+}
+
+function toolCallRunEventInput(
+  runId: string,
+  seq: number,
+  row: {
+    id: string;
+    name: string;
+    status: RunToolCallStatus;
+    args: unknown;
+    result: unknown;
+    error: string | null;
+    startedAt: Date;
+    completedAt: Date | null;
+  },
+): RunEventInput<"tool_call_started" | "tool_call_completed" | "tool_call_failed"> | null {
+  if (row.status === "pending") return null;
+  if (row.status === "running") {
+    return {
+      runId,
+      seq,
+      type: "tool_call_started",
+      payload: {
+        toolCallId: row.id,
+        name: row.name,
+        args: row.args,
+      },
+    };
+  }
+
+  const durationMs =
+    row.completedAt && row.completedAt.getTime() >= row.startedAt.getTime()
+      ? row.completedAt.getTime() - row.startedAt.getTime()
+      : undefined;
+
+  if (row.status === "completed") {
+    return {
+      runId,
+      seq,
+      type: "tool_call_completed",
+      payload: {
+        toolCallId: row.id,
+        name: row.name,
+        result: row.result,
+        ...(durationMs !== undefined ? { durationMs } : {}),
+      },
+    };
+  }
+
+  return {
+    runId,
+    seq,
+    type: "tool_call_failed",
+    payload: {
+      toolCallId: row.id,
+      name: row.name,
+      error: row.error ?? `${row.status} tool call failed`,
+      ...(durationMs !== undefined ? { durationMs } : {}),
+    },
+  };
 }
 
 type ParsedToolCallBody =
