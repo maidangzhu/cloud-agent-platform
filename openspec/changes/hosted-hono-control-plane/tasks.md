@@ -62,3 +62,6 @@
 - [x] 6.7 LLM Proxy 在 hosted Control Plane 边界将 Pi-style tools 归一成 OpenAI function tools，`write_file` 成功后立即通过 ingest 提升 artifact 并 terminate，后续同批 `create_artifact` 幂等跳过重复 ingest，artifact kind 收窄到 `text|code|sheet|image`，避免真实 provider 只写文件后 loop 不收敛（provider + pi-runtime test、`@cap/api` typecheck 通过）
 - [x] 6.8 部署新版 API 后跑公网 production E2E，确认真实 provider/Pi runtime artifact fallback 触发 tools，且 files/artifacts 通过 hosted API 可读（`CAP_API_BASE_URL=https://api.sandbox.maidang.me pnpm --dir apps/api test:live`：7/7 passed，2026-07-08）
 - [x] 6.9 补齐 hosted Pi runtime sandbox 基础工具面：`read_file`、`write_file`、`list_directory`/`list_files`、`run_command`；`write_file` 同步写 sandbox 磁盘和 hosted ingest，`run_command` 在 workspace cwd 内执行 bash 并带 denylist、timeout、输出截断，不注入 DB/Auth/provider secrets
+- [ ] 6.10 见 `openspec/changes/v2-research-workspace-agent/tasks.md` 22.10（工具 timeline/SSE，同一件事，只在那份文件追踪进度，避免两处打勾不同步）
+- [ ] 6.11 见 `openspec/changes/v2-research-workspace-agent/tasks.md` 22.11（Pi runtime thinking/reasoning，同上）
+- [ ] 6.12 见 `openspec/changes/v2-research-workspace-agent/tasks.md` 22.12（Pi runtime LLM proxy 真流式，同上）

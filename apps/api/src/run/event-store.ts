@@ -338,7 +338,13 @@ export async function insertRunEvent(
     where: { runId: input.runId },
     _max: { seq: true },
   });
-  if (maxSeq._max.seq !== null && input.seq <= maxSeq._max.seq) {
+  // 只拒绝严格小于当前 max 的回填（真正的乱序插入，例如已有 seq=1,3 又
+  // 想插 seq=2）。刻意不用 <=：如果 input.seq 正好等于 maxSeq，唯一的
+  // 可能是另一个并发请求刚把这个 seq 插进去——这种情况不该在这里提前
+  // 拒绝，应该放给下面的 create() 去闯真实的数据库唯一约束，由 catch
+  // 分支基于内容判断是幂等重试还是真冲突（否则一次合法的同内容并发重
+  // 试会被这里误判成 INGEST_SEQ_CONFLICT，见并发测试）。
+  if (maxSeq._max.seq !== null && input.seq < maxSeq._max.seq) {
     return {
       ok: false,
       code: INGEST_SEQ_CONFLICT,
@@ -431,12 +437,16 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function isUniqueConstraintError(
+export function isUniqueConstraintError(
   error: unknown,
-): error is { code: "P2002" } {
+): error is Prisma.PrismaClientKnownRequestError & { code: "P2002" } {
+  // 之前这里用 isPlainObject 判断，但真实的 Prisma 错误是
+  // PrismaClientKnownRequestError 的类实例（继承自 Error），原型链
+  // 上永远不是 Object.prototype，isPlainObject 对它恒为 false——这个
+  // 分支实际上从未真正捕获过 P2002，并发写入撞唯一约束时会直接把异常
+  // 抛出到调用方（见并发测试）。改成用 instanceof 判断真实的错误类型。
   return (
-    isPlainObject(error) &&
-    typeof error.code === "string" &&
+    error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2002"
   );
 }

@@ -5,6 +5,7 @@ import {
   VALIDATION_FAILED,
   insertRunEvent,
   isRunEventType,
+  isUniqueConstraintError,
   type RunEventInput,
 } from "../run/event-store.js";
 import { extractBearerRunToken, verifyRunToken } from "../run/run-token.js";
@@ -217,14 +218,36 @@ ingestRoutes.post("/api/ingest/tool-calls", async (c) => {
       );
     }
 
-    const updated = await prisma.runToolCall.update({
-      where: { id: existing.id },
+    // 条件 UPDATE（同 transitionRun 的思路，ADR-0018）：where 里带上
+    // "当前状态必须还是我们刚读到的 existing.status"，而不是只靠 id。
+    // 之前这里是无条件 update({ where: { id } })——两个并发终态上报（比如
+    // running -> completed 和 running -> failed）各自读到的 existing.status
+    // 都还是 running，都通过上面的合法性检查，但写入没有任何互斥，最终是
+    // "最后提交的那次覆盖前一次"，且两边都返回 200，调用方完全看不出发生
+    // 过竞态。改成条件 UPDATE 后，只有第一个真正落盘的请求会生效，晚到的
+    // 请求会因为 status 已经不是它读到的那个值而影响 0 行，按下面的逻辑
+    // 统一当成"非法转移"处理（409），行为对齐 transitionRun 的"只有一个
+    // 赢、另一个安静地不生效"，但这里对外仍返回明确的错误而不是静默 no-op，
+    // 因为 ingest 调用方需要知道这次上报没有被采纳。
+    const updateResult = await prisma.runToolCall.updateMany({
+      where: { id: existing.id, status: existing.status },
       data: {
         status: parsed.input.status,
         result: parsed.input.result as Prisma.InputJsonValue | undefined,
         error: parsed.input.error ?? null,
         completedAt: parsed.input.completedAt,
       },
+    });
+
+    if (updateResult.count === 0) {
+      return c.json(
+        { code: 2005, message: "invalid tool call transition", data: null },
+        409,
+      );
+    }
+
+    const updated = await prisma.runToolCall.findUniqueOrThrow({
+      where: { id: existing.id },
     });
     return c.json({ code: 0, message: "ok", data: { toolCall: updated } });
   }
@@ -333,20 +356,48 @@ ingestRoutes.post("/api/ingest/artifacts", async (c) => {
     return c.json({ code: 1006, message: resolved.message, data: null }, 400);
   }
 
-  const artifact = existing
-    ? await updateArtifactVersion({
-        artifactId: existing.id,
-        workspaceId: run.workspaceId,
-        threadId: run.threadId,
-        runId: run.id,
-        input: resolved.input,
-      })
-    : await createFirstArtifact({
+  let artifact;
+  if (existing) {
+    artifact = await updateArtifactVersion({
+      artifactId: existing.id,
+      workspaceId: run.workspaceId,
+      threadId: run.threadId,
+      runId: run.id,
+      input: resolved.input,
+    });
+  } else {
+    // createFirstArtifact 用调用方传入的 artifactId（Pi runtime 的
+    // create_artifact 工具可以自带 artifactId）当主键 create()。当前产品
+    // 配置下 Pi runtime 工具调用是严格串行的（toolExecution: "sequential"，
+    // 见 pi-runtime/agent.ts），且 control-plane-client 没有自动重试，所以
+    // 目前没有已知的活跃触发路径能让两个请求带着同一个 artifactId 并发
+    // 走到这里；但这段代码本身没有防御，一旦以后打开并行工具执行、或者
+    // 客户端加了重试、或者别的调用方直接打这个 ingest 端点，两个并发请求
+    // 都会读到 existing === null、都执行 create()，第二个会撞
+    // WorkspaceArtifact 的主键唯一约束（P2002）并直接抛出未处理异常。这里
+    // 提前捕获它，返回跟 tool-call/transitionRun 一致的语义：这次请求输给
+    // 了并发的另一方，不是一个真正的失败，调用方应该改用 update 路径重试。
+    try {
+      artifact = await createFirstArtifact({
         workspaceId: run.workspaceId,
         threadId: run.threadId,
         runId: run.id,
         input: resolved.input,
       });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        return c.json(
+          {
+            code: 2005,
+            message: "artifact already created by a concurrent request",
+            data: null,
+          },
+          409,
+        );
+      }
+      throw error;
+    }
+  }
 
   if (resolved.input.eventSeq !== undefined) {
     const eventResult = await insertRunEvent({

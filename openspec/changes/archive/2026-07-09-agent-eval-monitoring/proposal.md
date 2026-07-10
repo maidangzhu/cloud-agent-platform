@@ -1,5 +1,7 @@
 # Proposal — Agent Eval & Monitoring System
 
+> **归档状态：abandoned（未实现，非完成）。** 2026-07-09 归档时 tasks.md 全部 77 项仍是 `[ ]`，`scripts/eval/` 目录未创建，也从未补齐 `specs/` delta（这正是它卡住 `openspec validate --all` 的原因）。归档只是为了让全量 validate 恢复干净，不代表这个提案已经做完或被否决。如果之后要做 eval/monitoring，应该重新评估这份 proposal 是否仍适用（现在的 Run/RunEvent/RunToolCall 数据模型已经和写这份提案时不完全一样），而不是直接从这里的 tasks.md 接着做。
+
 ## 背景
 
 当前平台已完成 MVP 核心功能，但缺乏对 Agent 执行质量和系统健康度的量化评估。线上出现了"Run 执行到一半卡住、SSE 不再输出也不结束"的问题，需要：

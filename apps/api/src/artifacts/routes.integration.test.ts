@@ -359,5 +359,47 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       const body = await res.json();
       expect(body.code).toBe(1003);
     });
+
+    // 复核 Control Plane 时的怀疑：createFirstArtifact 用调用方传入的
+    // artifactId 当主键 create()，/api/ingest/artifacts 路由里
+    // "existing = findUnique(...)；existing ? update : create" 这段判断
+    // 不在任何事务或条件 UPDATE 里保护——如果两个并发请求带着同一个
+    // client-supplied artifactId 都读到 existing === null，两边都会走
+    // create()，其中一个会撞 WorkspaceArtifact 主键唯一约束。当前产品
+    // 配置下（Pi runtime 工具串行执行、无客户端重试）这个场景没有已知的
+    // 活跃触发路径，但代码本身没有防御；这条测试直接绕过 Pi runtime，
+    // 用 Promise.all 强制制造这个并发场景，验证路由能不能优雅处理，而不是
+    // 让异常穿透成未处理的 500。
+    it("concurrent create with the same client-supplied artifactId: exactly one create succeeds, the other reports a clear conflict instead of crashing", async () => {
+      const run = await createRun("artifact concurrent create check");
+      const artifactId = `concurrent-artifact-${run.id}`;
+
+      const [first, second] = await Promise.all([
+        ingestArtifact(run, {
+          artifactId,
+          title: "Concurrent Report A",
+          kind: "text",
+          contentSnapshot: "version from request A",
+          eventSeq: 1,
+        }),
+        ingestArtifact(run, {
+          artifactId,
+          title: "Concurrent Report B",
+          kind: "text",
+          contentSnapshot: "version from request B",
+          eventSeq: 2,
+        }),
+      ]);
+
+      const statuses = [first.status, second.status].sort();
+      // 恰好一个 200（真正创建成功），另一个必须是明确的冲突响应
+      // （409/2005），不能是 500 或者未处理异常导致的连接中断。
+      expect(statuses).toEqual([200, 409]);
+
+      const rows = await prisma.workspaceArtifact.findMany({
+        where: { id: artifactId },
+      });
+      expect(rows).toHaveLength(1);
+    });
   },
 );

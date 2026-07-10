@@ -148,3 +148,11 @@
 - [x] 22.7 LLM Proxy 防腐层将 Pi-style tools 归一成 OpenAI function tools，`write_file` 成功后立即通过 ingest 提升 artifact 并 terminate，后续同批 `create_artifact` 幂等跳过重复 ingest，artifact kind 收窄到 `text|code|sheet|image`，避免真实 provider 只写文件后 loop 不收敛（`@cap/api` provider + pi-runtime test、typecheck 通过）
 - [x] 22.8 部署新版 API 后跑公网 production E2E：`https://api.sandbox.maidang.me` 创建 run → 真实 Vercel Sandbox 内 Pi runtime → 真实 provider tool calls/runtime artifact fallback → ingest 写 `RunEvent`/`RunToolCall`/`WorkspaceFile`/`WorkspaceArtifact`，并从公网 API 读回验证（`CAP_API_BASE_URL=https://api.sandbox.maidang.me pnpm --dir apps/api test:live`：7/7 passed，2026-07-08）
 - [x] 22.9 补齐 Pi runtime sandbox 基础工具面：`read_file`、`write_file`、`list_directory`/`list_files`、`run_command`；`write_file` 同步写 sandbox 磁盘和 hosted ingest，`run_command` 在 workspace cwd 内执行 bash 并带 denylist、timeout、输出截断，不注入 DB/Auth/provider secrets
+- [ ] 22.10 将 `RunToolCall` 变化投递进统一 timeline/SSE：工具 start/completed/failed/rejected/timeout 必须作为用户可见事件出现，不能只存在 `GET /api/runs/:runId` 的 `toolCalls` 数组里
+- [ ] 22.11 打开并验证 Pi runtime thinking/reasoning：去掉当前 `thinkingLevel: "off"` 的硬编码，明确 thinking 配置来源，并把 reasoning chunk 通过 Redis stream/SSE 以 `streamType=thinking` 输出
+- [ ] 22.12 将 Pi runtime LLM proxy 改为真正 streaming：不再 `stream:false` 后一次性写 `agent_message`，而是逐 chunk 写 `/api/ingest/stream-chunk`，最终只落稳定语义事件
+
+## 23. 架构分层测试收敛
+
+- [x] 23.1 新增 `docs/architecture-test-plan.md`，定义 Control Plane / Sandbox / Runtime Tools / Redis Streaming / Workspace Mapping / Full Product Path 的逐层测试顺序，并先展开 Part 1 Control Plane 的测试方法和用例清单
+- [ ] 23.2 复核 Part 1 Control Plane 现有 `existing` case 到具体测试文件的映射，补齐 `CP-TOOL-005` / `CP-SSE-005` / `CP-SSE-006`（映射已完成，见 `docs/architecture-test-plan.md` §4.3/§4.4a/§4.4b；`CP-SSE-006` 已归属 Redis Streaming 并确认机制层面 existing，`CP-TOOL-005`/`CP-SSE-005` 仍是待实现的 gap，尚未写代码/新测试）

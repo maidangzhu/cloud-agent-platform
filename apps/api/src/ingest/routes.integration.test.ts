@@ -529,5 +529,82 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(row?.status).toBe("rejected");
       expect(row?.result).toBeNull();
     });
+
+    // 复核 Control Plane 状态机时的怀疑：/api/ingest/tool-calls 的
+    // existing -> update 分支只在 where 里带了 { id }，没有像
+    // transitionRun 那样带上"当前状态必须还是 existing.status"的条件
+    // （见 apps/api/src/ingest/routes.ts 的 isLegalToolCallTransition 之后
+    // 那次 prisma.runToolCall.update 调用）。这条测试模拟两个并发终态上报
+    // 打到同一个 running 状态的 tool call：running -> completed 和
+    // running -> failed 各自校验时都读到 existing.status === "running"，
+    // 都通过 isLegalToolCallTransition 检查，如果 update 没有条件锁，两次
+    // 都会无条件写入，最终结果就是"最后提交的那次覆盖前一次"，而不是
+    // transitionRun 那种"只有一个生效、另一个安静地不生效"。
+    it("concurrent terminal reports on the same running tool call: last write wins instead of exactly one applying", async () => {
+      const run = await createRun("tool call concurrent terminal check");
+      const token = tokenFor(run);
+
+      const pending = await app.request("/api/ingest/tool-calls", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id: "tool_concurrent_terminal_1",
+          eventSeq: 9,
+          name: "run_command",
+          status: "running",
+          args: { command: "echo hi" },
+        }),
+      });
+      expect(pending.status).toBe(200);
+
+      const [completedRes, failedRes] = await Promise.all([
+        app.request("/api/ingest/tool-calls", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            id: "tool_concurrent_terminal_1",
+            eventSeq: 9,
+            name: "run_command",
+            status: "completed",
+            args: { command: "echo hi" },
+            result: { exitCode: 0 },
+          }),
+        }),
+        app.request("/api/ingest/tool-calls", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            id: "tool_concurrent_terminal_1",
+            eventSeq: 9,
+            name: "run_command",
+            status: "failed",
+            args: { command: "echo hi" },
+            error: "network retries exhausted",
+          }),
+        }),
+      ]);
+
+      // 条件 UPDATE 修复后：恰好一个 200（先落盘的那个），另一个 409
+      // （它到达时 existing.status 已经不是它读到的那个值了）。修复前
+      // 这里两次都是 200——这条测试当时就是用来证实这个并发漏洞真实存在，
+      // 不是理论推测（见 ingest/routes.ts 里 runToolCall updateMany 的
+      // 注释）。
+      const statuses = [completedRes.status, failedRes.status].sort();
+      expect(statuses).toEqual([200, 409]);
+
+      const row = await prisma.runToolCall.findUnique({
+        where: { id: "tool_concurrent_terminal_1" },
+      });
+      expect(["completed", "failed"]).toContain(row?.status);
+    });
   },
 );

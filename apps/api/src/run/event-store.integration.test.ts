@@ -121,5 +121,77 @@ describe.skipIf(!HAS_DB)(
         code: INGEST_SEQ_CONFLICT,
       });
     });
+
+    // 与 transition-run.integration.test.ts 里"两个并发 transitionRun 只
+    // 有一个生效"是同一类问题，但走的是不同的原子化机制：insertRunEvent
+    // 内部先查 max seq 再 create，不是一条条件 UPDATE；真正兜底并发写入
+    // 同一个 (runId, seq) 的，是 RunEvent 表的 @@unique([runId, seq]) 约束
+    // + create 失败后的 P2002 catch 重新判断幂等/冲突（event-store.ts
+    // 370-383 行）。这条分支此前从未被真正的并发调用触发过，只有串行调用
+    // 两次的测试覆盖了逻辑本身，没覆盖两次几乎同时打到数据库的情况。
+    it("concurrent insertRunEvent with same seq + same payload: exactly one row, both calls report ok", async () => {
+      const run = await createTestRun();
+      const event = {
+        runId: run.id,
+        seq: 1,
+        type: "agent_message" as const,
+        content: "Concurrent",
+        payload: { messageId: "msg_concurrent" },
+      };
+
+      const [first, second] = await Promise.all([
+        insertRunEvent(event),
+        insertRunEvent(event),
+      ]);
+
+      // 两次调用都必须成功（这就是幂等的意义：并发重试不应该让任何一方
+      // 看到失败），且恰好一次是真正插入（idempotent:false），另一次命中
+      // P2002 catch 后判定为幂等重试（idempotent:true）。
+      expect(first.ok).toBe(true);
+      expect(second.ok).toBe(true);
+      const idempotentFlags = [first, second]
+        .filter((result): result is Extract<typeof result, { ok: true }> => result.ok)
+        .map((result) => result.idempotent);
+      expect(idempotentFlags.sort()).toEqual([false, true]);
+
+      const rows = await prisma.runEvent.findMany({
+        where: { runId: run.id, seq: 1 },
+      });
+      expect(rows).toHaveLength(1);
+    });
+
+    it("concurrent insertRunEvent with same seq + different payload: exactly one succeeds, the other is INGEST_SEQ_CONFLICT", async () => {
+      const run = await createTestRun();
+
+      const [first, second] = await Promise.all([
+        insertRunEvent({
+          runId: run.id,
+          seq: 1,
+          type: "agent_message",
+          content: "Branch A",
+          payload: { messageId: "msg_a" },
+        }),
+        insertRunEvent({
+          runId: run.id,
+          seq: 1,
+          type: "agent_message",
+          content: "Branch B",
+          payload: { messageId: "msg_b" },
+        }),
+      ]);
+
+      const results = [first, second];
+      const succeeded = results.filter((result) => result.ok === true);
+      const conflicted = results.filter(
+        (result) => result.ok === false && result.code === INGEST_SEQ_CONFLICT,
+      );
+      expect(succeeded).toHaveLength(1);
+      expect(conflicted).toHaveLength(1);
+
+      const rows = await prisma.runEvent.findMany({
+        where: { runId: run.id, seq: 1 },
+      });
+      expect(rows).toHaveLength(1);
+    });
   },
 );
