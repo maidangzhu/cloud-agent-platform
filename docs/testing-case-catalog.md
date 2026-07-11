@@ -134,15 +134,15 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | SBX-I-107 | integration | no DB/Auth/LLM/Search secrets inside sandbox | Vercel | done |
 | SBX-I-108 | integration | write agent loop script and manifest into sandbox | Vercel | done |
 | SBX-I-109 | integration | exec timeout maps to sandbox timeout error | Vercel | done |
-| SBX-I-110 | integration | stdout/stderr truncation works | Vercel | planned |
-| SBX-I-111 | integration | path traversal rejected by sandbox wrapper | none/Vercel | planned |
+| SBX-I-110 | integration | stdout/stderr truncation works | Vercel | partial（本地已补 captured stdout/stderr 截断回归测试；真实 Vercel exec gate 待跑） |
+| SBX-I-111 | integration | path traversal rejected by sandbox wrapper | none/Vercel | done（path-guard + VercelSandbox wrapper 单测覆盖，拒绝发生在 SDK 调用前） |
 | SBX-W-101 | workflow | sandbox script calls deployed ingest and completes run | Deployed API/Vercel | partial |
 | SBX-W-102 | workflow | sandbox script calls deployed LLM proxy and stream-chunk | Deployed API/Vercel/Redis | planned |
 | SBX-W-103 | workflow | sandbox script calls deployed search proxy | Deployed API/Vercel/Exa or fake | planned |
 | SBX-W-104 | workflow | cancel request stops sandbox runner | Deployed API/Vercel | done |
 | SBX-W-105 | workflow | waiting_for_input releases sandbox warm and Stage2 reuses it | Deployed API/Vercel | done |
-| SBX-W-106 | workflow | Pi runtime tool calls emit user-visible timeline/SSE start/completed/failed events | Deployed API/Vercel | partial |
-| SBX-W-107 | workflow | Pi runtime `run_command` failure/timeout/rejection maps to visible tool events and terminal policy | Deployed API/Vercel | planned |
+| SBX-W-106 | workflow | Pi runtime tool calls emit user-visible timeline/SSE start/completed/failed events | Deployed API/Vercel | partial（本地已补 sandbox runner 脚本 seq 回归测试；Deployed API + Vercel gate 仍需具备公网 base URL 后跑） |
+| SBX-W-107 | workflow | Pi runtime `run_command` failure/timeout/rejection maps to visible tool events and terminal policy | Deployed API/Vercel | partial（component 已锁定 terminal policy：非零 exit/timeout 作为 completed terminal result，policy rejection 作为 failed tool call；Deployed API + Vercel gate 待跑） |
 | SBX-L-101 | live | cold start duration and ready latency telemetry | Deployed API/Vercel | planned |
 | SBX-L-102 | live | snapshot/write-file stability before future snapshot migration | Vercel | planned |
 | SBX-L-103 | live | dangerous command/path/network attempts are contained | Vercel | planned |

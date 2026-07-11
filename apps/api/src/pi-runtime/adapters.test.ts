@@ -277,6 +277,152 @@ describe("Pi runtime Control Plane adapters", () => {
     }
   });
 
+  it("records run_command non-zero exit as completed terminal output", async () => {
+    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "cap-pi-tools-"));
+    const { calls, transport } = recordingTransport((url) => {
+      if (url.endsWith("/api/ingest/tool-calls")) return ok({ toolCall: {} });
+      return error(404, "unexpected path");
+    });
+    const client = new PiRuntimeControlPlaneClient({
+      config: buildPiRuntimeStartConfig({
+        apiBaseUrl: "https://api.sandbox.maidang.me",
+        runToken: "run-token",
+        workspaceRoot,
+        run: {
+          id: "run_1",
+          workspaceId: "workspace_1",
+          threadId: "thread_1",
+          userId: "user_1",
+          prompt: "Research adapter behavior",
+          maxDurationSec: 120,
+        },
+      }),
+      transport,
+    });
+    const tool = createPiRuntimeAdapterTools(client).find(
+      (item) => item.name === "run_command",
+    );
+
+    try {
+      const result = await tool?.execute("tool_run_fail_1", {
+        command: "echo nope >&2; exit 7",
+        timeoutMs: 5000,
+      });
+
+      expect(result?.details).toMatchObject({
+        exitCode: 7,
+        stderr: "nope\n",
+        timedOut: false,
+      });
+      expect(calls.map((call) => call.body.status)).toEqual([
+        "running",
+        "completed",
+      ]);
+      expect(calls[1].body).toMatchObject({
+        id: "tool_run_fail_1",
+        eventSeq: 3,
+        status: "completed",
+      });
+      expect(JSON.stringify(calls[1].body.result)).toContain('"exitCode":7');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("records run_command timeout as completed terminal output", async () => {
+    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "cap-pi-tools-"));
+    const { calls, transport } = recordingTransport((url) => {
+      if (url.endsWith("/api/ingest/tool-calls")) return ok({ toolCall: {} });
+      return error(404, "unexpected path");
+    });
+    const client = new PiRuntimeControlPlaneClient({
+      config: buildPiRuntimeStartConfig({
+        apiBaseUrl: "https://api.sandbox.maidang.me",
+        runToken: "run-token",
+        workspaceRoot,
+        run: {
+          id: "run_1",
+          workspaceId: "workspace_1",
+          threadId: "thread_1",
+          userId: "user_1",
+          prompt: "Research adapter behavior",
+          maxDurationSec: 120,
+        },
+      }),
+      transport,
+    });
+    const tool = createPiRuntimeAdapterTools(client).find(
+      (item) => item.name === "run_command",
+    );
+
+    try {
+      const result = await tool?.execute("tool_run_timeout_1", {
+        command: "sleep 5",
+        timeoutMs: 1000,
+      });
+
+      expect(result?.details).toMatchObject({
+        timedOut: true,
+      });
+      expect(calls.map((call) => call.body.status)).toEqual([
+        "running",
+        "completed",
+      ]);
+      expect(JSON.stringify(calls[1].body.result)).toContain('"timedOut":true');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("records run_command policy rejection as failed tool call", async () => {
+    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "cap-pi-tools-"));
+    const { calls, transport } = recordingTransport((url) => {
+      if (url.endsWith("/api/ingest/tool-calls")) return ok({ toolCall: {} });
+      return error(404, "unexpected path");
+    });
+    const client = new PiRuntimeControlPlaneClient({
+      config: buildPiRuntimeStartConfig({
+        apiBaseUrl: "https://api.sandbox.maidang.me",
+        runToken: "run-token",
+        workspaceRoot,
+        run: {
+          id: "run_1",
+          workspaceId: "workspace_1",
+          threadId: "thread_1",
+          userId: "user_1",
+          prompt: "Research adapter behavior",
+          maxDurationSec: 120,
+        },
+        toolPolicy: { denyCommands: ["printf blocked"] },
+      }),
+      transport,
+    });
+    const tool = createPiRuntimeAdapterTools(client).find(
+      (item) => item.name === "run_command",
+    );
+
+    try {
+      await expect(
+        tool?.execute("tool_run_rejected_1", {
+          command: "printf blocked",
+          timeoutMs: 5000,
+        }),
+      ).rejects.toThrow(/command rejected by policy/);
+      expect(calls.map((call) => call.body.status)).toEqual([
+        "running",
+        "failed",
+      ]);
+      expect(calls[1].body).toMatchObject({
+        id: "tool_run_rejected_1",
+        eventSeq: 3,
+        status: "failed",
+        error: "command rejected by policy: printf blocked",
+      });
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("creates artifacts through ingest artifacts with the current event seq", async () => {
     const { calls, transport } = recordingTransport((url) => {
       if (url.endsWith("/api/ingest/tool-calls")) return ok({ toolCall: {} });

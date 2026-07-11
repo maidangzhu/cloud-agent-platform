@@ -21,6 +21,9 @@ type VercelSandboxHandle = {
   getState(): { provider: string; sandboxName?: string; snapshotId?: string };
 };
 
+export const CAPTURED_SANDBOX_OUTPUT_MAX_LENGTH = 50_000;
+const CAPTURED_SANDBOX_OUTPUT_TRUNCATED_SUFFIX = "\n…[truncated]";
+
 export type WorkspaceSandboxClaim = {
   instance: WorkspaceSandboxRow;
   sandbox: VercelSandboxHandle;
@@ -396,10 +399,25 @@ async function readCapturedFile(
   path: string,
 ): Promise<string> {
   try {
-    return await sandbox.readFile(path);
+    return truncateCapturedSandboxOutput(await sandbox.readFile(path)).text;
   } catch {
     return "";
   }
+}
+
+export function truncateCapturedSandboxOutput(text: string): {
+  text: string;
+  truncated: boolean;
+} {
+  if (text.length <= CAPTURED_SANDBOX_OUTPUT_MAX_LENGTH) {
+    return { text, truncated: false };
+  }
+  return {
+    text:
+      text.slice(0, CAPTURED_SANDBOX_OUTPUT_MAX_LENGTH) +
+      CAPTURED_SANDBOX_OUTPUT_TRUNCATED_SUFFIX,
+    truncated: true,
+  };
 }
 
 function isSandboxExecTimeoutError(error: unknown): boolean {
@@ -493,7 +511,7 @@ async function stopVercelSandboxByName(sandboxName: string): Promise<void> {
   await sandbox.stop();
 }
 
-const SCRIPTED_INGEST_RUNNER_SCRIPT = `
+export const SCRIPTED_INGEST_RUNNER_SCRIPT = `
 import fs from "node:fs/promises";
 
 const forbidden = ["DATABASE_URL", "DIRECT_URL", "BETTER_AUTH_SECRET", "RUN_TOKEN_SECRET"];
@@ -526,13 +544,13 @@ await post("/api/ingest/tool-calls", {
 });
 await post("/api/ingest/tool-calls", {
   id: "vercel-fake-tool",
-  eventSeq: 3,
+  eventSeq: 4,
   name: "fake_tool",
   status: "completed",
   args: { provider: "vercel" },
   result: { ok: true }
 });
-await post("/api/ingest/events", { seq: 4, type: "run_completed", payload: { durationMs: 1 } });
+await post("/api/ingest/events", { seq: 5, type: "run_completed", payload: { durationMs: 1 } });
 
 console.log(JSON.stringify({ insideSandbox: true, forbiddenEnvPresent }));
 `.trim();
