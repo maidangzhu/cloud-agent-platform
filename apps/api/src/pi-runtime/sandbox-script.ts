@@ -66,6 +66,14 @@ async function postHeartbeat(phase) {
   });
 }
 
+async function postStreamChunk(streamType, chunk) {
+  if (!chunk) return null;
+  return postJson(config.ingestUrl + "/stream-chunk", {
+    streamType,
+    chunk,
+  });
+}
+
 async function getControl() {
   const response = await fetch(config.controlUrl, {
     method: "GET",
@@ -89,6 +97,14 @@ async function stopIfCancelled() {
 
 async function postToolCall(input) {
   return postJson(config.ingestUrl + "/tool-calls", input);
+}
+
+async function callSearchProxy(input) {
+  return postJson(config.searchProxyUrl, {
+    query: input.query,
+    ...(input.limit !== undefined ? { limit: input.limit } : {}),
+    provider: config.searchProvider || "fake",
+  });
 }
 
 async function runTrackedTool(toolCallId, name, args, run) {
@@ -358,6 +374,22 @@ const tools = [
     }),
   },
   {
+    name: "web_search",
+    label: "Web search",
+    description: "Search the web through the hosted Control Plane search proxy.",
+    parameters: Type.Object({
+      query: Type.String(),
+      limit: Type.Optional(Type.Number()),
+    }),
+    execute: async (toolCallId, params) => runTrackedTool(toolCallId, "web_search", params, async () => {
+      const data = await callSearchProxy({
+        query: params.query,
+        limit: params.limit,
+      });
+      return textResult(JSON.stringify(data.results || []), data);
+    }),
+  },
+  {
     name: "write_file",
     label: "Write file",
     description: "Write a UTF-8 text file under the sandbox workspace and persist it through hosted ingest APIs.",
@@ -597,8 +629,19 @@ function createStreamFn() {
           tools: context.tools || [],
         });
         const message = createAssistantMessage(model, data, requestStartedAt);
+        const thinkingBlock = message.content.find((part) => part.type === "thinking");
         const textBlock = message.content.find((part) => part.type === "text");
+        await Promise.all([
+          thinkingBlock?.thinking ? postStreamChunk("thinking", thinkingBlock.thinking) : Promise.resolve(null),
+          textBlock?.text ? postStreamChunk("content", textBlock.text) : Promise.resolve(null),
+        ]);
         stream.push({ type: "start", partial: message });
+        if (thinkingBlock) {
+          const contentIndex = message.content.indexOf(thinkingBlock);
+          stream.push({ type: "thinking_start", contentIndex, partial: message });
+          stream.push({ type: "thinking_delta", contentIndex, delta: thinkingBlock.thinking, partial: message });
+          stream.push({ type: "thinking_end", contentIndex, content: thinkingBlock.thinking, partial: message });
+        }
         if (textBlock) {
           const contentIndex = message.content.indexOf(textBlock);
           stream.push({ type: "text_start", contentIndex, partial: message });
@@ -661,8 +704,9 @@ try {
   const agent = new Agent({
     sessionId: config.runId,
     initialState: {
-	      systemPrompt: [
+	    systemPrompt: [
 	        "You are a research workspace agent running inside an isolated Vercel Sandbox.",
+	        "Use web_search for web research through the hosted Control Plane search proxy.",
 	        "Use read_file, write_file, list_directory, list_files, and run_command for workspace filesystem and bash tasks.",
 	        "When the user asks to run a command, execute it with run_command and report the stdout, stderr, and exit code.",
 	        "Use tools to write durable workspace files and create artifacts.",

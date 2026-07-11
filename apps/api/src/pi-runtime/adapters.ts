@@ -49,7 +49,10 @@ export function createPiRuntimeAdapters(
   return {
     client,
     streamFn: createLlmProxyStreamFn(client, options.llmProvider),
-    tools: createPiRuntimeAdapterTools(client, options.searchProvider),
+    tools: createPiRuntimeAdapterTools(
+      client,
+      options.searchProvider ?? options.config.searchProvider,
+    ),
   };
 }
 

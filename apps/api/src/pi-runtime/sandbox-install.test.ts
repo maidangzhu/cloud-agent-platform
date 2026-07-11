@@ -43,9 +43,14 @@ describe("Pi runtime sandbox install", () => {
 	    expect(writes["pi-runtime.mjs"]).toContain('name: "read_file"');
 	    expect(writes["pi-runtime.mjs"]).toContain('name: "list_directory"');
 	    expect(writes["pi-runtime.mjs"]).toContain('name: "list_files"');
+    expect(writes["pi-runtime.mjs"]).toContain('name: "web_search"');
+    expect(writes["pi-runtime.mjs"]).toContain("config.searchProxyUrl");
 	    expect(writes["pi-runtime.mjs"]).toContain('name: "run_command"');
 	    expect(writes["pi-runtime.mjs"]).toContain('spawn("bash"');
 	    expect(writes["pi-runtime.mjs"]).toContain("/heartbeat");
+    expect(writes["pi-runtime.mjs"]).toContain("/stream-chunk");
+    expect(writes["pi-runtime.mjs"]).toContain('postStreamChunk("content"');
+    expect(writes["pi-runtime.mjs"]).toContain('postStreamChunk("thinking"');
     expect(writes["pi-runtime.mjs"]).toContain(
       'Type.Enum(["text", "code", "sheet", "image"])',
     );

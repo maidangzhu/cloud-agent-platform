@@ -51,6 +51,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
       await prisma.workspaceFile.deleteMany({
         where: { workspaceId: { in: created.workspaceIds } },
       });
+      await prisma.source.deleteMany({
+        where: { workspaceId: { in: created.workspaceIds } },
+      });
       await prisma.runEvent.deleteMany({
         where: { runId: { in: created.runIds } },
       });
@@ -239,6 +242,75 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
 	      },
 	      300_000,
 	    );
+
+    it(
+      "calls hosted search proxy from inside real sandbox workspace",
+      async () => {
+        const graph = await createGraph(`${suiteId}-search`, created);
+        const runToken = issueRunToken({
+          userId: graph.userId,
+          workspaceId: graph.workspaceId,
+          threadId: graph.threadId,
+          runId: graph.runId,
+          ttlSeconds: 900,
+        });
+        const claim = await getOrCreateWorkspaceSandbox({
+          workspaceId: graph.workspaceId,
+          runId: graph.runId,
+          timeoutMs: 60_000,
+        });
+        created.sandboxes.push(claim.sandbox);
+
+        const result = await runPiRuntimeInSandbox({
+          sandbox: claim.sandbox,
+          config: buildPiRuntimeStartConfig({
+            apiBaseUrl: PUBLIC_API_BASE_URL!,
+            runToken,
+            run: {
+              id: graph.runId,
+              workspaceId: graph.workspaceId,
+              threadId: graph.threadId,
+              userId: graph.userId,
+              prompt: "agent runtime search",
+              maxDurationSec: 180,
+            },
+            llmProvider: "fake",
+            modelHint: "pi-runtime-search",
+            searchProvider: "fake",
+          }),
+          installTimeoutMs: 240_000,
+          execTimeoutMs: 120_000,
+        });
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toBe("");
+        const output = parseLastJsonLine(result.stdout);
+        expect(output).toMatchObject({
+          piRuntimeStarted: true,
+          completed: true,
+          runId: graph.runId,
+          apiBaseUrl: PUBLIC_API_BASE_URL,
+          forbiddenEnvPresent: false,
+        });
+
+        const toolCalls = await prisma.runToolCall.findMany({
+          where: { runId: graph.runId },
+          orderBy: { startedAt: "asc" },
+        });
+        expect(toolCalls.map((tool) => `${tool.name}:${tool.status}`)).toEqual([
+          "web_search:completed",
+        ]);
+        expect(JSON.stringify(toolCalls[0]?.result)).toContain(
+          "agent runtime search",
+        );
+
+        const sources = await prisma.source.findMany({
+          where: { runId: graph.runId, kind: "search_result" },
+        });
+        expect(sources).toHaveLength(2);
+      },
+      300_000,
+    );
 	  },
 	);
 

@@ -25,6 +25,7 @@ export type PiRuntimeStartConfig = {
   runToken: string;
   llmProvider: "fake" | "real";
   modelHint: string;
+  searchProvider: "fake" | "http" | "exa";
   maxSteps: number;
   maxDurationSec: number;
   toolPolicy: PiRuntimeToolPolicy;
@@ -46,6 +47,7 @@ export type BuildPiRuntimeStartConfigInput = {
   maxSteps?: number;
   llmProvider?: "fake" | "real";
   modelHint?: string;
+  searchProvider?: "fake" | "http" | "exa";
   toolPolicy?: Partial<PiRuntimeToolPolicy>;
 };
 
@@ -76,6 +78,7 @@ export function buildPiRuntimeStartConfig(
     runToken: input.runToken,
     llmProvider: input.llmProvider ?? "real",
     modelHint: input.modelHint ?? "pi-runtime",
+    searchProvider: input.searchProvider ?? "fake",
     maxSteps: input.maxSteps ?? 80,
     maxDurationSec: input.run.maxDurationSec,
     toolPolicy: {
@@ -122,6 +125,13 @@ export function validatePiRuntimeStartConfig(
   }
   if (!config.modelHint.trim()) {
     return { ok: false, message: "modelHint is required" };
+  }
+  if (
+    config.searchProvider !== "fake" &&
+    config.searchProvider !== "http" &&
+    config.searchProvider !== "exa"
+  ) {
+    return { ok: false, message: "searchProvider must be fake, http, or exa" };
   }
   if (config.maxSteps < 1) {
     return { ok: false, message: "maxSteps must be positive" };

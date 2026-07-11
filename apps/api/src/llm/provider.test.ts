@@ -150,6 +150,22 @@ describe("fake provider agent-loop fixture", () => {
 	      path: "command-output.txt",
 	    });
 	  });
+
+  it("returns a complete web_search tool call for Pi runtime search smoke", () => {
+    const result = fakeComplete(
+      [{ role: "user", content: "agent runtime search" }],
+      "pi-runtime-search",
+    );
+
+    expect(result.finishReason).toBe("tool_calls");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "web_search",
+    ]);
+    expect(JSON.parse(result.toolCalls[0]?.arguments ?? "{}")).toMatchObject({
+      query: "agent runtime search",
+      limit: 2,
+    });
+  });
 	});
 
 describe("OpenAI-compatible response normalization", () => {

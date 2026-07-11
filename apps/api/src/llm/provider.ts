@@ -159,6 +159,9 @@ export function fakeComplete(
       : modelHint === "pi-runtime-tools" &&
           !messages.some((message) => message.role === "tool")
         ? fakePiRuntimeToolCalls()
+        : modelHint === "pi-runtime-search" &&
+            !messages.some((message) => message.role === "tool")
+          ? fakePiRuntimeSearchToolCalls(prompt)
       : [];
   const inputTokens = estimateTokens(messages.map((message) => message.content));
   const outputTokens = estimateTokens([
@@ -245,6 +248,19 @@ function fakePiRuntimeToolCalls(): LlmToolCall[] {
       name: "read_file",
       arguments: JSON.stringify({
         path: "command-output.txt",
+      }),
+    },
+  ];
+}
+
+function fakePiRuntimeSearchToolCalls(prompt: string): LlmToolCall[] {
+  return [
+    {
+      id: "fake-web-search",
+      name: "web_search",
+      arguments: JSON.stringify({
+        query: prompt,
+        limit: 2,
       }),
     },
   ];
