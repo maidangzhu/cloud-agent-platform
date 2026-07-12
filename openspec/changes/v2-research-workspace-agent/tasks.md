@@ -150,7 +150,7 @@
 - [x] 22.9 补齐 Pi runtime sandbox 基础工具面：`read_file`、`write_file`、`list_directory`/`list_files`、`run_command`；`write_file` 同步写 sandbox 磁盘和 hosted ingest，`run_command` 在 workspace cwd 内执行 bash 并带 denylist、timeout、输出截断，不注入 DB/Auth/provider secrets
 - [x] 22.10 将 `RunToolCall` 变化投递进统一 timeline/SSE：工具 start/completed/failed/rejected/timeout 必须作为用户可见事件出现，不能只存在 `GET /api/runs/:runId` 的 `toolCalls` 数组里（`/api/ingest/tool-calls` 已写 `tool_call_started/completed/failed` RunEvent；`rejected`/`timeout` 映射为用户可见 failed 类事件；`run/event-sse.integration.test.ts`、`ingest/routes.integration.test.ts`、`sandbox/scripted-ingest-fixture.integration.test.ts` 已覆盖）
 - [ ] 22.11 打开并验证 Pi runtime thinking/reasoning：已去掉 `thinkingLevel: "off"` 硬编码，start config 默认 `medium` 并透传 `reasoning_effort`，synthetic reasoning delta 可通过 Redis/SSE 输出；尚未完成 deployed Vercel gate，且 2026-07-12 配置模型 `gpt-5.5` 实测 0 reasoning / 7 content delta
-- [ ] 22.12 将 Pi runtime LLM proxy 改为真正 streaming：provider SSE parser、LLM Proxy 直接 fan-out、Pi 增量消费已部署，2026-07-12 real-provider gate 证明首批 content 到 Redis 时 `agent_message=0`；gate 发现最终语义 fallback 缺失和 `MAXLEN ~1000` 截断长回复，已本地修复为 Sandbox 累计 content fallback + `MAXLEN ~10000`，待重新部署复验后勾选
+- [x] 22.12 将 Pi runtime LLM proxy 改为真正 streaming：provider SSE parser、LLM Proxy 直接 fan-out、Pi 增量消费、Sandbox 累计 content fallback、Redis `MAXLEN ~10000` 均已部署；2026-07-12 production API + real Vercel Sandbox + real provider gate 证明首批 content 到 Redis 时 `agent_message=0`，长回复完整回放，最终 `agent_message.content` 与全部 content delta 拼接一致
 
 ## 23. 架构分层测试收敛
 
