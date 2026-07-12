@@ -6,6 +6,7 @@ import {
   runPiRuntimeInSandbox,
 } from "../sandbox/workspace-sandbox.js";
 import { issueRunToken } from "./run-token.js";
+import { insertRunEvent } from "./event-store.js";
 import { transitionRun } from "./transition-run.js";
 import type { RunStatus } from "./transitions.js";
 import {
@@ -120,7 +121,7 @@ export async function runCreatedRunOrchestration(params: {
   if (!provisioning.applied) {
     const latest = await prisma.agentRun.findUnique({ where: { id: run.id } });
     if (latest?.status === "cancel_requested") {
-      await transitionRun(run.id, "cancelled", ["cancel_requested"]);
+      await finalizeCancelledRunBeforeRunner(run.id);
       return {
         started: false,
         reason: "run was cancelled before provisioning",
@@ -168,7 +169,7 @@ export async function runCreatedRunOrchestration(params: {
       await releaseWorkspaceSandboxForRun(run.id, "warm");
       const latest = await prisma.agentRun.findUnique({ where: { id: run.id } });
       if (latest?.status === "cancel_requested") {
-        await transitionRun(run.id, "cancelled", ["cancel_requested"]);
+        await finalizeCancelledRunBeforeRunner(run.id);
         return {
           started: false,
           reason: "run was cancelled before runner start",
@@ -202,6 +203,7 @@ export async function runCreatedRunOrchestration(params: {
         },
         llmProvider: resolvePiRuntimeLlmProvider(),
         modelHint: process.env.CAP_PI_RUNTIME_MODEL_HINT ?? "pi-runtime",
+        searchProvider: resolvePiRuntimeSearchProvider(),
         workspaceSyncPlan,
       }),
       execTimeoutMs: Math.max(30_000, run.maxDurationSec * 1000),
@@ -256,4 +258,40 @@ function trimRunError(error: string): string {
 
 function resolvePiRuntimeLlmProvider(): "fake" | "real" {
   return process.env.CAP_PI_RUNTIME_LLM_PROVIDER === "fake" ? "fake" : "real";
+}
+
+function resolvePiRuntimeSearchProvider(): "fake" | "http" | "exa" {
+  const configured = process.env.CAP_PI_RUNTIME_SEARCH_PROVIDER;
+  if (configured === "fake" || configured === "http" || configured === "exa") {
+    return configured;
+  }
+  return process.env.EXA_API_KEY ? "exa" : "fake";
+}
+
+export async function finalizeCancelledRunBeforeRunner(
+  runId: string,
+): Promise<boolean> {
+  const transition = await transitionRun(runId, "cancelled", [
+    "cancel_requested",
+  ]);
+  if (!transition.applied) return false;
+
+  await prisma.agentRun.update({
+    where: { id: runId },
+    data: { completedAt: new Date() },
+  });
+  const maxSeq = await prisma.runEvent.aggregate({
+    where: { runId },
+    _max: { seq: true },
+  });
+  const event = await insertRunEvent({
+    runId,
+    seq: (maxSeq._max.seq ?? 0) + 1,
+    type: "run_cancelled",
+    payload: null,
+  });
+  if (!event.ok) {
+    throw new Error(`failed to record early cancellation: ${event.message}`);
+  }
+  return true;
 }

@@ -47,6 +47,7 @@ export type PiRuntimeStartConfig = {
   packages: typeof PI_RUNTIME_PACKAGES;
   filesToSync: WorkspaceFileSyncEntry[];
   syncTargetRevision: string;
+  requiredTools: string[];
 };
 
 export type BuildPiRuntimeStartConfigInput = {
@@ -110,7 +111,24 @@ export function buildPiRuntimeStartConfig(
     packages: PI_RUNTIME_PACKAGES,
     filesToSync: input.workspaceSyncPlan?.filesToSync ?? [],
     syncTargetRevision: input.workspaceSyncPlan?.targetRevision ?? "0",
+    requiredTools: inferRequiredPiRuntimeTools(input.run.prompt),
   };
+}
+
+export function inferRequiredPiRuntimeTools(prompt: string): string[] {
+  const knownTools = [
+    "web_search",
+    "fetch_url",
+    "read_file",
+    "write_file",
+    "list_directory",
+    "list_files",
+    "run_command",
+    "create_artifact",
+  ];
+  return knownTools.filter((tool) =>
+    new RegExp(`(^|[^a-z0-9_])${tool}([^a-z0-9_]|$)`, "i").test(prompt),
+  );
 }
 
 export function validatePiRuntimeStartConfig(
@@ -150,6 +168,14 @@ export function validatePiRuntimeStartConfig(
   }
   if (!/^\d+$/.test(config.syncTargetRevision)) {
     return { ok: false, message: "syncTargetRevision must be a non-negative integer" };
+  }
+  if (
+    !Array.isArray(config.requiredTools) ||
+    config.requiredTools.some(
+      (tool) => typeof tool !== "string" || !tool.trim(),
+    )
+  ) {
+    return { ok: false, message: "requiredTools must contain tool names" };
   }
   for (const file of config.filesToSync) {
     const raw = file.path.trim().replace(/\\/g, "/");

@@ -167,7 +167,7 @@ export function Composer({
   }
 
   return (
-    <div className="relative flex w-full flex-col gap-4">
+    <div className="relative flex w-full flex-col gap-2">
       <div className="relative">
         {slashOpen && filteredCommands.length > 0 && (
           <SlashCommandMenu
@@ -179,19 +179,19 @@ export function Composer({
       </div>
 
       {notice && (
-        <div className="px-1 text-[12px] text-muted-foreground">{notice}</div>
+        <div className="px-1 text-[12px] text-destructive">{notice}</div>
       )}
 
       <form
-        className="[&>div]:rounded-2xl [&>div]:border [&>div]:border-border/30 [&>div]:bg-card/70 [&>div]:shadow-[var(--shadow-composer)] [&>div]:transition-shadow [&>div]:duration-300 [&>div]:focus-within:shadow-[var(--shadow-composer-focus)]"
+        className="[&>div]:rounded-xl [&>div]:border [&>div]:border-input [&>div]:bg-card [&>div]:shadow-[var(--shadow-composer)] [&>div]:transition-colors [&>div]:focus-within:border-ring"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
         }}
       >
-        <div className="overflow-hidden">
+        <div className="flex min-h-[58px] items-end overflow-hidden px-3 py-2">
           <textarea
-            className="field-sizing-content max-h-48 min-h-24 w-full resize-none bg-transparent px-4 pb-1.5 pt-3.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/35 disabled:cursor-not-allowed disabled:opacity-60"
+            className="field-sizing-content max-h-36 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[14px] leading-5 outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={loadState === "loading" || isStartingRun}
             onChange={(event) => {
               const value = event.target.value;
@@ -213,24 +213,13 @@ export function Composer({
             ref={textareaRef}
             value={input}
           />
-          <div className="flex items-center justify-between gap-1 px-3 pb-3">
-            <div className="flex min-w-0 items-center gap-1">
-              <button
-                className="h-7 max-w-[200px] justify-between gap-1.5 rounded-lg px-2 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
-                disabled
-                type="button"
-              >
-                research-default
-              </button>
-            </div>
-            <div className="flex items-center gap-1.5">
+          <div className="ml-2 flex shrink-0 items-center gap-1.5 pb-0.5">
+            {isRunActive(run) ? (
               <button
                 aria-label="Cancel run"
                 className={cn(
-                  "flex h-7 w-7 items-center justify-center rounded-xl p-1 transition-all duration-200 disabled:cursor-not-allowed",
-                  isRunActive(run)
-                    ? "bg-foreground text-background hover:opacity-85 active:scale-95"
-                    : "bg-muted text-muted-foreground/25"
+                  "flex size-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed",
+                  "bg-foreground text-background hover:opacity-85 active:scale-95"
                 )}
                 disabled={!isRunActive(run) || isCancellingRun}
                 onClick={onCancelRun}
@@ -238,20 +227,21 @@ export function Composer({
               >
                 <SquareIcon className="size-4" />
               </button>
+            ) : (
               <button
                 aria-label="Start run"
                 className={cn(
-                  "flex h-7 w-7 items-center justify-center rounded-xl transition-all duration-200",
+                  "flex size-8 items-center justify-center rounded-lg transition-colors",
                   canSubmit
                     ? "bg-foreground text-background hover:opacity-85 active:scale-95"
-                    : "cursor-not-allowed bg-muted text-muted-foreground/25"
+                    : "cursor-not-allowed bg-muted text-muted-foreground/40"
                 )}
                 disabled={!canSubmit}
                 type="submit"
               >
                 <ArrowUpIcon className="size-4" />
               </button>
-            </div>
+            )}
           </div>
         </div>
       </form>

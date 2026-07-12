@@ -555,10 +555,21 @@ describe("real provider streaming", () => {
 
     const resultPromise = streamWithRealProvider({
       messages: [{ role: "user", content: "hello" }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "write_file",
+            description: "Write a file",
+            parameters: { type: "object", properties: {} },
+          },
+        },
+      ],
       env,
       transport,
       maxRetries: 0,
       reasoningEffort: "medium",
+      toolChoice: { type: "function", function: { name: "write_file" } },
       onDelta: async (delta) => {
         deltas.push(delta);
       },
@@ -608,6 +619,7 @@ describe("real provider streaming", () => {
       stream: true,
       stream_options: { include_usage: true },
       reasoning_effort: "medium",
+      tool_choice: { type: "function", function: { name: "write_file" } },
     });
   });
 

@@ -64,6 +64,22 @@ describe("Pi runtime sandbox install", () => {
     );
     expect(writes["pi-runtime.mjs"]).toContain("runtime-create-artifact");
     expect(writes["pi-runtime.mjs"]).toContain("terminate: true");
+    expect(writes["pi-runtime.mjs"]).toContain('type: "function"');
+    expect(writes["pi-runtime.mjs"]).toContain(
+      "function: { name: forceableRequiredTools[0] }",
+    );
+    expect(writes["pi-runtime.mjs"]).toContain('"pi-runtime-tools"');
+    expect(writes["pi-runtime.mjs"]).toContain(
+      "forceableRequiredTools.includes(tool.name)",
+    );
+    expect(writes["pi-runtime.mjs"]).toContain(
+      'lastMessage?.role === "toolResult"',
+    );
+    expect(writes["pi-runtime.mjs"]).toContain(
+      "buildRequiredToolRepairMessages",
+    );
+    expect(writes["pi-runtime.mjs"]).toContain("Previous tool result:");
+    expect(writes["pi-runtime.mjs"]).toContain("REQUIRED_TOOL_NOT_EXECUTED:");
     expect(writes["pi-runtime.mjs"]).toContain("process.exit(0)");
     expect(writes["package.json"]).toContain("@earendil-works/pi-agent-core");
     expect(writes["package.json"]).toContain("@earendil-works/pi-ai");

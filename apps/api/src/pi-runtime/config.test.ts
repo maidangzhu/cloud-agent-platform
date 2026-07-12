@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createPiRuntimeAgentShell } from "./agent.js";
 import {
   buildPiRuntimeStartConfig,
+  inferRequiredPiRuntimeTools,
   pickPiRuntimeSandboxEnv,
   validatePiRuntimeStartConfig,
 } from "./config.js";
@@ -16,6 +17,17 @@ const run = {
 };
 
 describe("Pi runtime start protocol", () => {
+  it("infers only explicitly named runtime tools", () => {
+    expect(
+      inferRequiredPiRuntimeTools(
+        "Use web_search, then write_file and create_artifact. Do not just write prose.",
+      ),
+    ).toEqual(["web_search", "write_file", "create_artifact"]);
+    expect(
+      inferRequiredPiRuntimeTools("Research this and write a report."),
+    ).toEqual([]);
+  });
+
   it("derives hosted Control Plane URLs from a public API base", () => {
     const config = buildPiRuntimeStartConfig({
       apiBaseUrl: "https://api.sandbox.maidang.me/",
@@ -33,6 +45,7 @@ describe("Pi runtime start protocol", () => {
       modelHint: "pi-runtime",
       thinkingLevel: "medium",
       searchProvider: "fake",
+	      requiredTools: [],
 	      maxSteps: 80,
 	      workspaceRoot: "/workspace",
 	      toolPolicy: {

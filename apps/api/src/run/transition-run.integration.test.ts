@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@cap/db";
 import { transitionRun } from "./transition-run.js";
+import { finalizeCancelledRunBeforeRunner } from "./orchestrator.js";
 import type { RunStatus } from "./transitions.js";
 
 // 连真实 Neon Postgres，不 mock。对应 docs/testing-strategy.md §4.4
@@ -54,6 +55,26 @@ describe.skipIf(!HAS_DB)(
         where: { id: run.id },
       });
       expect(updated?.status).toBe("provisioning_sandbox");
+    });
+
+    it("finalizes pre-run cancellation with a durable terminal event", async () => {
+      const run = await createTestRun("cancel_requested");
+
+      await expect(finalizeCancelledRunBeforeRunner(run.id)).resolves.toBe(true);
+
+      const updated = await prisma.agentRun.findUniqueOrThrow({
+        where: { id: run.id },
+      });
+      expect(updated.status).toBe("cancelled");
+      expect(updated.completedAt).toBeTruthy();
+      await expect(
+        prisma.runEvent.findMany({
+          where: { runId: run.id },
+          orderBy: { seq: "asc" },
+        }),
+      ).resolves.toEqual([
+        expect.objectContaining({ seq: 1, type: "run_cancelled" }),
+      ]);
     });
 
     it("transitionRun is no-op（0 行）when current status not in fromStatuses", async () => {

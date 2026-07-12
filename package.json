@@ -12,6 +12,7 @@
     "test:integration": "pnpm --filter @cap/db test:integration && pnpm --filter @cap/api test:integration",
     "test:workflow": "pnpm --dir apps/api test:workflow",
     "test:live": "pnpm --dir apps/api test:live",
+    "test:e2e": "pnpm --dir apps/web test:e2e",
     "db:generate": "pnpm --filter @cap/db generate",
     "db:push": "pnpm --filter @cap/db db:push"
   },

@@ -10,6 +10,7 @@ import {
   type LlmMessage,
   type LlmProviderResult,
   type LlmStreamDelta,
+  type LlmToolChoice,
 } from "./provider.js";
 import { recordLLMUsage } from "../usage/store.js";
 import { addRunStreamChunk } from "../redis/streams.js";
@@ -68,6 +69,7 @@ llmRoutes.post("/api/llm-proxy", async (c) => {
               tools: parsed.tools,
               modelHint: parsed.modelHint,
               reasoningEffort: parsed.thinkingLevel,
+              toolChoice: parsed.toolChoice,
               onDelta,
             })
           : await streamFakeProvider({
@@ -94,6 +96,7 @@ llmRoutes.post("/api/llm-proxy", async (c) => {
           tools: parsed.tools,
           modelHint: parsed.modelHint,
           reasoningEffort: parsed.thinkingLevel,
+          toolChoice: parsed.toolChoice,
         })
       : { ok: true as const, result: fakeComplete(parsed.messages, parsed.modelHint) };
   if (result.ok === false) {
@@ -132,6 +135,7 @@ function parseLlmProxyBody(
       stream: boolean;
       tools: unknown[];
       thinkingLevel: string;
+      toolChoice?: LlmToolChoice;
     }
   | { ok: false; message: string } {
   if (!Array.isArray(body.messages)) {
@@ -177,7 +181,32 @@ function parseLlmProxyBody(
       ["minimal", "low", "medium", "high", "xhigh"].includes(body.thinkingLevel)
         ? body.thinkingLevel
         : "off",
+    ...(parseToolChoice(body.toolChoice)
+      ? { toolChoice: parseToolChoice(body.toolChoice) }
+      : {}),
   };
+}
+
+function parseToolChoice(value: unknown): LlmToolChoice | undefined {
+  if (value === "auto" || value === "none" || value === "required") {
+    return value;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const fn =
+    typeof record.function === "object" &&
+    record.function !== null &&
+    !Array.isArray(record.function)
+      ? (record.function as Record<string, unknown>)
+      : null;
+  return record.type === "function" &&
+    fn &&
+    typeof fn.name === "string" &&
+    fn.name.trim()
+    ? { type: "function", function: { name: fn.name.trim() } }
+    : undefined;
 }
 
 async function recordUsageBestEffort(

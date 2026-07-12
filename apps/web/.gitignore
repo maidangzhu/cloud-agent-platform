@@ -1,3 +1,5 @@
 .next
+playwright-report
+test-results
 out
 node_modules

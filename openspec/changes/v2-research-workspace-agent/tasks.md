@@ -124,7 +124,12 @@
 
 ## 20. Browser E2E
 
-- [ ] 20.1 到达该 Group 时展开具体子步骤（login → workspace → thread → run → waiting_for_input → Stage2 → artifact → cancel）
+- [x] 20.1 配置 `apps/web` Playwright，支持 hosted base URL、desktop Chromium 和 Pixel 7
+- [x] 20.2 signup → workspace/thread/run → real Exa → tool timeline → artifact/source/usage
+- [x] 20.3 completed/cancelled run 刷新后恢复 active thread 和完整 snapshot
+- [x] 20.4 policy-rejected runtime tool 在 UI 显示 failed timeline 和 `run_failed`
+- [x] 20.5 desktop/mobile auth 与空 composer 响应式 gate
+- [ ] 20.6 waiting_for_input → 用户回答 → Stage2 artifact update 浏览器交互（后端 workflow 已覆盖）
 
 ## 21. 部署和运维
 
@@ -158,3 +163,4 @@
 - [x] 23.2 复核 Part 1 Control Plane 现有 `existing` case 到具体测试文件的映射，补齐 `CP-TOOL-005` / `CP-SSE-005` / `CP-SSE-006`（映射已完成，见 `docs/architecture-test-plan.md` §4.3/§4.4a/§4.4b；`CP-SSE-006` 已归属 Redis Streaming 并确认机制层面 existing；`CP-TOOL-005`/`CP-SSE-005` 已通过 tool lifecycle RunEvent + SSE snapshot 覆盖收敛）
 - [x] 23.3 收敛 Part 4 Redis Streaming：provider delta 立即 fan-out 到 Sandbox SSE + Redis；content/thinking 均先于最终语义事件；TTFB terminal metadata/usage 持久化；authenticated browser SSE cursor `0` + Last-Event-ID 续传无重复无丢失；production deployment `dpl_3dN7msEEmRvq97i1cDQWjpBWqWPp` gate 通过
 - [x] 23.4 收敛 Part 5 Workspace Mapping：Workspace/WorkspaceFile revision + sandbox synced/pending watermark；cold 全量与 warm 增量 diff；Pi boot 覆盖/删除；`run_command` 临时文件不 ingest；provider fresh create 清 watermark；production 删除 persistent sandbox 后从 Neon 重新水合 gate 通过（`dpl_JAYkqzC6jNEpbPfj6jVhTeRWMKgZ`）
+- [x] 23.5 收敛 Part 6 Full Product Path：real Exa + tool-capable/reasoning channel 分工；browser success/refresh/cancel/failure/source/usage/artifact；desktop/mobile 5/5 Playwright gate；API/Web production Ready

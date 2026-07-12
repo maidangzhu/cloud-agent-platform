@@ -4,22 +4,22 @@ import { motion } from "framer-motion";
 
 export function Greeting() {
   return (
-    <div className="flex flex-col items-center px-4" key="overview">
+    <div className="flex max-w-md flex-col items-center px-6" key="overview">
       <motion.div
         animate={{ opacity: 1, y: 0 }}
-        className="text-center font-semibold text-2xl tracking-tight text-foreground md:text-3xl"
+        className="text-center text-xl font-semibold text-foreground md:text-2xl"
         initial={{ opacity: 0, y: 10 }}
         transition={{ delay: 0.35, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
       >
-        What should we research?
+        Start a research thread
       </motion.div>
       <motion.div
         animate={{ opacity: 1, y: 0 }}
-        className="mt-3 text-center text-muted-foreground/80 text-sm"
+        className="mt-2 text-center text-sm text-muted-foreground"
         initial={{ opacity: 0, y: 10 }}
         transition={{ delay: 0.5, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
       >
-        Send a question to start a new research thread.
+        Ask a question and the workspace will keep the research, sources, and deliverables together.
       </motion.div>
     </div>
   );

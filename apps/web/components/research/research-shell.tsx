@@ -11,6 +11,7 @@ import type {
   LoadState,
   RunArtifact,
   RunSource,
+  RunUsageRecord,
   Thread,
   ThreadMessage,
   Workspace,
@@ -41,6 +42,7 @@ export function ResearchShell({
   runError,
   runEvents,
   runSources,
+  runUsage,
   streamChunks,
   threadMessages,
   user,
@@ -61,6 +63,7 @@ export function ResearchShell({
   runError: string;
   runEvents: RunEventDTO[];
   runSources: RunSource[];
+  runUsage: RunUsageRecord[];
   streamChunks: StreamChunkDTO[];
   threadMessages: ThreadMessage[];
   user: CurrentUser | null;
@@ -84,6 +87,7 @@ export function ResearchShell({
         runError={runError}
         runEvents={runEvents}
         runSources={runSources}
+        runUsage={runUsage}
         streamChunks={streamChunks}
         threadMessages={threadMessages}
         user={user}
@@ -109,6 +113,7 @@ function ResearchShellContent({
   runError,
   runEvents,
   runSources,
+  runUsage,
   streamChunks,
   threadMessages,
   user,
@@ -129,6 +134,7 @@ function ResearchShellContent({
   runError: string;
   runEvents: RunEventDTO[];
   runSources: RunSource[];
+  runUsage: RunUsageRecord[];
   streamChunks: StreamChunkDTO[];
   threadMessages: ThreadMessage[];
   user: CurrentUser | null;
@@ -144,8 +150,8 @@ function ResearchShellContent({
     <div className="flex h-dvh w-full flex-row overflow-hidden">
       <div
         className={
-          "flex min-w-0 flex-col bg-sidebar transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] " +
-          (isArtifactVisible ? "w-[40%]" : "w-full")
+          "flex min-w-0 flex-col bg-background transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] " +
+          (isArtifactVisible ? "w-[42%]" : "w-full")
         }
       >
         <WorkspaceThreadHeader
@@ -153,7 +159,7 @@ function ResearchShellContent({
           activeWorkspace={activeWorkspace}
           state={loadState}
         />
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background md:rounded-tl-[12px] md:border-l md:border-t md:border-border/40">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
           {loadState === "unauthorized" ? (
             <AuthPanel error={error} onAuthenticate={onAuthenticate} />
           ) : (
@@ -164,13 +170,16 @@ function ResearchShellContent({
                 loadState={loadState}
                 run={run}
                 runArtifacts={runArtifacts}
+                runSources={runSources}
+                runUsage={runUsage}
                 runError={runError}
                 runEvents={runEvents}
                 streamChunks={streamChunks}
                 threadMessages={threadMessages}
                 user={user}
               />
-              <div className="sticky bottom-0 z-1 mx-auto flex w-full max-w-4xl gap-2 border-t-0 bg-background px-2 pb-3 md:px-4 md:pb-4">
+              <div className="sticky bottom-0 z-10 w-full bg-background/95 px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-2 backdrop-blur md:px-6 md:pb-5">
+                <div className="mx-auto w-full max-w-3xl">
                 <Composer
                   activeThread={activeThread}
                   activeWorkspace={activeWorkspace}
@@ -183,6 +192,7 @@ function ResearchShellContent({
                   onStartRun={onStartRun}
                   run={run}
                 />
+                </div>
               </div>
             </>
           )}

@@ -11,6 +11,7 @@ import type {
   LoadState,
   RunArtifact,
   RunSource,
+  RunUsageRecord,
   RunStatus,
   Thread,
   ThreadMessage,
@@ -41,6 +42,10 @@ type RunSnapshot = {
   toolCalls: unknown[];
   artifacts: RunArtifact[];
   sources: RunSource[];
+};
+
+type UsageSnapshot = {
+  records: RunUsageRecord[];
 };
 
 type ClientStreamChunk = StreamChunkDTO & { id: string };
@@ -90,6 +95,7 @@ export function AppShell() {
   const [streamChunks, setStreamChunks] = useState<ClientStreamChunk[]>([]);
   const [runArtifacts, setRunArtifacts] = useState<RunArtifact[]>([]);
   const [runSources, setRunSources] = useState<RunSource[]>([]);
+  const [runUsage, setRunUsage] = useState<RunUsageRecord[]>([]);
   const [runError, setRunError] = useState("");
   const [isStartingRun, setIsStartingRun] = useState(false);
   const [isCancellingRun, setIsCancellingRun] = useState(false);
@@ -167,9 +173,13 @@ export function AppShell() {
 
       const nextThreads = threadResult.data.threads;
       setThreads(nextThreads);
+      const storedThreadId = readStoredThreadId(selectedWorkspaceId);
       setActiveThreadId((current) =>
         current && nextThreads.some((thread) => thread.id === current)
           ? current
+          : storedThreadId &&
+              nextThreads.some((thread) => thread.id === storedThreadId)
+            ? storedThreadId
           : null
       );
       setState("ready");
@@ -193,6 +203,12 @@ export function AppShell() {
     void loadThreadSnapshot(activeThreadId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThreadId]);
+
+  useEffect(() => {
+    if (activeWorkspaceId && activeThreadId) {
+      storeThreadId(activeWorkspaceId, activeThreadId);
+    }
+  }, [activeThreadId, activeWorkspaceId]);
 
   useEffect(() => {
     if (!activeRun || isTerminalRunStatus(activeRun.status)) {
@@ -350,6 +366,9 @@ export function AppShell() {
       method: "POST",
       credentials: "include",
     }).catch(() => undefined);
+    if (activeWorkspaceId) {
+      clearStoredThreadId(activeWorkspaceId);
+    }
     setUser(null);
     setWorkspaces([]);
     setThreads([]);
@@ -426,6 +445,7 @@ export function AppShell() {
     setStreamChunks([]);
     setRunArtifacts([]);
     setRunSources([]);
+    setRunUsage([]);
     setRunError("");
   }
 
@@ -452,6 +472,7 @@ export function AppShell() {
         setStreamChunks([]);
         setRunArtifacts([]);
         setRunSources([]);
+        setRunUsage([]);
       }
     } catch (err) {
       setRunError(err instanceof Error ? err.message : String(err));
@@ -459,14 +480,23 @@ export function AppShell() {
   }
 
   async function loadRunSnapshot(runId: string) {
-    const result = await apiGet<RunSnapshot>(`/api/runs/${runId}`);
+    const [result, usageResult] = await Promise.all([
+      apiGet<RunSnapshot>(`/api/runs/${runId}`),
+      apiGet<UsageSnapshot>(
+        `/api/usage/records?runId=${encodeURIComponent(runId)}&limit=20`
+      ),
+    ]);
     if (!result.ok) {
       throw new Error(result.message);
+    }
+    if (!usageResult.ok) {
+      throw new Error(usageResult.message);
     }
     setActiveRun(result.data.run);
     setRunEvents(result.data.events);
     setRunArtifacts(result.data.artifacts);
     setRunSources(result.data.sources);
+    setRunUsage(usageResult.data.records);
     setRunError("");
     storeRunId(result.data.run.threadId, result.data.run.id);
   }
@@ -566,6 +596,7 @@ export function AppShell() {
           runError={runError}
           runEvents={runEvents}
           runSources={runSources}
+          runUsage={runUsage}
           streamChunks={streamChunks}
           threadMessages={threadMessages}
           user={user}
@@ -610,6 +641,34 @@ function isTerminalRunStatus(status: RunStatus) {
 
 function runStorageKey(threadId: string) {
   return `research:last-run:${threadId}`;
+}
+
+function threadStorageKey(workspaceId: string) {
+  return `research:active-thread:${workspaceId}`;
+}
+
+function readStoredThreadId(workspaceId: string) {
+  try {
+    return window.localStorage.getItem(threadStorageKey(workspaceId));
+  } catch {
+    return null;
+  }
+}
+
+function storeThreadId(workspaceId: string, threadId: string) {
+  try {
+    window.localStorage.setItem(threadStorageKey(workspaceId), threadId);
+  } catch {
+    // Server snapshots remain authoritative when local storage is unavailable.
+  }
+}
+
+function clearStoredThreadId(workspaceId: string) {
+  try {
+    window.localStorage.removeItem(threadStorageKey(workspaceId));
+  } catch {
+    // Sign-out still clears all in-memory state.
+  }
 }
 
 function readStoredRunId(threadId: string) {

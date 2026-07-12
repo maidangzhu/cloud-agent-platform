@@ -3,8 +3,9 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { FileTextIcon, Loader2Icon, SearchIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useWindowSize } from "usehooks-ts";
-import { useSidebar } from "@/components/ui/sidebar";
 import { useArtifact } from "@/hooks/use-artifact";
 import { ArtifactActions } from "./artifact-actions";
 import { ArtifactCloseButton } from "./artifact-close-button";
@@ -16,7 +17,6 @@ export function ArtifactPanel() {
   const [showFooter, setShowFooter] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const userScrolledArtifact = useRef(false);
-  const { state: sidebarState } = useSidebar();
   const { width: windowWidth, height: windowHeight } = useWindowSize();
   const isMobile = windowWidth ? windowWidth < 768 : false;
 
@@ -34,7 +34,7 @@ export function ArtifactPanel() {
     }
   }, [artifact.content, artifact.status]);
 
-  if (!artifact.isVisible && !isMobile) {
+  if (!artifact.isVisible) {
     return (
       <div
         className="h-dvh w-0 shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
@@ -43,21 +43,16 @@ export function ArtifactPanel() {
     );
   }
 
-  if (!artifact.isVisible) {
-    return null;
-  }
-
   const hasContent = artifact.content.trim().length > 0;
   const title = artifact.title || "Artifacts";
 
   const panel = (
     <>
-      {sidebarState !== "collapsed" && (
-        <div className="flex h-[calc(3.5rem+1px)] shrink-0 items-center justify-between border-b border-border/50 px-4">
+      <div className="flex h-[52px] shrink-0 items-center justify-between border-b border-border px-4">
           <div className="flex min-w-0 items-center gap-3">
             <ArtifactCloseButton />
             <div className="flex min-w-0 flex-col gap-0.5">
-              <div className="truncate text-sm font-semibold leading-tight tracking-tight">
+              <div className="truncate text-[13px] font-medium leading-tight">
                 {title}
               </div>
               <ArtifactSubheading status={artifact.status} hasContent={hasContent} />
@@ -71,8 +66,7 @@ export function ArtifactPanel() {
           >
             <SearchIcon className="size-4" />
           </button>
-        </div>
-      )}
+      </div>
 
       <div
         className="relative flex-1 overflow-y-auto bg-background"
@@ -89,7 +83,7 @@ export function ArtifactPanel() {
         ref={contentRef}
       >
         <ArtifactContent content={artifact.content} mode={mode} title={title} />
-        <div className="fixed bottom-6 right-4 z-50 rounded-3xl border border-border/50 bg-background/95 py-1 shadow-[var(--shadow-float)] backdrop-blur md:right-6">
+        <div className="fixed bottom-5 right-4 z-50 rounded-lg border border-border bg-background/95 py-1 shadow-[var(--shadow-float)] backdrop-blur md:right-5">
           <ArtifactActions
             artifact={artifact}
             onShowLatest={() => {
@@ -152,7 +146,7 @@ export function ArtifactPanel() {
 
   return (
     <div
-      className="flex h-dvh w-[60%] shrink-0 flex-col overflow-hidden border-l border-border/50 bg-sidebar transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+      className="flex h-dvh w-[58%] shrink-0 flex-col overflow-hidden border-l border-border bg-background transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
       data-testid="artifact"
     >
       {panel}
@@ -197,7 +191,7 @@ function ArtifactContent({
   if (!content.trim()) {
     return (
       <div className="flex min-h-full items-center justify-center px-6 py-12">
-        <div className="w-full max-w-md rounded-2xl border border-border/50 bg-card p-5 text-[13px] leading-6 shadow-[var(--shadow-card)]">
+        <div className="w-full max-w-sm text-[13px] leading-6">
           <div className="mb-3 flex items-center gap-2 text-sm font-medium">
             <FileTextIcon className="size-4 text-muted-foreground" />
             Artifact
@@ -211,9 +205,9 @@ function ArtifactContent({
   }
 
   return (
-    <article className="mx-auto min-h-full max-w-2xl px-6 py-10 pr-20 text-[13px] leading-6 md:px-8 md:py-12">
+    <article className="mx-auto min-h-full max-w-3xl px-6 py-8 pr-20 text-[14px] leading-7 md:px-10 md:py-10">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-normal">{title}</h1>
+        <h1 className="text-xl font-semibold tracking-normal">{title}</h1>
         {mode === "diff" && (
           <p className="mt-2 text-xs text-muted-foreground">
             Diff mode is ready for version history once the API supplies prior
@@ -221,10 +215,8 @@ function ArtifactContent({
           </p>
         )}
       </div>
-      <div className="rounded-2xl border border-border/50 bg-card p-4 shadow-[var(--shadow-card)]">
-        <p className="whitespace-pre-wrap break-words text-foreground">
-          {content}
-        </p>
+      <div className="prose prose-sm max-w-none break-words text-foreground prose-headings:font-semibold prose-headings:tracking-normal prose-p:leading-7 prose-a:text-primary prose-pre:overflow-x-auto prose-pre:rounded-md prose-pre:border prose-pre:border-border prose-pre:bg-muted dark:prose-invert">
+        <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
       </div>
     </article>
   );

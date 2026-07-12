@@ -711,7 +711,13 @@ ADR-0018~0022 已落盘，state-machines.md / agent-runtime-protocol.md / api-co
 
 ## Group 20：Browser E2E
 
-覆盖 [testing-strategy.md §1.7](./testing-strategy.md#17-browser-e2e) 和 §4.14 E2E 部分：login → create workspace → create thread → start run → 观察 waiting_for_input → 用户选择 → Stage2 深挖 → open artifact → cancel run。到达这个 Group 时展开具体子步骤。
+覆盖 [testing-strategy.md §1.7](./testing-strategy.md#17-browser-e2e) 和 §4.14 E2E 部分。
+
+- [x] Step 20.1：hosted Playwright 配置，desktop/mobile 项目
+- [x] Step 20.2：signup → workspace/thread/run → real Exa/tool/file/artifact/source/usage
+- [x] Step 20.3：completed/cancelled run 刷新恢复
+- [x] Step 20.4：policy rejection 与 run failure 可见性
+- [ ] Step 20.5：waiting_for_input → 用户选择 → Stage2 深挖 → artifact update 浏览器交互（后端 workflow 已通过）
 
 ---
 

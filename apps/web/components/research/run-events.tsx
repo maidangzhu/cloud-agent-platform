@@ -2,10 +2,10 @@
 
 import {
   AlertCircleIcon,
-  CheckCircleIcon,
+  CheckCircle2Icon,
   ChevronDownIcon,
   CircleIcon,
-  ClockIcon,
+  Clock3Icon,
   FileTextIcon,
   LinkIcon,
   Loader2Icon,
@@ -15,14 +15,13 @@ import {
   XCircleIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge } from "@/components/ui/badge";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { ArtifactPreview } from "./artifact-preview";
-import type { ArtifactKind, UIArtifact } from "@/hooks/use-artifact";
 import { cn } from "@/lib/utils";
 
 export type RunEventType =
@@ -65,6 +64,14 @@ export type StreamChunkDTO = {
   chunk: string;
 };
 
+const TERMINAL_EVENTS = new Set([
+  "run_completed",
+  "run_failed",
+  "run_timeout",
+  "run_cancelled",
+  "run_waiting_for_input",
+]);
+
 export function RunEventList({
   events,
   streamChunks = [],
@@ -74,139 +81,59 @@ export function RunEventList({
   streamChunks?: StreamChunkDTO[];
   isLoading?: boolean;
 }) {
-  const hasStreamChunks = streamChunks.length > 0;
+  const streamThinking = joinChunks(streamChunks, "thinking");
+  const streamContent = joinChunks(streamChunks, "content");
+  const recordedThinking = joinEventContent(events, "agent_thinking");
+  const recordedContent = joinEventContent(events, "agent_message");
+  const thinking = streamThinking || recordedThinking;
+  const content = streamContent || recordedContent;
+  const isActive = !events.some((event) => TERMINAL_EVENTS.has(event.type));
+  const activityEvents = useMemo(() => compactActivityEvents(events), [events]);
 
   if (isLoading) {
     return (
-      <div className="message-fade-in flex items-center gap-2 rounded-2xl border border-border/50 bg-card px-4 py-3 text-[13px] text-muted-foreground shadow-[var(--shadow-card)]">
+      <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
         <Loader2Icon className="size-4 animate-spin" />
-        Loading run events
+        Loading run
       </div>
     );
   }
 
-  if (events.length === 0 && !hasStreamChunks) {
-    return (
-      <div className="message-fade-in rounded-2xl border border-border/50 bg-card px-4 py-3 text-[13px] leading-6 text-muted-foreground shadow-[var(--shadow-card)]">
-        Run events will appear here after a run starts.
-      </div>
-    );
+  if (!thinking && !content && activityEvents.length === 0) {
+    return null;
   }
 
-  return (
-    <div className="flex flex-col gap-5">
-      {hasStreamChunks && <StreamChunkGroup chunks={streamChunks} />}
-      {events.map((event) => (
-        <RunEventRenderer event={event} key={`${event.seq}-${event.type}`} />
-      ))}
-    </div>
-  );
-}
-
-export function RunEventRenderer({ event }: { event: RunEventDTO }) {
-  if (event.type === "agent_thinking") {
-    return (
-      <AssistantRow>
-        <RunReasoning
-          isStreaming={false}
-          reasoning={event.content || "Reasoning was recorded."}
-        />
-      </AssistantRow>
-    );
-  }
-
-  if (event.type === "agent_message") {
-    return (
-      <AssistantRow>
-        <MessageContent>{event.content || "Message content is empty."}</MessageContent>
-      </AssistantRow>
-    );
-  }
-
-  if (
-    event.type === "tool_call_started" ||
-    event.type === "tool_call_completed" ||
-    event.type === "tool_call_failed"
-  ) {
-    return (
-      <AssistantRow>
-        <ToolCallRenderer event={event} />
-      </AssistantRow>
-    );
-  }
-
-  if (
-    event.type === "artifact_started" ||
-    event.type === "artifact_delta" ||
-    event.type === "artifact_created" ||
-    event.type === "artifact_updated" ||
-    event.type === "artifact_failed"
-  ) {
-    return (
-      <AssistantRow>
-        <RunFactEvent event={event} />
-      </AssistantRow>
-    );
-  }
-
-  if (event.type === "file_written" || event.type === "source_recorded") {
-    return (
-      <AssistantRow>
-        <RunFactEvent event={event} />
-      </AssistantRow>
-    );
-  }
-
-  return (
-    <AssistantRow>
-      <RunStatusEvent event={event} />
-    </AssistantRow>
-  );
-}
-
-function StreamChunkGroup({ chunks }: { chunks: StreamChunkDTO[] }) {
-  const thinking = chunks
-    .filter((chunk) => chunk.streamType === "thinking")
-    .map((chunk) => chunk.chunk)
-    .join("");
-  const content = chunks
-    .filter((chunk) => chunk.streamType === "content")
-    .map((chunk) => chunk.chunk)
-    .join("");
-
-  return (
-    <>
-      {thinking && (
-        <AssistantRow>
-          <RunReasoning isStreaming={true} reasoning={thinking} />
-        </AssistantRow>
-      )}
-      {content && (
-        <AssistantRow>
-          <MessageContent>{content}</MessageContent>
-        </AssistantRow>
-      )}
-    </>
-  );
-}
-
-function AssistantRow({ children }: { children: React.ReactNode }) {
   return (
     <div className="message-fade-in flex items-start gap-3">
-      <div className="flex h-[calc(13px*1.65)] shrink-0 items-center">
-        <div className="flex size-7 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground ring-1 ring-border/50">
-          <SparklesIcon size={13} />
-        </div>
+      <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+        <SparklesIcon className="size-3.5" />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-2">{children}</div>
+      <div className="min-w-0 flex-1 space-y-3">
+        {thinking && (
+          <RunReasoning
+            isStreaming={Boolean(streamThinking) && isActive}
+            reasoning={thinking}
+          />
+        )}
+        {content && <AssistantMessage content={content} />}
+        {!content && isActive && (
+          <div className="flex items-center gap-2 py-0.5 text-[13px] text-muted-foreground">
+            <Loader2Icon className="size-3.5 animate-spin" />
+            Working
+          </div>
+        )}
+        {activityEvents.length > 0 && (
+          <RunActivity events={activityEvents} isActive={isActive} />
+        )}
+      </div>
     </div>
   );
 }
 
-function MessageContent({ children }: { children: string }) {
+function AssistantMessage({ content }: { content: string }) {
   return (
-    <div className="flex min-w-0 max-w-full flex-col gap-2 overflow-hidden text-[13px] leading-[1.65] text-foreground">
-      <p className="whitespace-pre-wrap break-words">{children}</p>
+    <div className="prose prose-sm max-w-[72ch] break-words text-foreground prose-headings:font-semibold prose-headings:tracking-normal prose-p:my-3 prose-p:leading-6 prose-a:text-primary prose-pre:overflow-x-auto prose-pre:rounded-md prose-pre:border prose-pre:border-border prose-pre:bg-muted prose-code:break-words dark:prose-invert">
+      <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
     </div>
   );
 }
@@ -219,20 +146,10 @@ function RunReasoning({
   isStreaming: boolean;
 }) {
   const [open, setOpen] = useState(isStreaming);
-  const [duration, setDuration] = useState<number | undefined>(undefined);
-  const startRef = useRef<number | null>(isStreaming ? Date.now() : null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (isStreaming) {
-      setOpen(true);
-      if (startRef.current === null) {
-        startRef.current = Date.now();
-      }
-    } else if (startRef.current !== null) {
-      setDuration(Math.ceil((Date.now() - startRef.current) / 1000));
-      startRef.current = null;
-    }
+    if (isStreaming) setOpen(true);
   }, [isStreaming]);
 
   useEffect(() => {
@@ -242,191 +159,240 @@ function RunReasoning({
   }, [reasoning, isStreaming]);
 
   return (
-    <Collapsible className="not-prose" onOpenChange={setOpen} open={open}>
-      <CollapsibleTrigger className="flex w-full items-center gap-2 text-[13px] leading-[1.65] text-muted-foreground transition-colors hover:text-foreground">
-        {isStreaming || duration === 0 ? (
-          <span className="font-medium">Thinking...</span>
-        ) : duration === undefined ? (
-          <span>Thought for a few seconds</span>
-        ) : (
-          <span>Thought for {duration} seconds</span>
-        )}
+    <Collapsible onOpenChange={setOpen} open={open}>
+      <CollapsibleTrigger className="flex items-center gap-1.5 text-[12px] text-muted-foreground transition-colors hover:text-foreground">
+        {isStreaming ? "Thinking" : "Reasoning"}
+        {isStreaming && <Loader2Icon className="size-3 animate-spin" />}
         <ChevronDownIcon
-          className={cn("size-4 transition-transform", open && "rotate-180")}
+          className={cn("size-3.5 transition-transform", open && "rotate-180")}
         />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="mt-2 animate-in fade-in-0 text-muted-foreground/60 duration-200 [overflow-anchor:none]">
-          <div
-            className="max-h-[200px] overflow-y-auto rounded-lg border border-border/20 bg-muted/30 px-3 py-2 text-[11px] leading-relaxed"
-            ref={scrollRef}
-            style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-          >
-            <p className="whitespace-pre-wrap break-words">{reasoning}</p>
-          </div>
+        <div
+          className="mt-2 max-h-40 overflow-y-auto border-l-2 border-border pl-3 text-[12px] leading-5 text-muted-foreground"
+          ref={scrollRef}
+        >
+          <p className="whitespace-pre-wrap break-words">{reasoning}</p>
         </div>
       </CollapsibleContent>
     </Collapsible>
   );
 }
 
-function ToolCallRenderer({ event }: { event: RunEventDTO }) {
-  const payload = asRecord(event.payload);
-  const name = getString(payload.name) ?? event.title ?? "tool";
-  const state = toolState(event.type);
-  const result = payload.result;
-  const error = getString(payload.error);
-  const args = payload.args;
-
-  return (
-    <Collapsible
-      className="group not-prose mb-4 w-[min(100%,450px)] rounded-md border bg-card"
-      defaultOpen={event.type !== "tool_call_completed"}
-    >
-      <CollapsibleTrigger className="flex w-full items-center justify-between gap-4 p-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <WrenchIcon className="size-4 shrink-0 text-muted-foreground" />
-          <span className="truncate text-sm font-medium">{name}</span>
-          <ToolStatusBadge state={state} />
-        </div>
-        <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-4 p-4 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:animate-in data-[state=open]:slide-in-from-top-2">
-        {args !== undefined && (
-          <JsonBlock label="Parameters" value={args} />
-        )}
-        {result !== undefined && <JsonBlock label="Result" value={result} />}
-        {error && (
-          <div className="space-y-2">
-            <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-              Error
-            </h4>
-            <div className="overflow-x-auto rounded-md bg-destructive/10 p-3 text-xs text-destructive">
-              {error}
-            </div>
-          </div>
-        )}
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
-
-function ToolStatusBadge({
-  state,
+function RunActivity({
+  events,
+  isActive,
 }: {
-  state: "running" | "completed" | "failed";
+  events: RunEventDTO[];
+  isActive: boolean;
 }) {
-  const icon =
-    state === "running" ? (
-      <ClockIcon className="size-4 animate-pulse" />
-    ) : state === "completed" ? (
-      <CheckCircleIcon className="size-4 text-green-600" />
-    ) : (
-      <XCircleIcon className="size-4 text-red-600" />
-    );
-  const label =
-    state === "running" ? "Running" : state === "completed" ? "Completed" : "Error";
+  const [open, setOpen] = useState(false);
+  const toolCount = events.filter((event) => event.type.startsWith("tool_call_"))
+    .length;
+  const failed = events.some((event) =>
+    ["run_failed", "run_timeout", "tool_call_failed", "artifact_failed"].includes(
+      event.type
+    )
+  );
 
   return (
-    <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
-      {icon}
-      {label}
-    </Badge>
+    <Collapsible onOpenChange={setOpen} open={open}>
+      <CollapsibleTrigger
+        className="group flex min-h-8 items-center gap-2 rounded-md px-2 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        data-testid="run-activity-toggle"
+      >
+        {isActive ? (
+          <Loader2Icon className="size-3.5 animate-spin" />
+        ) : failed ? (
+          <AlertCircleIcon className="size-3.5 text-destructive" />
+        ) : (
+          <CheckCircle2Icon className="size-3.5 text-primary" />
+        )}
+        <span>{activityLabel(events, isActive, toolCount)}</span>
+        <ChevronDownIcon
+          className={cn("size-3.5 transition-transform", open && "rotate-180")}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-1 max-w-2xl overflow-hidden rounded-md border border-border bg-card">
+          {events.map((event) => (
+            <ActivityEvent event={event} key={`${event.seq}-${event.type}`} />
+          ))}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
-function RunFactEvent({ event }: { event: RunEventDTO }) {
-  if (
-    event.type === "artifact_started" ||
-    event.type === "artifact_delta" ||
-    event.type === "artifact_created" ||
-    event.type === "artifact_updated" ||
-    event.type === "artifact_failed"
-  ) {
-    return <ArtifactEventPreview event={event} />;
+function ActivityEvent({ event }: { event: RunEventDTO }) {
+  if (event.type.startsWith("tool_call_")) {
+    return <ToolActivity event={event} />;
   }
 
+  const config = activityConfig(event.type);
   const payload = asRecord(event.payload);
-  const config = factConfig(event.type);
   const title =
     event.title ??
     getString(payload.title) ??
     getString(payload.path) ??
     getString(payload.uri) ??
-    config.title;
+    config.label;
 
   return (
-    <div className="w-[min(100%,450px)] rounded-xl border border-border/50 bg-card px-3 py-2 text-[13px] shadow-[var(--shadow-card)]">
-      <div className="flex min-w-0 items-center gap-2">
-        <config.icon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate font-medium">{title}</span>
-        <Badge className="ml-auto rounded-full text-xs" variant="secondary">
-          {config.badge}
-        </Badge>
-      </div>
-      <div className="mt-2 text-xs text-muted-foreground">
-        {config.description}
-      </div>
+    <div
+      className="flex min-h-9 items-center gap-2 border-b border-border/70 px-3 text-[12px] text-muted-foreground last:border-b-0"
+      data-event-type={event.type}
+      data-testid="run-status-event"
+    >
+      <config.icon
+        className={cn(
+          "size-3.5 shrink-0",
+          config.spin && "animate-spin",
+          config.tone
+        )}
+      />
+      <span className="min-w-0 flex-1 truncate">{title}</span>
+      <span className="shrink-0 text-[11px] text-muted-foreground/60">
+        {formatTime(event.createdAt)}
+      </span>
     </div>
   );
 }
 
-function ArtifactEventPreview({ event }: { event: RunEventDTO }) {
+function ToolActivity({ event }: { event: RunEventDTO }) {
   const payload = asRecord(event.payload);
-  const title =
-    event.title ??
-    getString(payload.title) ??
-    getString(payload.path) ??
-    "Research artifact";
-  const content =
-    event.content ??
-    getString(payload.content) ??
-    getString(payload.markdown) ??
-    getString(payload.text) ??
-    getString(payload.deltaText) ??
-    getString(payload.delta) ??
-    "";
-  const status: UIArtifact["status"] =
-    event.type === "artifact_failed"
-      ? "failed"
-      : event.type === "artifact_started" || event.type === "artifact_delta"
-        ? "streaming"
-        : "idle";
+  const name = getString(payload.name) ?? event.title ?? "Tool";
+  const state = toolState(event.type);
+  const args = payload.args;
+  const result = payload.result;
+  const error = getString(payload.error);
 
   return (
-    <ArtifactPreview
-      artifact={{
-        id: getString(payload.id) ?? getString(payload.artifactId) ?? undefined,
-        title,
-        kind: normalizeArtifactKind(payload.kind),
-        content,
-        status,
-      }}
-    />
-  );
-}
-
-function RunStatusEvent({ event }: { event: RunEventDTO }) {
-  const config = statusConfig(event.type);
-  return (
-    <div className="flex w-fit max-w-[min(100%,450px)] items-center gap-2 rounded-xl border border-border/50 bg-card px-3 py-2 text-[13px] text-muted-foreground shadow-[var(--shadow-card)]">
-      <config.icon className={cn("size-4 shrink-0", config.spin && "animate-spin")} />
-      <span>{event.title ?? config.label}</span>
-    </div>
+    <Collapsible
+      className="group border-b border-border/70 last:border-b-0"
+      data-testid="tool-call"
+      data-tool-name={name}
+      data-tool-status={state}
+    >
+      <CollapsibleTrigger className="flex min-h-9 w-full items-center gap-2 px-3 text-left text-[12px] text-muted-foreground hover:bg-muted/60">
+        <WrenchIcon className="size-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{name}</span>
+        <span className={cn("text-[11px]", state === "failed" && "text-destructive")}>
+          {state}
+        </span>
+        <ChevronDownIcon className="size-3.5 transition-transform group-data-[state=open]:rotate-180" />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="space-y-3 border-t border-border/70 bg-muted/30 px-3 py-3">
+          {args !== undefined && <JsonBlock label="Parameters" value={args} />}
+          {result !== undefined && <JsonBlock label="Result" value={result} />}
+          {error && <JsonBlock label="Error" value={error} />}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
 function JsonBlock({ label, value }: { label: string; value: unknown }) {
   return (
-    <div className="space-y-2 overflow-hidden">
-      <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+    <div className="space-y-1.5 overflow-hidden">
+      <div className="text-[10px] font-medium uppercase text-muted-foreground">
         {label}
-      </h4>
-      <pre className="overflow-x-auto rounded-md bg-muted/50 p-3 text-xs leading-relaxed">
+      </div>
+      <pre className="overflow-x-auto rounded-md bg-background p-2 text-[11px] leading-5 text-foreground">
         {JSON.stringify(value, null, 2)}
       </pre>
     </div>
   );
+}
+
+function compactActivityEvents(events: RunEventDTO[]) {
+  const operational = events.filter(
+    (event) =>
+      event.type !== "agent_thinking" &&
+      event.type !== "agent_message" &&
+      event.type !== "artifact_delta"
+  );
+  const latestToolEvent = new Map<string, RunEventDTO>();
+
+  for (const event of operational) {
+    if (!event.type.startsWith("tool_call_")) continue;
+    const payload = asRecord(event.payload);
+    const key =
+      getString(payload.toolCallId) ??
+      getString(payload.callId) ??
+      getString(payload.id) ??
+      getString(payload.name) ??
+      `tool-${event.seq}`;
+    latestToolEvent.set(key, event);
+  }
+
+  return operational.filter((event) => {
+    if (!event.type.startsWith("tool_call_")) return true;
+    return [...latestToolEvent.values()].includes(event);
+  });
+}
+
+function activityLabel(
+  events: RunEventDTO[],
+  isActive: boolean,
+  toolCount: number
+) {
+  const toolsLabel = `${toolCount} ${toolCount === 1 ? "tool" : "tools"}`;
+  if (isActive) return toolCount ? `Working - ${toolsLabel}` : "Working";
+  if (events.some((event) => event.type === "run_waiting_for_input")) {
+    return "Waiting for input";
+  }
+  if (events.some((event) => event.type === "run_cancelled")) return "Cancelled";
+  if (events.some((event) => event.type === "run_failed" || event.type === "run_timeout")) {
+    return "Run failed";
+  }
+  return toolCount ? `Completed - ${toolsLabel}` : "Completed";
+}
+
+function activityConfig(type: string) {
+  if (type === "run_completed") {
+    return { label: "Completed", icon: CheckCircle2Icon, spin: false, tone: "text-primary" };
+  }
+  if (type === "run_failed" || type === "run_timeout" || type === "artifact_failed") {
+    return { label: "Failed", icon: XCircleIcon, spin: false, tone: "text-destructive" };
+  }
+  if (type === "run_waiting_for_input") {
+    return { label: "Waiting for input", icon: Clock3Icon, spin: false, tone: "" };
+  }
+  if (type === "run_cancelled") {
+    return { label: "Cancelled", icon: CircleIcon, spin: false, tone: "" };
+  }
+  if (type === "file_written") {
+    return { label: "File written", icon: FileTextIcon, spin: false, tone: "" };
+  }
+  if (type === "source_recorded") {
+    return { label: "Source recorded", icon: LinkIcon, spin: false, tone: "" };
+  }
+  if (type.startsWith("artifact_")) {
+    return { label: "Artifact updated", icon: PackageIcon, spin: false, tone: "" };
+  }
+  const spin = ["sandbox_provisioning", "runner_started", "agent_started"].includes(type);
+  return {
+    label: humanizeEventType(type),
+    icon: spin ? Loader2Icon : CheckCircle2Icon,
+    spin,
+    tone: "",
+  };
+}
+
+function joinChunks(chunks: StreamChunkDTO[], type: StreamChunkDTO["streamType"]) {
+  return chunks
+    .filter((chunk) => chunk.streamType === type)
+    .map((chunk) => chunk.chunk)
+    .join("");
+}
+
+function joinEventContent(events: RunEventDTO[], type: string) {
+  return events
+    .filter((event) => event.type === type && event.content)
+    .map((event) => event.content)
+    .join("\n\n");
 }
 
 function toolState(type: string): "running" | "completed" | "failed" {
@@ -435,64 +401,16 @@ function toolState(type: string): "running" | "completed" | "failed" {
   return "running";
 }
 
-function factConfig(type: string) {
-  if (type === "file_written") {
-    return {
-      title: "File written",
-      badge: "file",
-      description: "The run wrote a workspace file.",
-      icon: FileTextIcon,
-    };
-  }
-  if (type === "source_recorded") {
-    return {
-      title: "Source recorded",
-      badge: "source",
-      description: "The run attached a source for later citation.",
-      icon: LinkIcon,
-    };
-  }
-  if (type === "artifact_failed") {
-    return {
-      title: "Artifact failed",
-      badge: "error",
-      description: "Artifact generation failed.",
-      icon: AlertCircleIcon,
-    };
-  }
-  return {
-    title: "Artifact updated",
-    badge: "artifact",
-    description: "The run changed an artifact snapshot.",
-    icon: PackageIcon,
-  };
-}
-
-function statusConfig(type: string) {
-  if (type === "run_completed") {
-    return { label: "Run completed", icon: CheckCircleIcon, spin: false };
-  }
-  if (type === "run_failed" || type === "run_timeout") {
-    return { label: "Run failed", icon: XCircleIcon, spin: false };
-  }
-  if (type === "run_waiting_for_input") {
-    return { label: "Waiting for input", icon: ClockIcon, spin: false };
-  }
-  if (type === "run_cancelled") {
-    return { label: "Run cancelled", icon: CircleIcon, spin: false };
-  }
-  return {
-    label: humanizeEventType(type),
-    icon: Loader2Icon,
-    spin:
-      type === "sandbox_provisioning" ||
-      type === "runner_started" ||
-      type === "agent_started",
-  };
+function formatTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? ""
+    : new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(date);
 }
 
 function humanizeEventType(type: string) {
-  return type.replaceAll("_", " ");
+  const label = type.replaceAll("_", " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -503,10 +421,4 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function getString(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function normalizeArtifactKind(value: unknown): ArtifactKind {
-  return value === "code" || value === "image" || value === "sheet"
-    ? value
-    : "text";
 }

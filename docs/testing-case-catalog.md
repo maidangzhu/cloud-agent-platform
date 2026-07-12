@@ -151,11 +151,11 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | SBX-I-111 | integration | path traversal rejected by sandbox wrapper | none/Vercel | done（path-guard + VercelSandbox wrapper 单测覆盖，拒绝发生在 SDK 调用前） |
 | SBX-W-101 | workflow | sandbox script calls deployed ingest and completes run | Deployed API/Vercel | done（2026-07-12 对 `https://api.sandbox.maidang.me` 实跑：Vercel Sandbox 创建、Pi packages 安装、runtime 启动、hosted ingest 回调、文件/artifact/tool/run completed 全部通过） |
 | SBX-W-102 | workflow | sandbox consumes deployed LLM Proxy SSE while Control Plane fans out chunks to Redis | Deployed API/Vercel/Redis | done（2026-07-12 production fake/real provider gates 均通过；Sandbox 增量消费、Redis 低延迟 fan-out、最终语义一致性已验证） |
-| SBX-W-103 | workflow | sandbox script calls deployed search proxy | Deployed API/Vercel/Exa or fake | done（2026-07-12 production API + Vercel Sandbox + fake search 实跑：`web_search:completed`，2 条 `Source(kind=search_result)` 已验证） |
+| SBX-W-103 | workflow | sandbox script calls deployed search proxy | Deployed API/Vercel/Exa or fake | done（2026-07-12 production browser E2E 使用真实 Exa：`web_search:completed`，OpenAI 官方 URL Source 在 UI 可见） |
 | SBX-W-104 | workflow | cancel request stops sandbox runner | Deployed API/Vercel | done |
 | SBX-W-105 | workflow | waiting_for_input releases sandbox warm and Stage2 reuses it | Deployed API/Vercel | done |
-| SBX-W-106 | workflow | Pi runtime tool calls emit user-visible timeline/SSE start/completed/failed events | Deployed API/Vercel | partial（本地已补 sandbox runner 脚本 seq 回归测试；Deployed API + Vercel gate 仍需具备公网 base URL 后跑） |
-| SBX-W-107 | workflow | Pi runtime `run_command` failure/timeout/rejection maps to visible tool events and terminal policy | Deployed API/Vercel | partial（component 已锁定 terminal policy：非零 exit/timeout 作为 completed terminal result，policy rejection 作为 failed tool call；Deployed API + Vercel gate 待跑） |
+| SBX-W-106 | workflow | Pi runtime tool calls emit user-visible timeline/SSE start/completed/failed events | Deployed API/Vercel | done（production Playwright 验证 `web_search`/`write_file` completed timeline 与 `run_command` failed timeline） |
+| SBX-W-107 | workflow | Pi runtime `run_command` failure/timeout/rejection maps to visible tool events and terminal policy | Deployed API/Vercel | partial（production Playwright 已验证 policy rejection -> failed tool event -> `run_failed`；真实 Vercel non-zero/timeout gate 仍待补） |
 | SBX-L-101 | live | cold start duration and ready latency telemetry | Deployed API/Vercel | planned |
 | SBX-L-102 | live | snapshot/write-file stability before future snapshot migration | Vercel | planned |
 | SBX-L-103 | live | dangerous command/path/network attempts are contained | Vercel | planned |
@@ -170,10 +170,10 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | WF-004 | workflow | tool calls complete-object path | done |
 | WF-005 | workflow | Stage1 -> waiting_for_input -> Stage2 artifact update | done |
 | WF-006 | workflow | cancel running run and release sandbox | done |
-| WF-007 | workflow | tool failure marks run failed and persists error | planned |
-| WF-008 | workflow | tool rejected by policy/SSRF creates rejected tool call | planned |
+| WF-007 | workflow | tool failure marks run failed and persists error | done（required tool 两次失败后 runtime 写 `run_failed` 和持久化 error；browser failure gate 可见） |
+| WF-008 | workflow | tool rejected by policy/SSRF creates rejected tool call | done（production `sudo whoami` policy rejection 产生 failed timeline，run 不 false-complete） |
 | WF-009 | workflow | stale heartbeat sweep interrupts run | done |
-| WF-010 | workflow | deployed sandbox callback completes full run | planned |
+| WF-010 | workflow | deployed sandbox callback completes full run | done（production API live + browser E2E 均通过） |
 | WF-011 | workflow | tool call lifecycle is visible in timeline/SSE, not only run detail `toolCalls` | done |
 | WF-012 | workflow | Pi runtime content/reasoning stream before final semantic event | done（production API + Vercel Sandbox + real provider：两类 chunk 均先于最终语义事件，结束后分别与 `agent_message`/`agent_thinking` 一致） |
 
@@ -188,20 +188,31 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 
 | ID | Level | Scenario | Required Env | Frequency | Status |
 | --- | --- | --- | --- | --- | --- |
-| LIVE-001 | live | deployed `/health` | API base URL | PR/nightly | planned |
-| LIVE-002 | live | deployed unauthenticated `/api/me` | API base URL | PR/nightly | planned |
-| LIVE-003 | live | deployed sign-in + workspace/thread/run write smoke | API base URL + live account | nightly/manual | planned |
-| LIVE-004 | live | deployed SSE connection and snapshot | API base URL + live account | nightly | planned |
-| LIVE-005 | live | deployed sandbox -> Control Plane ingest callback | API base URL + Vercel | nightly | planned |
+| LIVE-001 | live | deployed `/health` | API base URL | PR/nightly | done |
+| LIVE-002 | live | deployed unauthenticated `/api/me` | API base URL | PR/nightly | done |
+| LIVE-003 | live | deployed sign-in + workspace/thread/run write smoke | API base URL + live account | nightly/manual | done |
+| LIVE-004 | live | deployed SSE connection and snapshot | API base URL + live account | nightly | done |
+| LIVE-005 | live | deployed sandbox -> Control Plane ingest callback | API base URL + Vercel | nightly | done |
 | LIVE-006 | live | deployed sandbox -> LLM proxy -> Redis stream -> SSE | API base URL + Vercel + Redis | manual/release | done（2026-07-12 production：authenticated POST SSE 从 cursor `0` 收到 thinking/content；断开后 Last-Event-ID 续传无重复无丢失；最终语义与完整 delta 拼接一致） |
-| LIVE-007 | live | real Exa query and Source normalization | API base URL + Exa | nightly | planned |
-| LIVE-008 | live | real LLM basic completion and usage | API base URL + LLM | nightly | planned |
+| LIVE-007 | live | real Exa query and Source normalization | API base URL + Exa | nightly | done（production browser E2E 展示 OpenAI official sources） |
+| LIVE-008 | live | real LLM basic completion and usage | API base URL + LLM | nightly | done（real provider usage/TTFB/duration 在 UI 可见） |
 | LIVE-009 | live | real LLM fallback and retry | API base URL + multi LLM | manual/release | planned |
 | LIVE-010 | live | long-context expensive run | API base URL + LLM | manual | planned |
 | DEPLOY-001 | live | `apps/api` independent Vercel project Ready | Vercel CLI/API | manual/release | done（production deployment `dpl_JAYkqzC6jNEpbPfj6jVhTeRWMKgZ` Ready，并 alias 到 canonical API host） |
-| DEPLOY-002 | live | `apps/web` independent Vercel project Ready and no root Next.js detection | Vercel CLI/API | manual/release | planned |
-| DEPLOY-003 | live | sandbox callback uses hosted API base URL | API base URL + Vercel | manual/release | planned |
-| RUNTIME-001 | workflow/live | Pi AI runtime replaces product self-written loop | API base URL + Vercel + Pi AI | manual/release | planned |
+| DEPLOY-002 | live | `apps/web` independent Vercel project Ready and no root Next.js detection | Vercel CLI/API | manual/release | done（`dpl_EAxPqvVPQiVHTA6pmjvvpYdLepQB` Ready） |
+| DEPLOY-003 | live | sandbox callback uses hosted API base URL | API base URL + Vercel | manual/release | done |
+| RUNTIME-001 | workflow/live | Pi AI runtime replaces product self-written loop | API base URL + Vercel + Pi AI | manual/release | done |
+
+### 7.1 Browser E2E Matrix
+
+| ID | Scenario | Status |
+| --- | --- | --- |
+| WEB-E2E-001 | signup -> run -> real Exa -> tool timeline -> artifact/source/usage | done |
+| WEB-E2E-002 | completed run refresh restores active thread and full snapshot | done |
+| WEB-E2E-003 | active run cancel -> `run_cancelled` -> refresh recovery | done |
+| WEB-E2E-004 | rejected runtime tool -> failed timeline -> `run_failed` | done |
+| WEB-E2E-005 | desktop/mobile auth and empty composer usability | done |
+| WEB-E2E-006 | waiting_for_input -> user answer -> Stage2 artifact update | planned（后端 workflow done，browser interaction 待补） |
 
 ## 8. Acceptance Rules
 

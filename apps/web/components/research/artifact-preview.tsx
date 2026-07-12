@@ -70,23 +70,25 @@ function PureArtifactPreview({
 
   return (
     <div
-      className={cn("relative w-full max-w-[450px] cursor-pointer", className)}
+      className={cn("relative w-full max-w-[620px] cursor-pointer", className)}
+      data-artifact-id={artifact?.id}
+      data-testid="artifact-preview"
     >
       <div
         aria-hidden="true"
-        className="absolute left-0 top-0 z-10 size-full rounded-xl"
+        className="absolute left-0 top-0 z-10 size-full rounded-md"
         onClick={openArtifact}
         ref={hitboxRef}
         role="presentation"
       >
         <div className="flex w-full items-center justify-end p-4">
-          <div className="absolute right-[9px] top-[13px] rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+          <div className="absolute right-2.5 top-2.5 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
             <FullscreenIcon className="size-4" />
           </div>
         </div>
       </div>
 
-      <div className="flex flex-row items-center justify-between gap-2 rounded-t-2xl border border-b-0 border-border/50 bg-card px-4 py-3 dark:bg-muted">
+      <div className="flex flex-row items-center justify-between gap-2 rounded-t-md border border-b-0 border-border bg-card px-3 py-2.5">
         <div className="flex min-w-0 flex-row items-center gap-2.5">
           <div className="text-muted-foreground">
             {status === "streaming" ? (
@@ -100,13 +102,13 @@ function PureArtifactPreview({
         <div className="w-8" />
       </div>
 
-      <div className="h-[257px] overflow-hidden rounded-b-2xl border border-t-0 border-border/50 bg-muted p-6">
+      <div className="h-44 overflow-hidden rounded-b-md border border-t-0 border-border bg-card px-4 py-3">
         {hasContent ? (
-          <div className="relative h-full overflow-hidden text-[13px] leading-6 text-muted-foreground">
+          <div className="relative h-full overflow-hidden text-[13px] leading-6 text-foreground/80">
             <p className="whitespace-pre-wrap break-words">
               {artifact?.content}
             </p>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-muted to-transparent dark:from-muted" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-card to-transparent" />
           </div>
         ) : (
           <div className="space-y-3">
@@ -114,7 +116,7 @@ function PureArtifactPreview({
             <div className="h-3 w-full rounded bg-muted-foreground/15" />
             <div className="h-3 w-11/12 rounded bg-muted-foreground/15" />
             <div className="h-3 w-4/5 rounded bg-muted-foreground/15" />
-            <div className="mt-5 h-20 rounded-xl border border-border/60 bg-background/70" />
+            <div className="mt-5 h-16 rounded-md border border-border bg-background/70" />
           </div>
         )}
       </div>

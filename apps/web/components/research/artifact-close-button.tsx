@@ -9,6 +9,7 @@ function PureArtifactCloseButton() {
 
   return (
     <button
+      aria-label="Close artifact panel"
       className="group flex size-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-all duration-150 hover:border-border hover:bg-muted hover:text-foreground active:scale-95"
       data-testid="artifact-close-button"
       onClick={() => {

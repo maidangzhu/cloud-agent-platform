@@ -363,7 +363,7 @@ Control Plane 进入下一部分前，必须完成：
 
 ### 7.1 Provider 与延迟边界
 
-- provider channel 由 Control Plane 按 `modelHint` 映射，Sandbox 只发送 `modelHint=pi-runtime`，不持有 provider channel 选择权。production 使用 `LLM_CHANNEL_PI_RUNTIME=2`。
+- provider channel 由 Control Plane 按 `modelHint` 映射，Sandbox 不持有 provider channel 或密钥。普通 reasoning/content 回合发送 `modelHint=pi-runtime`（production 使用 `LLM_CHANNEL_PI_RUNTIME=2`）；仍有用户明确点名的必需工具时发送 `modelHint=pi-runtime-tools`，并由 Control Plane 选择 tool-capable channel。
 - 2026-07-12 capability probe：channel 1 的配置模型只返回 content；channel 2 的配置模型同时返回 reasoning/content；channel 3 在探测时返回 429，因此不作为 Pi runtime 当前 release channel。
 - LLM Proxy 从请求开始计时到首个 reasoning/content delta，终态 SSE metadata 和 `LLMUsageRecord.ttfbMs` 使用同一值。实测基线约 5.7-8.0 秒，release gate 暂定 `ttfbMs <= 15_000`。
 - 不允许为了减少 Redis entry 数量而等待或批量攒 thinking/content；每个 provider delta 立即同步 fan-out 到 Sandbox SSE 和 Redis。
@@ -424,3 +424,16 @@ Part 5 已关闭，可以进入 Part 6 Full Product Path。
 - Browser E2E：login -> workspace -> thread -> run -> tool timeline -> streaming -> artifact。
 
 完整链路只用于 release gate，不用于代替模块测试。
+
+### 9.1 2026-07-12 验收结果
+
+| 验收面 | 自动化证据 | 结果 |
+| --- | --- | --- |
+| hosted success path | `apps/api/src/live/deployed-api.live.test.ts` | real provider + deployed API + Vercel Sandbox 完成 tool/file/artifact 回调；7 passed / 2 gated skipped |
+| browser success/recovery | `apps/web/e2e/full-product-path.live.spec.ts` | signup -> workspace/thread/run -> Exa -> tool timeline -> artifact/source/usage -> refresh recovery 通过 |
+| browser cancel | 同上 | provisioning/running 前取消写 `run_cancelled` 事实，刷新后恢复通过 |
+| browser failure | 同上 | policy-rejected `run_command` 产生 failed tool event 和 `run_failed`，不再 false-complete |
+| responsive shell | 同上 | desktop + Pixel 7 注册和空 composer gate 通过 |
+| deploy | API `dpl_9EM1KpfV7aqVd5JpXGfwjCKmY87Z`；Web `dpl_EAxPqvVPQiVHTA6pmjvvpYdLepQB` | canonical hosts Ready |
+
+本轮同时修复了三个只有 Full Product Path 才暴露的问题：tool-capable/reasoning channel 分工、早取消缺少终态事件、刷新后 active thread 丢失。Part 6 当前产品 release path 已关闭。`waiting_for_input -> Stage2` 的浏览器交互仍保留为 Group 20 独立扩展项；其后端 workflow 已有覆盖，但本轮没有伪装成 browser done。

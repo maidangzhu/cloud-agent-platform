@@ -1,24 +1,16 @@
 "use client";
 
 import {
-  ArchiveIcon,
   ChevronUpIcon,
+  FlaskConicalIcon,
   Loader2Icon,
   MessageSquareIcon,
-  MoreHorizontalIcon,
-  PanelLeftIcon,
   PenSquareIcon,
   PlusIcon,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import type { CSSProperties, ReactNode } from "react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   Sidebar,
   SidebarContent,
@@ -35,11 +27,6 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import type { CurrentUser, LoadState, Thread, Workspace } from "./types";
 
 type ResearchSidebarProps = {
@@ -73,51 +60,40 @@ export function ResearchSidebar({
   user,
   workspaces,
 }: ResearchSidebarProps) {
-  const { setOpenMobile, toggleSidebar } = useSidebar();
+  const { setOpenMobile } = useSidebar();
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="pb-0 pt-3">
+      <SidebarHeader className="border-b border-sidebar-border px-3 py-3">
         <SidebarMenu>
           <SidebarMenuItem className="flex flex-row items-center justify-between">
-            <div className="group/logo relative flex items-center justify-center">
-              <SidebarMenuButton
-                className="size-8 items-center justify-center !px-0 group-data-[collapsible=icon]:group-hover/logo:opacity-0"
-                onClick={() => setOpenMobile(false)}
-                tooltip="Research Workspace Agent"
-              >
-                <ArchiveIcon className="size-4 text-sidebar-foreground/50" />
-                <span className="sr-only">Research Workspace Agent</span>
-              </SidebarMenuButton>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <SidebarMenuButton
-                    className="pointer-events-none absolute inset-0 size-8 opacity-0 group-data-[collapsible=icon]:pointer-events-auto group-data-[collapsible=icon]:group-hover/logo:opacity-100"
-                    onClick={() => toggleSidebar()}
-                  >
-                    <PanelLeftIcon className="size-4" />
-                    <span className="sr-only">Open sidebar</span>
-                  </SidebarMenuButton>
-                </TooltipTrigger>
-                <TooltipContent className="hidden md:block" side="right">
-                  Open sidebar
-                </TooltipContent>
-              </Tooltip>
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <FlaskConicalIcon className="size-4" />
+              </div>
+              <div className="min-w-0 group-data-[collapsible=icon]:hidden">
+                <div className="truncate text-[13px] font-semibold text-sidebar-accent-foreground">
+                  Research Workspace
+                </div>
+                <div className="truncate text-[11px] text-sidebar-foreground/60">
+                  Agent workspace
+                </div>
+              </div>
             </div>
             <div className="group-data-[collapsible=icon]:hidden">
-              <SidebarTrigger className="text-sidebar-foreground/60 transition-colors duration-150 hover:text-sidebar-foreground" />
+              <SidebarTrigger className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" />
             </div>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup className="pt-1">
+        <SidebarGroup className="px-2 pt-3">
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  className="h-8 rounded-lg border border-sidebar-border text-[13px] text-sidebar-foreground/70 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                  className="h-9 rounded-md bg-sidebar-accent px-2.5 text-[13px] font-medium text-sidebar-accent-foreground hover:bg-sidebar-accent/80"
                   disabled={isCreatingWorkspace}
                   onClick={() => {
                     setOpenMobile(false);
@@ -156,7 +132,7 @@ export function ResearchSidebar({
         />
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-sidebar-border pb-3 pt-2">
+      <SidebarFooter className="border-t border-sidebar-border p-2.5">
         <ResearchUserNav onSignOut={onSignOut} user={user} />
       </SidebarFooter>
       <SidebarRail />
@@ -187,8 +163,8 @@ function WorkspaceThreadNav({
 }) {
   return (
     <>
-      <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-        <SidebarGroupLabel>Workspaces</SidebarGroupLabel>
+      <SidebarGroup className="px-2 pt-3 group-data-[collapsible=icon]:hidden">
+        <SidebarGroupLabel className="h-7 px-2 text-[11px] font-medium tracking-normal text-sidebar-foreground/60">Workspaces</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             {loadState === "loading" && <SidebarLoadingRows />}
@@ -204,11 +180,11 @@ function WorkspaceThreadNav({
             {workspaces.map((workspace) => (
               <SidebarMenuItem key={workspace.id}>
                 <SidebarMenuButton
-                  className="h-8 rounded-none text-[13px] text-sidebar-foreground/50 transition-all duration-150 hover:bg-transparent hover:text-sidebar-foreground data-[active=true]:border-b data-[active=true]:border-dashed data-[active=true]:border-sidebar-foreground/50 data-[active=true]:font-medium data-[active=true]:text-sidebar-foreground"
+                  className="h-8 rounded-md px-2 text-[13px] text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground"
                   isActive={workspace.id === activeWorkspaceId}
                   onClick={() => onSelectWorkspace(workspace.id)}
                 >
-                  <ArchiveIcon className="size-4" />
+                  <span className="size-1.5 shrink-0 rounded-full bg-current opacity-50" />
                   <span>{workspace.title}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -217,11 +193,12 @@ function WorkspaceThreadNav({
         </SidebarGroupContent>
       </SidebarGroup>
 
-      <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-        <SidebarGroupLabel>Threads</SidebarGroupLabel>
+      <SidebarGroup className="min-h-0 flex-1 px-2 pt-1 group-data-[collapsible=icon]:hidden">
+        <SidebarGroupLabel className="h-7 px-2 text-[11px] font-medium tracking-normal text-sidebar-foreground/60">Threads</SidebarGroupLabel>
         <SidebarMenuAction
           disabled={!activeWorkspaceId || isCreatingThread}
           onClick={onCreateThread}
+          className="top-1.5 rounded-md text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           title="Create thread"
         >
           {isCreatingThread ? (
@@ -267,32 +244,13 @@ function WorkspaceThreadNavItem({
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
-        className="h-8 rounded-none text-[13px] text-sidebar-foreground/50 transition-all duration-150 hover:bg-transparent hover:text-sidebar-foreground data-active:bg-transparent data-active:font-normal data-active:text-sidebar-foreground/50 data-[active=true]:border-b data-[active=true]:border-dashed data-[active=true]:border-sidebar-foreground/50 data-[active=true]:font-medium data-[active=true]:text-sidebar-foreground"
+        className="h-8 rounded-md px-2 text-[13px] text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground"
         isActive={isActive}
         onClick={onSelect}
       >
-        <MessageSquareIcon className="size-4" />
+        <MessageSquareIcon className="size-3.5 opacity-60" />
         <span>{thread.title}</span>
       </SidebarMenuButton>
-      <DropdownMenu modal={true}>
-        <DropdownMenuTrigger asChild>
-          <SidebarMenuAction
-            className="mr-0.5 rounded-md text-sidebar-foreground/50 ring-0 transition-colors duration-150 hover:text-sidebar-foreground focus-visible:ring-0 data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-            showOnHover={!isActive}
-          >
-            <MoreHorizontalIcon />
-            <span className="sr-only">More</span>
-          </SidebarMenuAction>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" side="bottom">
-          <DropdownMenuItem disabled>
-            Rename is not wired yet
-          </DropdownMenuItem>
-          <DropdownMenuItem disabled>
-            Archive is not wired yet
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
     </SidebarMenuItem>
   );
 }
@@ -312,12 +270,12 @@ function ResearchUserNav({
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <SidebarMenuButton className="h-8 rounded-lg bg-transparent px-2 text-sidebar-foreground/70 transition-colors duration-150 hover:text-sidebar-foreground data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
+            <SidebarMenuButton className="h-9 rounded-md bg-transparent px-2 text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
               <div
                 className="size-5 shrink-0 rounded-full ring-1 ring-sidebar-border/50"
                 style={{
                   background: user
-                    ? `linear-gradient(135deg, oklch(0.35 0.08 ${emailToHue(label)}), oklch(0.25 0.05 ${emailToHue(label) + 40}))`
+                    ? `linear-gradient(135deg, oklch(0.62 0.11 ${emailToHue(label)}), oklch(0.48 0.09 ${emailToHue(label) + 40}))`
                     : "oklch(0.12 0 0 / 0.08)",
                 }}
               />

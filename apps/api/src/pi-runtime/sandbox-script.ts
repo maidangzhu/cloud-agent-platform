@@ -19,6 +19,8 @@ let latestAssistantReasoning = "";
 let latestAssistantContent = "";
 let latestAssistantModel = "";
 const pendingLlmStreams = new Set();
+const completedToolNames = new Set();
+const toolAttemptCounts = new Map();
 
 const forbiddenEnvKeys = [
   "DATABASE_URL",
@@ -108,6 +110,7 @@ async function callSearchProxy(input) {
 }
 
 async function runTrackedTool(toolCallId, name, args, run) {
+  toolAttemptCounts.set(name, (toolAttemptCounts.get(name) || 0) + 1);
   const startedEventSeq = seq++;
   await postToolCall({
     id: toolCallId,
@@ -127,6 +130,7 @@ async function runTrackedTool(toolCallId, name, args, run) {
       result: result.details,
       completedAt: new Date().toISOString(),
     });
+    completedToolNames.add(name);
     return result;
   } catch (error) {
     await postToolCall({
@@ -847,6 +851,27 @@ function createStreamFn() {
     const task = (async () => {
       const requestStartedAt = Date.now();
       try {
+        const lastMessage = context.messages[context.messages.length - 1];
+        const missingRequiredTools = getMissingRequiredTools();
+        const forceableRequiredTools = missingRequiredTools.filter(
+          (tool) => (toolAttemptCounts.get(tool) || 0) < 2,
+        );
+        const requiredToolTurn =
+          forceableRequiredTools.length > 0 &&
+          (lastMessage?.role === "user" || lastMessage?.role === "toolResult");
+        const requestTools = requiredToolTurn
+          ? (context.tools || []).filter((tool) =>
+              forceableRequiredTools.includes(tool.name),
+            )
+          : context.tools || [];
+        const requestMessages =
+          requiredToolTurn && lastMessage?.role === "toolResult"
+            ? buildRequiredToolRepairMessages(
+                context,
+                lastMessage,
+                forceableRequiredTools[0],
+              )
+            : toLlmMessages(context);
         const response = await fetch(config.llmProxyUrl, {
           method: "POST",
           headers: {
@@ -856,11 +881,22 @@ function createStreamFn() {
           body: JSON.stringify({
             runId: config.runId,
             provider: config.llmProvider || "real",
-            modelHint: config.modelHint || "pi-runtime",
+            modelHint:
+              requiredToolTurn
+                ? "pi-runtime-tools"
+                : config.modelHint || "pi-runtime",
             stream: true,
             thinkingLevel: config.thinkingLevel || "medium",
-            messages: toLlmMessages(context),
-            tools: context.tools || [],
+            messages: requestMessages,
+            tools: requestTools,
+            ...(requiredToolTurn
+              ? {
+                  toolChoice: {
+                    type: "function",
+                    function: { name: forceableRequiredTools[0] },
+                  },
+                }
+              : {}),
           }),
         });
         if (!response.ok) {
@@ -976,6 +1012,37 @@ async function waitForPendingLlmStreams() {
   }
 }
 
+function getMissingRequiredTools() {
+  const requiredTools = Array.isArray(config.requiredTools)
+    ? config.requiredTools
+    : [];
+  return requiredTools.filter((tool) => {
+    if (tool === "create_artifact") return completedArtifactCount === 0;
+    return !completedToolNames.has(tool);
+  });
+}
+
+function buildRequiredToolRepairMessages(context, lastMessage, toolName) {
+  const messages = [];
+  if (context.systemPrompt) {
+    messages.push({ role: "system", content: context.systemPrompt });
+  }
+  const originalUser = context.messages.find((message) => message.role === "user");
+  if (originalUser) {
+    messages.push({ role: "user", content: stringifyContent(originalUser.content) });
+  }
+  messages.push({
+    role: "user",
+    content:
+      "Previous tool result:\\n" +
+      stringifyContent(lastMessage.content) +
+      "\\nContinue by calling " +
+      toolName +
+      ". Return the tool call now, not prose.",
+  });
+  return messages;
+}
+
 const model = {
   id: "cap-llm-proxy",
   name: "Control Plane LLM Proxy",
@@ -1010,6 +1077,8 @@ try {
 	        "Use read_file, write_file, list_directory, list_files, and run_command for workspace filesystem and bash tasks.",
 	        "When the user asks to run a command, execute it with run_command and report the stdout, stderr, and exit code.",
 	        "Use tools to write durable workspace files and create artifacts.",
+	        "When the user explicitly names a tool, call it before giving a final answer.",
+	        "Never claim that you will start a tool action and then stop without executing it.",
 	        "Never access database, Redis, auth, or long-lived provider credentials directly.",
 	      ].join("\\n"),
       model,
@@ -1023,6 +1092,21 @@ try {
   });
   await agent.prompt(config.prompt);
   await waitForPendingLlmStreams();
+  const missingAfterFirstTurn = getMissingRequiredTools();
+  if (missingAfterFirstTurn.length > 0) {
+    await agent.prompt(
+      "The previous turn did not execute these explicitly required tools: " +
+        missingAfterFirstTurn.join(", ") +
+        ". Execute them now before giving a final answer.",
+    );
+    await waitForPendingLlmStreams();
+  }
+  const missingAfterRetry = getMissingRequiredTools();
+  if (missingAfterRetry.length > 0) {
+    throw new Error(
+      "REQUIRED_TOOL_NOT_EXECUTED:" + missingAfterRetry.join(","),
+    );
+  }
   await ensureArtifactsForWrittenFiles();
   await postHeartbeat("finalize");
 

@@ -5,6 +5,8 @@ apps/*/.env
 apps/*/.env.*
 apps/*/.vercel
 apps/web/.next
+apps/web/playwright-report
+apps/web/test-results
 node_modules
 apps/*/node_modules
 packages/*/node_modules

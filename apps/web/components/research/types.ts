@@ -86,4 +86,18 @@ export type RunSource = {
   createdAt: string;
 };
 
+export type RunUsageRecord = {
+  id: string;
+  runId: string;
+  provider: string;
+  model: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  ttfbMs?: number;
+  durationMs?: number;
+  cost?: number;
+  createdAt: string;
+};
+
 export type LoadState = "idle" | "loading" | "ready" | "unauthorized" | "error";

@@ -26,6 +26,12 @@ export type LlmFinishReason =
   | "error"
   | "unknown";
 
+export type LlmToolChoice =
+  | "auto"
+  | "none"
+  | "required"
+  | { type: "function"; function: { name: string } };
+
 export type LlmUsage = {
   inputTokens: number;
   outputTokens: number;
@@ -316,6 +322,7 @@ export async function completeWithRealProvider(params: {
   maxRetries?: number;
   env?: NodeJS.ProcessEnv;
   reasoningEffort?: string;
+  toolChoice?: LlmToolChoice;
 }): Promise<
   | { ok: true; result: LlmProviderResult }
   | { ok: false; status: number; code: number; message: string }
@@ -346,6 +353,7 @@ export async function completeWithRealProvider(params: {
           transport,
           timeoutMs,
           reasoningEffort: params.reasoningEffort,
+          toolChoice: params.toolChoice,
         });
         const result = normalizeOpenAiChatCompletion(response, entry);
         attempts.push({
@@ -394,6 +402,7 @@ export async function streamWithRealProvider(params: {
   maxRetries?: number;
   env?: NodeJS.ProcessEnv;
   reasoningEffort?: string;
+  toolChoice?: LlmToolChoice;
   onDelta: (delta: LlmStreamDelta) => Promise<void> | void;
 }): Promise<
   | { ok: true; result: LlmProviderResult }
@@ -427,6 +436,7 @@ export async function streamWithRealProvider(params: {
           transport,
           timeoutMs,
           reasoningEffort: params.reasoningEffort,
+          toolChoice: params.toolChoice,
           onDelta: async (delta) => {
             emittedDelta = true;
             firstDeltaAt ??= Date.now();
@@ -508,6 +518,7 @@ async function postOpenAiChatCompletion(params: {
   transport: LlmHttpTransport;
   timeoutMs: number;
   reasoningEffort?: string;
+  toolChoice?: LlmToolChoice;
 }): Promise<unknown> {
   const url = `${params.entry.baseUrl.replace(/\/+$/, "")}/chat/completions`;
   const tools = normalizeOpenAiTools(params.tools);
@@ -525,6 +536,9 @@ async function postOpenAiChatCompletion(params: {
           model: params.entry.model,
           messages: params.messages,
           ...(tools.length > 0 ? { tools } : {}),
+          ...(tools.length > 0 && params.toolChoice
+            ? { tool_choice: params.toolChoice }
+            : {}),
           ...(params.reasoningEffort && params.reasoningEffort !== "off"
             ? { reasoning_effort: params.reasoningEffort }
             : {}),
@@ -546,6 +560,7 @@ async function postOpenAiChatCompletionStream(params: {
   transport: LlmHttpTransport;
   timeoutMs: number;
   reasoningEffort?: string;
+  toolChoice?: LlmToolChoice;
   onDelta: (delta: LlmStreamDelta) => Promise<void>;
 }): Promise<Omit<LlmProviderResult, "durationMs" | "attempts">> {
   const url = `${params.entry.baseUrl.replace(/\/+$/, "")}/chat/completions`;
@@ -563,6 +578,9 @@ async function postOpenAiChatCompletionStream(params: {
         model: params.entry.model,
         messages: params.messages,
         ...(tools.length > 0 ? { tools } : {}),
+        ...(tools.length > 0 && params.toolChoice
+          ? { tool_choice: params.toolChoice }
+          : {}),
         ...(params.reasoningEffort && params.reasoningEffort !== "off"
           ? { reasoning_effort: params.reasoningEffort }
           : {}),

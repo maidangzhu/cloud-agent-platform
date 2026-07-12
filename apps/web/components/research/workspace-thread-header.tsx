@@ -19,24 +19,30 @@ function PureWorkspaceThreadHeader({
   const { state: sidebarState, isMobile } = useSidebar();
   const { setArtifact } = useArtifact();
 
-  if (sidebarState === "collapsed" && !isMobile) {
-    return null;
-  }
-
   return (
-    <header className="sticky top-0 flex h-14 items-center gap-2 bg-sidebar px-3">
-      <SidebarTrigger className="md:hidden" />
-      <div className="min-w-0">
-        <div className="truncate text-[13px] font-medium">
-          {activeWorkspace?.title ?? "Research workspace"}
-        </div>
-        <div className="truncate text-xs text-muted-foreground">
-          {activeThread?.title ?? headerSubtitle(state)}
-        </div>
+    <header className="flex h-[52px] shrink-0 items-center gap-2 border-b border-border bg-background px-3 md:px-4">
+      {(isMobile || sidebarState === "collapsed") && (
+        <SidebarTrigger className="size-8 text-muted-foreground" />
+      )}
+      <div className="flex min-w-0 items-center gap-2 text-[13px]">
+        <span className="max-w-48 truncate font-medium text-foreground">
+          {activeWorkspace?.title ?? "Research Workspace"}
+        </span>
+        {activeThread && (
+          <>
+            <span className="text-border">/</span>
+            <span className="max-w-72 truncate text-muted-foreground">
+              {activeThread.title}
+            </span>
+          </>
+        )}
+        {!activeThread && state !== "ready" && state !== "idle" && (
+          <span className="text-muted-foreground">{headerSubtitle(state)}</span>
+        )}
       </div>
       <Button
         aria-label="Open artifact panel"
-        className="ml-auto"
+        className="ml-auto size-8 text-muted-foreground"
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           setArtifact((currentArtifact) => ({
@@ -73,5 +79,5 @@ function headerSubtitle(state: LoadState) {
   if (state === "error") {
     return "API unavailable";
   }
-  return "Ready";
+  return "";
 }
