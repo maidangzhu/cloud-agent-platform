@@ -12,7 +12,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentTool, AgentToolResult, StreamFn } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
-import { fetchUrlTool, type FetchUrlResult } from "../tools/fetch-url.js";
+import { fetchUrlTool } from "../tools/fetch-url.js";
 import type { PiRuntimeStartConfig } from "./config.js";
 import {
   asRecord,
@@ -90,13 +90,19 @@ export function createPiRuntimeAdapterTools(
             const stat = await fs.stat(resolved.absolute);
             if (!stat.isFile()) throw new Error("path is not a file");
             const content = await fs.readFile(resolved.absolute, "utf8");
+            const truncated = byteLength(content) > MAX_FILE_READ_BYTES;
+            const kept = truncated
+              ? Buffer.from(content, "utf8")
+                  .subarray(0, MAX_FILE_READ_BYTES)
+                  .toString("utf8")
+              : content;
             const details = {
               path: resolved.relative,
-              content,
+              content: kept,
               size: stat.size,
-              truncated: false,
+              truncated,
             };
-            return toolResult([content || "(empty file)"], details);
+            return toolResult([kept || "(empty file)"], details);
           },
         });
       },
@@ -191,7 +197,7 @@ export function createPiRuntimeAdapterTools(
               transport: (url, init) => fetch(url, { ...init, signal }),
             });
             if (result.status !== "completed") {
-              throw new Error(fetchUrlError(result));
+              throw new RuntimeToolError(result.error, result.status);
             }
             return toolResult(
               [result.result.text ?? `Fetched ${result.result.url}`],
@@ -447,7 +453,7 @@ async function runTrackedTool<TDetails>(
       id: input.toolCallId,
       eventSeq: client.nextSeq(),
       name: input.name,
-      status: "failed",
+      status: err instanceof RuntimeToolError ? err.status : "failed",
       args: input.args,
       error,
       completedAt: new Date(),
@@ -457,7 +463,18 @@ async function runTrackedTool<TDetails>(
 }
 
 const MAX_LIST_ENTRIES = 200;
+const MAX_FILE_READ_BYTES = 120_000;
 const MAX_COMMAND_OUTPUT_CHARS = 20_000;
+
+class RuntimeToolError extends Error {
+  constructor(
+    message: string,
+    readonly status: "failed" | "rejected",
+  ) {
+    super(message);
+    this.name = "RuntimeToolError";
+  }
+}
 
 function resolveWorkspacePath(
   workspaceRoot: string,
@@ -633,6 +650,10 @@ function truncateText(value: string): { text: string; truncated: boolean } {
   return { text: value.slice(0, MAX_COMMAND_OUTPUT_CHARS), truncated: true };
 }
 
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
 function createAssistantMessage(input: {
   model: Model<any>;
   data: ControlPlaneJson;
@@ -738,10 +759,6 @@ function toolResult<TDetails>(
     details,
     ...(terminate ? { terminate: true } : {}),
   };
-}
-
-function fetchUrlError(result: Exclude<FetchUrlResult, { status: "completed" }>): string {
-  return result.error;
 }
 
 function parseJsonRecord(value: string): Record<string, unknown> {

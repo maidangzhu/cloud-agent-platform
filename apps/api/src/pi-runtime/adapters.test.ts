@@ -277,6 +277,63 @@ describe("Pi runtime Control Plane adapters", () => {
     }
   });
 
+  it("truncates read_file output over the runtime file-read budget", async () => {
+    const workspaceRoot = await mkdtemp(path.join(tmpdir(), "cap-pi-tools-"));
+    const { calls, transport } = recordingTransport((url) => {
+      if (url.endsWith("/api/ingest/tool-calls")) return ok({ toolCall: {} });
+      return error(404, "unexpected path");
+    });
+    const client = new PiRuntimeControlPlaneClient({
+      config: buildPiRuntimeStartConfig({
+        apiBaseUrl: "https://api.sandbox.maidang.me",
+        runToken: "run-token",
+        workspaceRoot,
+        run: {
+          id: "run_1",
+          workspaceId: "workspace_1",
+          threadId: "thread_1",
+          userId: "user_1",
+          prompt: "Research adapter behavior",
+          maxDurationSec: 120,
+        },
+      }),
+      transport,
+    });
+    const tool = createPiRuntimeAdapterTools(client).find(
+      (item) => item.name === "read_file",
+    );
+
+    try {
+      const content = "x".repeat(120_001);
+      await writeFile(path.join(workspaceRoot, "large.txt"), content, "utf8");
+
+      const result = await tool?.execute("tool_read_large_1", {
+        path: "large.txt",
+      });
+
+      expect(result?.details).toMatchObject({
+        path: "large.txt",
+        size: 120_001,
+        truncated: true,
+      });
+      expect(String(result?.details.content)).toHaveLength(120_000);
+      const firstContent = result?.content[0];
+      expect(firstContent?.type).toBe("text");
+      expect(firstContent?.type === "text" ? firstContent.text : "").toHaveLength(
+        120_000,
+      );
+      expect(calls.map((call) => call.body.status)).toEqual([
+        "running",
+        "completed",
+      ]);
+      expect(calls[1].body.result).toMatchObject({
+        truncated: true,
+      });
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("records run_command non-zero exit as completed terminal output", async () => {
     const workspaceRoot = await mkdtemp(path.join(tmpdir(), "cap-pi-tools-"));
     const { calls, transport } = recordingTransport((url) => {
@@ -503,6 +560,34 @@ describe("Pi runtime Control Plane adapters", () => {
       result: { url: "https://example.com/", statusCode: 200 },
     });
     expect(calls.map((call) => call.body.status)).toEqual(["running", "completed"]);
+  });
+
+  it("records fetch_url SSRF rejection as a rejected tool call", async () => {
+    const { calls, transport } = recordingTransport((url) => {
+      if (url.endsWith("/api/ingest/tool-calls")) return ok({ toolCall: {} });
+      return error(404, "unexpected path");
+    });
+    const client = new PiRuntimeControlPlaneClient({ config, transport });
+    const tool = createPiRuntimeAdapterTools(client).find(
+      (item) => item.name === "fetch_url",
+    );
+
+    await expect(
+      tool?.execute("tool_fetch_rejected_1", {
+        url: "http://127.0.0.1/private",
+      }),
+    ).rejects.toThrow("SSRF guard rejected private address");
+
+    expect(calls.map((call) => call.body.status)).toEqual([
+      "running",
+      "rejected",
+    ]);
+    expect(calls[1].body).toMatchObject({
+      id: "tool_fetch_rejected_1",
+      eventSeq: 3,
+      status: "rejected",
+      error: "SSRF guard rejected private address",
+    });
   });
 });
 

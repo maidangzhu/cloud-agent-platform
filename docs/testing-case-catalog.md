@@ -75,6 +75,8 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | USAGE-I-001 | integration | Usage | records listing, filters, pagination, no balance rejection | done |
 | TOOL-I-001 | integration | fetch_url | SSRF guard, retry, failed/rejected status, source recording | done |
 | TOOL-I-002 | integration | web_search | tool result -> Source records | done |
+| RT-U-001 | unit/component | Pi runtime tools | `read_file` large output truncation matches sandbox script budget | done |
+| RT-C-002 | component | Pi runtime tools | `fetch_url` SSRF rejection maps to `RunToolCall.status=rejected` | done |
 | LLM-U-001 | unit | LLM | model config, finish_reason normalization | done |
 | LLM-U-002 | unit | LLM | retry/fallback/timeout shell using fake transport | done |
 | LLM-I-001 | integration | LLM Proxy | auth, terminal reject, fake output, usage, stream | done |
