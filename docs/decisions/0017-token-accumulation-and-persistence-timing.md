@@ -2,6 +2,8 @@
 
 **状态：** 已接受（2026-07-03）
 
+> 2026-07-12 补充：hosted LLM Proxy 引入后，provider delta 先到 Control Plane。逐 delta 的双路转发改由 ADR-0023 定义；本文“完整语义文本只在 Sandbox 内累计并按语义边界落库”的决策保持不变。
+
 ## 决策
 
 补全 [ADR-0011](./0011-dual-channel-streaming.md)（双通道流）和 [ADR-0016](./0016-token-stream-relay-redis-pubsub.md)（Redis 转发）之间的一个空白：token 流转发的同时，"攒批"发生在哪里、"落库"在什么时机触发。

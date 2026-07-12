@@ -6,10 +6,13 @@ import { isTerminalStatus, type RunStatus } from "../run/transitions.js";
 import {
   completeWithRealProvider,
   fakeComplete,
+  streamWithRealProvider,
   type LlmMessage,
   type LlmProviderResult,
+  type LlmStreamDelta,
 } from "./provider.js";
 import { recordLLMUsage } from "../usage/store.js";
+import { addRunStreamChunk } from "../redis/streams.js";
 
 type AuthenticatedRun = {
   id: string;
@@ -17,6 +20,7 @@ type AuthenticatedRun = {
   threadId: string;
   userId: string;
   status: RunStatus;
+  maxDurationSec: number;
 };
 
 type LlmSseWriter = {
@@ -53,24 +57,49 @@ llmRoutes.post("/api/llm-proxy", async (c) => {
     return c.json({ code: 1006, message: parsed.message, data: null }, 400);
   }
 
+  if (parsed.stream) {
+    return streamSSE(c, async (stream) => {
+      const onDelta = (delta: LlmStreamDelta) =>
+        fanOutLlmDelta(stream, run, delta);
+      const result =
+        parsed.provider === "real"
+          ? await streamWithRealProvider({
+              messages: parsed.messages,
+              tools: parsed.tools,
+              modelHint: parsed.modelHint,
+              reasoningEffort: parsed.thinkingLevel,
+              onDelta,
+            })
+          : await streamFakeProvider({
+              messages: parsed.messages,
+              modelHint: parsed.modelHint,
+              onDelta,
+            });
+      if (result.ok === false) {
+        await stream.writeSSE({
+          event: "error",
+          data: JSON.stringify({ code: result.code, message: result.message }),
+        });
+        return;
+      }
+      await recordUsageBestEffort(run.id, result.result);
+      await writeLlmTerminal(stream, result.result);
+    });
+  }
+
   const result =
     parsed.provider === "real"
       ? await completeWithRealProvider({
           messages: parsed.messages,
           tools: parsed.tools,
           modelHint: parsed.modelHint,
+          reasoningEffort: parsed.thinkingLevel,
         })
       : { ok: true as const, result: fakeComplete(parsed.messages, parsed.modelHint) };
   if (result.ok === false) {
     return jsonResponse(result.code, result.message, result.status);
   }
   await recordUsageBestEffort(run.id, result.result);
-
-  if (parsed.stream) {
-    return streamSSE(c, async (stream) => {
-      await writeLlmStream(stream, result.result);
-    });
-  }
 
   return c.json({
     code: 0,
@@ -102,6 +131,7 @@ function parseLlmProxyBody(
       provider: "fake" | "real";
       stream: boolean;
       tools: unknown[];
+      thinkingLevel: string;
     }
   | { ok: false; message: string } {
   if (!Array.isArray(body.messages)) {
@@ -142,6 +172,11 @@ function parseLlmProxyBody(
     provider: body.provider === "real" ? "real" : "fake",
     stream: body.stream === true,
     tools: Array.isArray(body.tools) ? body.tools : [],
+    thinkingLevel:
+      typeof body.thinkingLevel === "string" &&
+      ["minimal", "low", "medium", "high", "xhigh"].includes(body.thinkingLevel)
+        ? body.thinkingLevel
+        : "off",
   };
 }
 
@@ -169,32 +204,59 @@ async function recordUsageBestEffort(
   }
 }
 
-async function writeLlmStream(
-  stream: LlmSseWriter,
-  result: LlmProviderResult,
-): Promise<void> {
+async function streamFakeProvider(input: {
+  messages: LlmMessage[];
+  modelHint: string;
+  onDelta: (delta: LlmStreamDelta) => Promise<void>;
+}): Promise<{ ok: true; result: LlmProviderResult }> {
+  const result = fakeComplete(input.messages, input.modelHint);
   if (result.reasoning) {
-    await stream.writeSSE({
-      event: "chunk",
-      data: JSON.stringify({
-        provider: result.provider,
-        model: result.model,
-        part: "reason",
-        text: result.reasoning,
-      }),
+    await input.onDelta({
+      provider: result.provider,
+      model: result.model,
+      part: "reason",
+      text: result.reasoning,
     });
   }
   if (result.content) {
-    await stream.writeSSE({
-      event: "chunk",
-      data: JSON.stringify({
-        provider: result.provider,
-        model: result.model,
-        part: "content",
-        text: result.content,
-      }),
+    await input.onDelta({
+      provider: result.provider,
+      model: result.model,
+      part: "content",
+      text: result.content,
     });
   }
+  return { ok: true, result };
+}
+
+async function fanOutLlmDelta(
+  stream: LlmSseWriter,
+  run: AuthenticatedRun,
+  delta: LlmStreamDelta,
+): Promise<void> {
+  await Promise.all([
+    stream.writeSSE({
+      event: "chunk",
+      data: JSON.stringify({
+        provider: delta.provider,
+        model: delta.model,
+        part: delta.part,
+        text: delta.text,
+      }),
+    }),
+    addRunStreamChunk({
+      runId: run.id,
+      streamType: delta.part === "reason" ? "thinking" : "content",
+      chunk: delta.text,
+      ttlSeconds: run.maxDurationSec + 300,
+    }),
+  ]);
+}
+
+async function writeLlmTerminal(
+  stream: LlmSseWriter,
+  result: LlmProviderResult,
+): Promise<void> {
   if (result.toolCalls.length > 0) {
     await stream.writeSSE({
       event: "tool_calls",
@@ -253,6 +315,7 @@ async function authenticateRunToken(
     threadId: run.threadId,
     userId: run.userId,
     status: run.status as RunStatus,
+    maxDurationSec: run.maxDurationSec,
   };
 }
 

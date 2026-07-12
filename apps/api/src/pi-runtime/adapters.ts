@@ -60,9 +60,16 @@ export function createLlmProxyStreamFn(
   client: PiRuntimeControlPlaneClient,
   provider: "fake" | "real" = "real",
 ): StreamFn {
-  return async (model, context) => {
+  return async (model, context, options) => {
     const stream = createAssistantMessageEventStream();
-    void resolveLlmProxyStream(stream, client, model, context, provider);
+    void resolveLlmProxyStream(
+      stream,
+      client,
+      model,
+      context,
+      provider,
+      options?.reasoning ?? client.config.thinkingLevel,
+    );
     return stream;
   };
 }
@@ -349,44 +356,95 @@ async function resolveLlmProxyStream(
   model: Model<any>,
   context: Context,
   provider: "fake" | "real",
+  thinkingLevel: PiRuntimeStartConfig["thinkingLevel"],
 ): Promise<void> {
   const startedAt = Date.now();
   try {
-    const data = await client.callLlmProxy({
+    const response = await client.callLlmProxyStream({
       provider,
       modelHint: model.id,
-      stream: false,
+      thinkingLevel,
       messages: toLlmProxyMessages(context),
       tools: context.tools ?? [],
     });
-    const output = asRecord(data.output);
-    const reasoning = stringField(output.reasoning);
-    const content = stringField(output.content) ?? "";
-    const message = createAssistantMessage({
+    if (!response.body) throw new Error("LLM proxy returned an empty stream");
+    let reasoning = "";
+    let content = "";
+    let toolCalls: ToolCall[] = [];
+    let terminalData: ControlPlaneJson = {};
+    let terminalSeen = false;
+    let thinkingStarted = false;
+    let textStarted = false;
+    const partial = () => createAssistantMessage({
       model,
-      data,
+      data: terminalData,
       content,
-      reasoning,
-      toolCalls: normalizeToolCalls(output.toolCalls),
-      stopReason:
-        stringField(data.finishReason) === "tool_calls" ? "toolUse" : "stop",
+      ...(reasoning ? { reasoning } : {}),
+      toolCalls,
+      stopReason: "stop",
       startedAt,
     });
 
-    await Promise.all([
-      reasoning ? client.postStreamChunk("thinking", reasoning) : Promise.resolve(null),
-      content ? client.postStreamChunk("content", content) : Promise.resolve(null),
-    ]);
+    stream.push({ type: "start", partial: partial() });
+    for await (const record of readSseRecords(response.body)) {
+      const data = asRecord(record.data);
+      if (record.event === "chunk") {
+        const delta = stringField(data.text) ?? "";
+        if (!delta) continue;
+        if (data.part === "reason") {
+          if (textStarted) {
+            throw new Error("LLM proxy emitted reasoning after content");
+          }
+          if (!thinkingStarted) {
+            thinkingStarted = true;
+            stream.push({ type: "thinking_start", contentIndex: 0, partial: partial() });
+          }
+          reasoning += delta;
+          stream.push({
+            type: "thinking_delta",
+            contentIndex: 0,
+            delta,
+            partial: partial(),
+          });
+        } else if (data.part === "content") {
+          const contentIndex = thinkingStarted ? 1 : 0;
+          if (!textStarted) {
+            textStarted = true;
+            stream.push({ type: "text_start", contentIndex, partial: partial() });
+          }
+          content += delta;
+          stream.push({
+            type: "text_delta",
+            contentIndex,
+            delta,
+            partial: partial(),
+          });
+        }
+      } else if (record.event === "tool_calls") {
+        toolCalls = normalizeToolCalls(data.toolCalls);
+      } else if (record.event === "done") {
+        terminalData = data;
+        terminalSeen = true;
+      } else if (record.event === "error") {
+        throw new Error(stringField(data.message) ?? "LLM proxy stream failed");
+      }
+    }
+    if (!terminalSeen) {
+      throw new Error("LLM proxy stream ended before done");
+    }
 
-    stream.push({ type: "start", partial: message });
-    if (reasoning) {
-      stream.push({ type: "thinking_start", contentIndex: 0, partial: message });
-      stream.push({
-        type: "thinking_delta",
-        contentIndex: 0,
-        delta: reasoning,
-        partial: message,
-      });
+    const stopReason =
+      stringField(terminalData.finishReason) === "tool_calls" ? "toolUse" : "stop";
+    const message = createAssistantMessage({
+      model,
+      data: terminalData,
+      content,
+      ...(reasoning ? { reasoning } : {}),
+      toolCalls,
+      stopReason,
+      startedAt,
+    });
+    if (thinkingStarted) {
       stream.push({
         type: "thinking_end",
         contentIndex: 0,
@@ -394,15 +452,8 @@ async function resolveLlmProxyStream(
         partial: message,
       });
     }
-    if (content) {
-      const contentIndex = reasoning ? 1 : 0;
-      stream.push({ type: "text_start", contentIndex, partial: message });
-      stream.push({
-        type: "text_delta",
-        contentIndex,
-        delta: content,
-        partial: message,
-      });
+    if (textStarted) {
+      const contentIndex = thinkingStarted ? 1 : 0;
       stream.push({
         type: "text_end",
         contentIndex,
@@ -410,9 +461,17 @@ async function resolveLlmProxyStream(
         partial: message,
       });
     }
+    for (const toolCall of toolCalls) {
+      stream.push({
+        type: "toolcall_end",
+        contentIndex: message.content.indexOf(toolCall),
+        toolCall,
+        partial: message,
+      });
+    }
     stream.push({
       type: "done",
-      reason: message.stopReason === "toolUse" ? "toolUse" : "stop",
+      reason: stopReason,
       message,
     });
     stream.end(message);
@@ -429,6 +488,38 @@ async function resolveLlmProxyStream(
     stream.push({ type: "error", reason: "error", error: message });
     stream.end(message);
   }
+}
+
+async function* readSseRecords(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<{ event: string; data: unknown }> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() ?? "";
+    for (const event of events) {
+      const parsed = parseSseRecord(event);
+      if (parsed) yield parsed;
+    }
+    if (done) break;
+  }
+  const trailing = parseSseRecord(buffer);
+  if (trailing) yield trailing;
+}
+
+function parseSseRecord(value: string): { event: string; data: unknown } | null {
+  let event = "message";
+  const data: string[] = [];
+  for (const line of value.split(/\r?\n/)) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+  }
+  if (data.length === 0) return null;
+  return { event, data: JSON.parse(data.join("\n")) as unknown };
 }
 
 async function runTrackedTool<TDetails>(

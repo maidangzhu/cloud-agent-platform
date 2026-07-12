@@ -31,6 +31,7 @@ describe("Pi runtime start protocol", () => {
       controlUrl: "https://api.sandbox.maidang.me/api/runs/run_123/control",
       llmProvider: "real",
       modelHint: "pi-runtime",
+      thinkingLevel: "medium",
       searchProvider: "fake",
 	      maxSteps: 80,
 	      workspaceRoot: "/workspace",

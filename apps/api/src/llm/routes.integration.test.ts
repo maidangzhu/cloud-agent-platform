@@ -2,9 +2,14 @@ import { afterAll, describe, expect, it } from "vitest";
 import { prisma } from "@cap/db";
 import { createApp } from "../app.js";
 import { issueRunToken } from "../run/run-token.js";
+import {
+  deleteRunStream,
+  readRunStream,
+} from "../redis/streams.js";
 
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 const HAS_SECRET = Boolean(process.env.BETTER_AUTH_SECRET);
+const HAS_REDIS = Boolean(process.env.REDIS_URL);
 const HAS_REAL_LLM =
   Boolean(process.env.OPENAI_API_KEY?.trim()) &&
   Boolean(process.env.OPENAI_BASE_URL?.trim()) &&
@@ -76,6 +81,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         });
         const runIds = runs.map((r) => r.id);
         if (runIds.length > 0) {
+          if (HAS_REDIS) {
+            await Promise.all(runIds.map((runId) => deleteRunStream(runId)));
+          }
           await prisma.lLMUsageRecord.deleteMany({
             where: { runId: { in: runIds } },
           });
@@ -267,7 +275,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(stillRunning.status).toBe("running");
     });
 
-    it("streaming response chunks are forwarded to sandbox in order", async () => {
+    it.skipIf(!HAS_REDIS)("streaming response chunks fan out to sandbox and Redis in order", async () => {
       const run = await createRun("llm fake stream", "running");
 
       const res = await app.request("/api/llm-proxy", {
@@ -315,6 +323,24 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       });
       expect(parsed[2].durationMs).toBeGreaterThanOrEqual(0);
       expect(parsed[2].attempts).toHaveLength(1);
+      const redisEntries = await readRunStream({
+        runId: run.id,
+        cursor: "0",
+        blockMs: 100,
+      });
+      expect(redisEntries.map((entry) => ({
+        streamType: entry.streamType,
+        chunk: entry.chunk,
+      }))).toEqual([
+        {
+          streamType: "thinking",
+          chunk: "fake reasoning for: stream this",
+        },
+        {
+          streamType: "content",
+          chunk: "fake response for: stream this",
+        },
+      ]);
     });
 
     it.skipIf(!HAS_REAL_LLM)("real provider returns normalized response", async () => {
@@ -349,6 +375,48 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       ).toBeTruthy();
       expect(body.data.durationMs).toBeGreaterThanOrEqual(0);
       expect(body.data.attempts.length).toBeGreaterThanOrEqual(1);
+    }, 120_000);
+
+    it.skipIf(!HAS_REAL_LLM || !HAS_REDIS)("real provider streams chunks through Redis before done", async () => {
+      const run = await createRun("llm real stream", "running");
+
+      const res = await app.request("/api/llm-proxy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${tokenFor(run)}`,
+        },
+        body: JSON.stringify({
+          provider: "real",
+          stream: true,
+          thinkingLevel: "medium",
+          messages: [
+            {
+              role: "user",
+              content: "Reply with exactly five words about Redis Streams.",
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const records = parseSseRecords(await res.text());
+      expect(records.at(-1)?.event).toBe("done");
+      const chunks = records
+        .filter((record) => record.event === "chunk")
+        .map((record) => JSON.parse(record.data));
+      expect(chunks.length).toBeGreaterThan(0);
+      expect(chunks.every((chunk) =>
+        (chunk.part === "reason" || chunk.part === "content") && chunk.text,
+      )).toBe(true);
+
+      const redisEntries = await readRunStream({
+        runId: run.id,
+        cursor: "0",
+        blockMs: 100,
+      });
+      expect(redisEntries.map((entry) => entry.chunk).join(""))
+        .toBe(chunks.map((chunk) => chunk.text).join(""));
     }, 120_000);
   },
 );

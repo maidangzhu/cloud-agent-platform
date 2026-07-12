@@ -1,5 +1,12 @@
 export type LlmPart = "reason" | "content";
 
+export type LlmStreamDelta = {
+  provider: "fake" | "openai-compatible";
+  model: string;
+  part: LlmPart;
+  text: string;
+};
+
 export type LlmMessage = {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
@@ -289,6 +296,7 @@ export async function completeWithRealProvider(params: {
   timeoutMs?: number;
   maxRetries?: number;
   env?: NodeJS.ProcessEnv;
+  reasoningEffort?: string;
 }): Promise<
   | { ok: true; result: LlmProviderResult }
   | { ok: false; status: number; code: number; message: string }
@@ -318,6 +326,7 @@ export async function completeWithRealProvider(params: {
           tools: params.tools,
           transport,
           timeoutMs,
+          reasoningEffort: params.reasoningEffort,
         });
         const result = normalizeOpenAiChatCompletion(response, entry);
         attempts.push({
@@ -357,6 +366,87 @@ export async function completeWithRealProvider(params: {
   };
 }
 
+export async function streamWithRealProvider(params: {
+  messages: LlmMessage[];
+  tools?: unknown[];
+  modelHint?: string;
+  transport?: LlmHttpTransport;
+  timeoutMs?: number;
+  maxRetries?: number;
+  env?: NodeJS.ProcessEnv;
+  reasoningEffort?: string;
+  onDelta: (delta: LlmStreamDelta) => Promise<void> | void;
+}): Promise<
+  | { ok: true; result: LlmProviderResult }
+  | { ok: false; status: number; code: number; message: string }
+> {
+  const resolved = resolveLlmModelChain({
+    modelHint: params.modelHint,
+    env: params.env,
+  });
+  if (resolved.ok === false) {
+    return { ok: false, status: 500, code: 5000, message: resolved.message };
+  }
+
+  const transport = params.transport ?? defaultTransport;
+  const maxRetries = params.maxRetries ?? DEFAULT_MAX_RETRIES;
+  const timeoutMs = params.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const overallStartedAt = Date.now();
+  const attempts: LlmProviderResult["attempts"] = [];
+  let lastError = "LLM provider failed";
+
+  for (const entry of resolved.chain) {
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt += 1) {
+      const attemptStartedAt = Date.now();
+      let emittedDelta = false;
+      try {
+        const result = await postOpenAiChatCompletionStream({
+          entry,
+          messages: params.messages,
+          tools: params.tools,
+          transport,
+          timeoutMs,
+          reasoningEffort: params.reasoningEffort,
+          onDelta: async (delta) => {
+            emittedDelta = true;
+            await params.onDelta(delta);
+          },
+        });
+        attempts.push({
+          key: entry.key,
+          attempt,
+          durationMs: Date.now() - attemptStartedAt,
+          outcome: "success",
+        });
+        return {
+          ok: true,
+          result: {
+            ...result,
+            durationMs: Date.now() - overallStartedAt,
+            attempts,
+          },
+        };
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        const isRetry = !emittedDelta && attempt <= maxRetries;
+        attempts.push({
+          key: entry.key,
+          attempt,
+          durationMs: Date.now() - attemptStartedAt,
+          outcome: isRetry ? "retry" : "failed",
+          error: lastError,
+        });
+        if (emittedDelta) {
+          return { ok: false, status: 502, code: 5001, message: lastError };
+        }
+        if (!isRetry) break;
+      }
+    }
+  }
+
+  return { ok: false, status: 502, code: 5001, message: lastError };
+}
+
 export function normalizeOpenAiChatCompletion(
   body: unknown,
   entry: Pick<LlmModelConfig, "model">,
@@ -393,6 +483,7 @@ async function postOpenAiChatCompletion(params: {
   tools?: unknown[];
   transport: LlmHttpTransport;
   timeoutMs: number;
+  reasoningEffort?: string;
 }): Promise<unknown> {
   const url = `${params.entry.baseUrl.replace(/\/+$/, "")}/chat/completions`;
   const tools = normalizeOpenAiTools(params.tools);
@@ -410,6 +501,9 @@ async function postOpenAiChatCompletion(params: {
           model: params.entry.model,
           messages: params.messages,
           ...(tools.length > 0 ? { tools } : {}),
+          ...(params.reasoningEffort && params.reasoningEffort !== "off"
+            ? { reasoning_effort: params.reasoningEffort }
+            : {}),
           stream: false,
         }),
       }),
@@ -419,6 +513,160 @@ async function postOpenAiChatCompletion(params: {
     throw new Error(`LLM provider returned ${response.status}`);
   }
   return response.json();
+}
+
+async function postOpenAiChatCompletionStream(params: {
+  entry: LlmModelConfig;
+  messages: LlmMessage[];
+  tools?: unknown[];
+  transport: LlmHttpTransport;
+  timeoutMs: number;
+  reasoningEffort?: string;
+  onDelta: (delta: LlmStreamDelta) => Promise<void>;
+}): Promise<Omit<LlmProviderResult, "durationMs" | "attempts">> {
+  const url = `${params.entry.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  const tools = normalizeOpenAiTools(params.tools);
+  return withTimeout(params.timeoutMs, async (signal) => {
+    const response = await params.transport(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+        Authorization: `Bearer ${params.entry.apiKey}`,
+      },
+      signal,
+      body: JSON.stringify({
+        model: params.entry.model,
+        messages: params.messages,
+        ...(tools.length > 0 ? { tools } : {}),
+        ...(params.reasoningEffort && params.reasoningEffort !== "off"
+          ? { reasoning_effort: params.reasoningEffort }
+          : {}),
+        stream: true,
+        stream_options: { include_usage: true },
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`LLM provider returned ${response.status}`);
+    }
+    if (!response.body) {
+      throw new Error("LLM provider returned an empty stream");
+    }
+    return consumeOpenAiCompletionStream(response.body, params.entry, params.onDelta);
+  });
+}
+
+async function consumeOpenAiCompletionStream(
+  body: ReadableStream<Uint8Array>,
+  entry: Pick<LlmModelConfig, "model">,
+  onDelta: (delta: LlmStreamDelta) => Promise<void>,
+): Promise<Omit<LlmProviderResult, "durationMs" | "attempts">> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let model = entry.model;
+  let reasoning = "";
+  let content = "";
+  let finishReason: LlmFinishReason = "unknown";
+  let terminalSeen = false;
+  let usage: LlmUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  const toolCalls = new Map<number, LlmToolCall>();
+
+  const processEvent = async (event: string) => {
+    const data = event
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data) return;
+    if (data === "[DONE]") {
+      terminalSeen = true;
+      return;
+    }
+    const record = asRecord(JSON.parse(data) as unknown);
+    model = stringField(record.model) ?? model;
+    const choice = Array.isArray(record.choices)
+      ? asRecord(record.choices[0])
+      : {};
+    const delta = asRecord(choice.delta);
+    const reasonDelta =
+      stringField(delta.reasoning_content) ?? stringField(delta.reasoning) ?? "";
+    const contentDelta = normalizeContent(delta.content);
+    if (reasonDelta) {
+      reasoning += reasonDelta;
+      await onDelta({
+        provider: "openai-compatible",
+        model,
+        part: "reason",
+        text: reasonDelta,
+      });
+    }
+    if (contentDelta) {
+      content += contentDelta;
+      await onDelta({
+        provider: "openai-compatible",
+        model,
+        part: "content",
+        text: contentDelta,
+      });
+    }
+    accumulateStreamingToolCalls(toolCalls, delta.tool_calls);
+    if (choice.finish_reason !== null && choice.finish_reason !== undefined) {
+      finishReason = normalizeFinishReason(choice.finish_reason);
+      terminalSeen = true;
+    }
+    const usageRecord = asRecord(record.usage);
+    if (Object.keys(usageRecord).length > 0) {
+      usage = {
+        inputTokens: numberField(usageRecord.prompt_tokens),
+        outputTokens: numberField(usageRecord.completion_tokens),
+        totalTokens: numberField(usageRecord.total_tokens),
+      };
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() ?? "";
+    for (const event of events) await processEvent(event);
+    if (done) break;
+  }
+  if (buffer.trim()) await processEvent(buffer);
+  if (!terminalSeen) {
+    throw new Error("LLM provider stream ended before a terminal event");
+  }
+
+  return {
+    provider: "openai-compatible",
+    model,
+    reasoning,
+    content,
+    toolCalls: [...toolCalls.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([, toolCall]) => toolCall),
+    finishReason,
+    usage,
+  };
+}
+
+function accumulateStreamingToolCalls(
+  target: Map<number, LlmToolCall>,
+  value: unknown,
+): void {
+  if (!Array.isArray(value)) return;
+  for (const item of value) {
+    const record = asRecord(item);
+    const index = numberField(record.index);
+    const fn = asRecord(record.function);
+    const current = target.get(index) ?? { id: "", name: "", arguments: "" };
+    target.set(index, {
+      id: stringField(record.id) ?? current.id,
+      name: stringField(fn.name) ?? current.name,
+      arguments: current.arguments + (stringField(fn.arguments) ?? ""),
+    });
+  }
 }
 
 function normalizeOpenAiTools(tools: unknown[] | undefined): unknown[] {

@@ -281,7 +281,7 @@ gap        已知缺口，需要新增或改测试
 | CP-LLM-002 | integration | terminal/waiting run rejects LLM calls | 409 | existing | `llm/routes.integration.test.ts`："reject terminal run -> RUN_TERMINAL" |
 | CP-LLM-003 | integration | fake LLM records usage once | LLMUsageRecord row | existing | `llm/routes.integration.test.ts`："records usage as LLMUsageRecord without changing run status" |
 | CP-LLM-004 | integration | OpenAI tool schema normalization | stable tool call object | existing | `llm/provider.test.ts`："normalizes tool calls as complete objects, not text chunks"、"normalizes Pi-style tools to OpenAI function tools before provider calls" |
-| CP-LLM-005 | integration | true streaming provider path | chunk parser emits content/thinking incrementally | gap（不在本轮范围，属于 `hosted-hono-control-plane` tasks.md 6.12 / `v2-research-workspace-agent` tasks.md 22.12，明确留到 Control Plane tool timeline 收敛之后） | `llm/routes.integration.test.ts`："streaming response chunks are forwarded to sandbox in order" 只验证 fake provider 的转发顺序，不是真实 provider 逐 chunk 输出 |
+| CP-LLM-005 | integration | true streaming provider path | chunk parser emits content/thinking incrementally | existing（2026-07-12 补齐） | `llm/provider.test.ts` 验证 provider terminal 前 delta、分片 tool arguments、截断流失败；`llm/routes.integration.test.ts` 的 "real provider streams chunks through Redis before done" 使用真实 provider + Redis 验证逐 chunk 输出 |
 | CP-SEARCH-001 | integration | search proxy fake/http/exa shape | normalized results | existing | `search/routes.integration.test.ts`："fake provider returns normalized results and records usage/source records" |
 | CP-SEARCH-002 | integration | search retry/non-retry policy | 5xx retry, 4xx no retry | existing | `search/routes.integration.test.ts`："retries on 5xx up to 2 times with backoff"、"does not retry on 4xx -> SEARCH_PROXY_FAILED" |
 
@@ -308,12 +308,12 @@ gap        已知缺口，需要新增或改测试
 
 `CP-SSE-006`（"content chunk arrives before final agent_message"）的行为已经有自动化测试覆盖，不是代码缺口，是文档/归属缺口：
 
-- 现有测试：`agent-loop/agent-loop.workflow.test.ts` 的 `"streams LLM chunks to Redis before semantic events are persisted"`（`it.skipIf(!HAS_REDIS)`）。它在每次 `/api/ingest/stream-chunk` 请求时同步查询 `agent_thinking`/`agent_message` 的 `RunEvent` 计数，断言在两次 chunk ingest 时刻该计数都是 `0`（即 chunk 先到，语义事件还没落库），随后再验证 Redis stream 顺序为 `["thinking","content"]`，最后验证语义事件的 `content` 与之前的 chunk 内容一致。
+- 现有测试：`agent-loop/agent-loop.workflow.test.ts` 的 `"streams LLM chunks to Redis before semantic events are persisted"`（`it.skipIf(!HAS_REDIS)`）。LLM Proxy 收到 delta 后直接写 Redis，旧自写 loop 不再二次 POST；测试在写 `agent_thinking`/`agent_message` 前读取 Redis，断言两条 chunk 已存在，随后验证顺序为 `["thinking","content"]` 以及语义事件内容一致。
 - 该用例在 `docs/testing-case-catalog.md` 里已经登记为 `AGENT-W-002`，归类在 "Agent Loop"，既不属于本文档的 Control Plane（Part 1），也不属于 Redis Streaming（Part 4）。
 
 裁定：`CP-SSE-006` 验证的是"Redis stream chunk 先于语义 RunEvent 落库"这个协议机制本身，机制层面已经有测试覆盖（`AGENT-W-002`），职责上更贴近 Part 4 Redis Streaming（"content/thinking chunk 的瞬时流、cursor、重连、清理"，见 §1 模块表），因为它验证的是 chunk 相对语义事件的时序，而不是 Control Plane 内部状态机或鉴权。本文档不再把 `CP-SSE-006` 标记为 Control Plane 的独立缺口；进入 Part 4 时应把 `AGENT-W-002` 正式收编为该层的验收用例。
 
-需要注意的边界：`AGENT-W-002` 跑的是旧的自写 agent-loop + fake LLM（`stream: true`），不是 Pi runtime 真实链路。Pi runtime 当前 LLM proxy 仍是 `stream:false`、一次性写 `agent_message`（`hosted-hono-control-plane/tasks.md` 6.12、`v2-research-workspace-agent/tasks.md` 22.12 待办），真实链路里目前不存在"chunk 先于事件"这件事。所以 `CP-SSE-006` 只是协议机制被验证过，Pi runtime 真实流式（对应 `testing-case-catalog.md` 的 `LLM-W-106`/`WF-012`）仍是缺口，但那属于 Pi runtime thinking/streaming 收敛阶段，不属于本轮 Control Plane 范围，Control Plane 侧不再对 `CP-SSE-006` 本身负责。
+需要注意的边界：`AGENT-W-002` 仍是旧自写 agent-loop + fake LLM；新增 Pi runtime workflow 与真实 provider integration 已覆盖本地增量链路，但当前改动尚未部署并通过真实 Vercel Sandbox gate。因此 `CP-SSE-006` 的协议机制已验证，`LLM-W-106`/`WF-012` 只到 partial；`LLM-W-107` 还受配置模型未产出 reasoning delta 限制。
 
 ### 4.4 Part 1 验收门槛
 
@@ -358,7 +358,7 @@ Control Plane 进入下一部分前，必须完成：
 测试方法：
 
 - Integration：XADD/XREAD、TTL、cursor `0`、Last-Event-ID。
-- Workflow：provider chunk -> ingest stream-chunk -> Redis -> SSE -> done。
+- Workflow：provider chunk -> LLM Proxy 同步 fan-out 到 Sandbox SSE + Redis -> browser SSE -> done；`/api/ingest/stream-chunk` 只保留给非 LLM Proxy 的瞬时输出和旧 fixture。
 - Failure：断线重连、空洞、重复 chunk、terminal 后拒绝。
 
 完成后才能讨论前端流式体验。

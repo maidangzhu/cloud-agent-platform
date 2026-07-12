@@ -298,11 +298,7 @@ async function callLlmProxy(params: {
   if (params.stream) {
     return {
       calls,
-      output: await consumeLlmStream({
-        runToken: params.runToken,
-        request: params.request,
-        response,
-      }),
+      output: await consumeLlmStream(response),
     };
   }
 
@@ -320,12 +316,8 @@ async function callLlmProxy(params: {
   };
 }
 
-async function consumeLlmStream(params: {
-  runToken: string;
-  request: AgentLoopRequest;
-  response: Response;
-}): Promise<LlmOutput> {
-  const records = await readSseRecords(params.response);
+async function consumeLlmStream(response: Response): Promise<LlmOutput> {
+  const records = await readSseRecords(response);
   let reasoning = "";
   let content = "";
   let model: string | undefined;
@@ -339,11 +331,9 @@ async function consumeLlmStream(params: {
       model = stringField(data.model) ?? model;
       if (part === "reason") {
         reasoning += text;
-        await postStreamChunk(params, text, "thinking");
       }
       if (part === "content") {
         content += text;
-        await postStreamChunk(params, text, "content");
       }
       continue;
     }
@@ -354,25 +344,6 @@ async function consumeLlmStream(params: {
   }
 
   return { reasoning, content, toolCalls, model };
-}
-
-async function postStreamChunk(
-  params: { runToken: string; request: AgentLoopRequest },
-  chunk: string,
-  streamType: "thinking" | "content",
-): Promise<void> {
-  if (!chunk) return;
-  const response = await params.request("/api/ingest/stream-chunk", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${params.runToken}`,
-    },
-    body: JSON.stringify({ chunk, streamType }),
-  });
-  if (!response.ok) {
-    throw new Error(`/api/ingest/stream-chunk -> ${response.status} ${await response.text()}`);
-  }
 }
 
 async function getRunControl(params: {

@@ -293,7 +293,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
 
     it.skipIf(!HAS_REDIS)("streams LLM chunks to Redis before semantic events are persisted", async () => {
       const run = await createRun("stream a short architecture report");
-      const persistedDuringChunks: number[] = [];
+      const chunksBeforeSemanticEvents: number[] = [];
 
       const result = await runAgentLoop({
         runId: run.id,
@@ -301,22 +301,23 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         runToken: tokenFor(run),
         stream: true,
         request: async (path, init) => {
-          const response = await app.request(path, init);
-          if (path === "/api/ingest/stream-chunk") {
-            const persisted = await prisma.runEvent.count({
-              where: {
+          if (path === "/api/ingest/events") {
+            const body = JSON.parse(String(init.body)) as { type?: string };
+            if (body.type === "agent_thinking" || body.type === "agent_message") {
+              const entries = await readRunStream({
                 runId: run.id,
-                type: { in: ["agent_thinking", "agent_message"] },
-              },
-            });
-            persistedDuringChunks.push(persisted);
+                cursor: "0",
+                blockMs: 100,
+              });
+              chunksBeforeSemanticEvents.push(entries.length);
+            }
           }
-          return response;
+          return app.request(path, init);
         },
       });
 
       expect(result.completed).toBe(true);
-      expect(persistedDuringChunks).toEqual([0, 0]);
+      expect(chunksBeforeSemanticEvents).toEqual([2, 2]);
 
       const streamEntries = await readRunStream({
         runId: run.id,

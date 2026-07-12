@@ -30,6 +30,7 @@
 | [0020](./0020-agent-event-payload-schema-and-tool-retry.md) | AgentEventDTO.payload 判别联合 schema；工具失败重试协议；解决 DQ-3 | 已接受 |
 | [0021](./0021-token-stream-relay-redis-streams.md) | Token 转发原语从 Redis Pub/Sub 改为 Redis Streams + cursor，修正 ADR-0016 | 已接受 |
 | [0022](./0022-monorepo-hono-backend.md) | 后端采用 Hono，项目重构为 pnpm workspaces monorepo | 已接受 |
+| [0023](./0023-control-plane-stream-fanout.md) | LLM delta 在 Control Plane 直接双路转发到 Sandbox 与 Redis | 已接受 |
 
 ## 惯例
 

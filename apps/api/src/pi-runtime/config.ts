@@ -10,6 +10,14 @@ export type PiRuntimeToolPolicy = {
   denyCommands: string[];
 };
 
+export type PiRuntimeThinkingLevel =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
+
 export type PiRuntimeStartConfig = {
   runId: string;
   workspaceId: string;
@@ -25,6 +33,7 @@ export type PiRuntimeStartConfig = {
   runToken: string;
   llmProvider: "fake" | "real";
   modelHint: string;
+  thinkingLevel: PiRuntimeThinkingLevel;
   searchProvider: "fake" | "http" | "exa";
   maxSteps: number;
   maxDurationSec: number;
@@ -47,6 +56,7 @@ export type BuildPiRuntimeStartConfigInput = {
   maxSteps?: number;
   llmProvider?: "fake" | "real";
   modelHint?: string;
+  thinkingLevel?: PiRuntimeThinkingLevel;
   searchProvider?: "fake" | "http" | "exa";
   toolPolicy?: Partial<PiRuntimeToolPolicy>;
 };
@@ -78,6 +88,7 @@ export function buildPiRuntimeStartConfig(
     runToken: input.runToken,
     llmProvider: input.llmProvider ?? "real",
     modelHint: input.modelHint ?? "pi-runtime",
+    thinkingLevel: input.thinkingLevel ?? "medium",
     searchProvider: input.searchProvider ?? "fake",
     maxSteps: input.maxSteps ?? 80,
     maxDurationSec: input.run.maxDurationSec,
@@ -125,6 +136,11 @@ export function validatePiRuntimeStartConfig(
   }
   if (!config.modelHint.trim()) {
     return { ok: false, message: "modelHint is required" };
+  }
+  if (!(["off", "minimal", "low", "medium", "high", "xhigh"] as const).includes(
+    config.thinkingLevel,
+  )) {
+    return { ok: false, message: "thinkingLevel is invalid" };
   }
   if (
     config.searchProvider !== "fake" &&

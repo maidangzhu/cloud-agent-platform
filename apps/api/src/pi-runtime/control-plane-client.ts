@@ -125,6 +125,48 @@ export class PiRuntimeControlPlaneClient {
     return data;
   }
 
+  async callLlmProxyStream(input: {
+    messages: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
+    tools?: unknown[];
+    modelHint?: string;
+    provider?: "fake" | "real";
+    thinkingLevel?: PiRuntimeStartConfig["thinkingLevel"];
+  }): Promise<Response> {
+    const response = await this.transport(this.config.llmProxyUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+        Authorization: `Bearer ${this.config.runToken}`,
+      },
+      body: JSON.stringify({
+        runId: this.config.runId,
+        provider: input.provider ?? "real",
+        modelHint: input.modelHint ?? "pi-runtime",
+        stream: true,
+        thinkingLevel: input.thinkingLevel ?? this.config.thinkingLevel,
+        messages: input.messages,
+        tools: input.tools ?? [],
+      }),
+    });
+    if (!response.ok) {
+      const envelope = asRecord(await response.json().catch(() => ({})));
+      throw new PiRuntimeControlPlaneError(
+        stringField(envelope.message) ?? `Control Plane request failed: ${response.status}`,
+        response.status,
+        new URL(this.config.llmProxyUrl).pathname,
+      );
+    }
+    if (!response.body) {
+      throw new PiRuntimeControlPlaneError(
+        "Control Plane returned an empty LLM stream",
+        response.status,
+        new URL(this.config.llmProxyUrl).pathname,
+      );
+    }
+    return response;
+  }
+
   async callSearchProxy(input: {
     query: string;
     limit?: number;

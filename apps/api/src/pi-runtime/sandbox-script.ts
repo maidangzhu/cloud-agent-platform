@@ -70,14 +70,6 @@ async function postHeartbeat(phase) {
   });
 }
 
-async function postStreamChunk(streamType, chunk) {
-  if (!chunk) return null;
-  return postJson(config.ingestUrl + "/stream-chunk", {
-    streamType,
-    chunk,
-  });
-}
-
 async function getControl() {
   const response = await fetch(config.controlUrl, {
     method: "GET",
@@ -768,17 +760,14 @@ function normalizeToolCalls(value) {
   }).filter((item) => item.id && item.name);
 }
 
-function createAssistantMessage(model, data, requestStartedAt) {
-  const output = data.output || {};
-  const reasoning = typeof output.reasoning === "string" ? output.reasoning : "";
-  const content = typeof output.content === "string" ? output.content : "";
-  const toolCalls = normalizeToolCalls(output.toolCalls);
+function createAssistantMessage(model, input, requestStartedAt) {
+  const data = input.terminalData || {};
   return {
     role: "assistant",
     content: [
-      ...(reasoning ? [{ type: "thinking", thinking: reasoning }] : []),
-      ...(content ? [{ type: "text", text: content }] : []),
-      ...toolCalls,
+      ...(input.reasoning ? [{ type: "thinking", thinking: input.reasoning }] : []),
+      ...(input.content ? [{ type: "text", text: input.content }] : []),
+      ...input.toolCalls,
     ],
     api: model.api,
     provider: model.provider,
@@ -792,9 +781,39 @@ function createAssistantMessage(model, data, requestStartedAt) {
       totalTokens: data.usage?.totalTokens || 0,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     },
-    stopReason: data.finishReason === "tool_calls" ? "toolUse" : "stop",
+    stopReason: input.stopReason,
     timestamp: requestStartedAt,
   };
+}
+
+async function* readSseRecords(body) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const events = buffer.split(/\\r?\\n\\r?\\n/);
+    buffer = events.pop() || "";
+    for (const event of events) {
+      const parsed = parseSseRecord(event);
+      if (parsed) yield parsed;
+    }
+    if (done) break;
+  }
+  const trailing = parseSseRecord(buffer);
+  if (trailing) yield trailing;
+}
+
+function parseSseRecord(value) {
+  let event = "message";
+  const data = [];
+  for (const line of value.split(/\\r?\\n/)) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+  }
+  if (data.length === 0) return null;
+  return { event, data: JSON.parse(data.join("\\n")) };
 }
 
 function createStreamFn() {
@@ -803,34 +822,94 @@ function createStreamFn() {
     void (async () => {
       const requestStartedAt = Date.now();
       try {
-        const data = await postJson(config.llmProxyUrl, {
-          provider: config.llmProvider || "real",
-          modelHint: config.modelHint || "pi-runtime",
-          stream: false,
-          messages: toLlmMessages(context),
-          tools: context.tools || [],
+        const response = await fetch(config.llmProxyUrl, {
+          method: "POST",
+          headers: {
+            ...jsonHeaders(),
+            Accept: "text/event-stream",
+          },
+          body: JSON.stringify({
+            runId: config.runId,
+            provider: config.llmProvider || "real",
+            modelHint: config.modelHint || "pi-runtime",
+            stream: true,
+            thinkingLevel: config.thinkingLevel || "medium",
+            messages: toLlmMessages(context),
+            tools: context.tools || [],
+          }),
         });
-        const message = createAssistantMessage(model, data, requestStartedAt);
-        const thinkingBlock = message.content.find((part) => part.type === "thinking");
-        const textBlock = message.content.find((part) => part.type === "text");
-        await Promise.all([
-          thinkingBlock?.thinking ? postStreamChunk("thinking", thinkingBlock.thinking) : Promise.resolve(null),
-          textBlock?.text ? postStreamChunk("content", textBlock.text) : Promise.resolve(null),
-        ]);
-        stream.push({ type: "start", partial: message });
-        if (thinkingBlock) {
-          const contentIndex = message.content.indexOf(thinkingBlock);
-          stream.push({ type: "thinking_start", contentIndex, partial: message });
-          stream.push({ type: "thinking_delta", contentIndex, delta: thinkingBlock.thinking, partial: message });
-          stream.push({ type: "thinking_end", contentIndex, content: thinkingBlock.thinking, partial: message });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || "LLM proxy request failed: " + response.status);
         }
-        if (textBlock) {
-          const contentIndex = message.content.indexOf(textBlock);
-          stream.push({ type: "text_start", contentIndex, partial: message });
-          stream.push({ type: "text_delta", contentIndex, delta: textBlock.text, partial: message });
-          stream.push({ type: "text_end", contentIndex, content: textBlock.text, partial: message });
+        if (!response.body) throw new Error("LLM proxy returned an empty stream");
+        let reasoning = "";
+        let content = "";
+        let toolCalls = [];
+        let terminalData = {};
+        let terminalSeen = false;
+        let thinkingStarted = false;
+        let textStarted = false;
+        const partial = () => createAssistantMessage(model, {
+          reasoning,
+          content,
+          toolCalls,
+          terminalData,
+          stopReason: "stop",
+        }, requestStartedAt);
+
+        stream.push({ type: "start", partial: partial() });
+        for await (const record of readSseRecords(response.body)) {
+          const data = record.data || {};
+          if (record.event === "chunk") {
+            const delta = typeof data.text === "string" ? data.text : "";
+            if (!delta) continue;
+            if (data.part === "reason") {
+              if (textStarted) {
+                throw new Error("LLM proxy emitted reasoning after content");
+              }
+              if (!thinkingStarted) {
+                thinkingStarted = true;
+                stream.push({ type: "thinking_start", contentIndex: 0, partial: partial() });
+              }
+              reasoning += delta;
+              stream.push({ type: "thinking_delta", contentIndex: 0, delta, partial: partial() });
+            } else if (data.part === "content") {
+              const contentIndex = thinkingStarted ? 1 : 0;
+              if (!textStarted) {
+                textStarted = true;
+                stream.push({ type: "text_start", contentIndex, partial: partial() });
+              }
+              content += delta;
+              stream.push({ type: "text_delta", contentIndex, delta, partial: partial() });
+            }
+          } else if (record.event === "tool_calls") {
+            toolCalls = normalizeToolCalls(data.toolCalls);
+          } else if (record.event === "done") {
+            terminalData = data;
+            terminalSeen = true;
+          } else if (record.event === "error") {
+            throw new Error(data.message || "LLM proxy stream failed");
+          }
         }
-        for (const toolCall of message.content.filter((part) => part.type === "toolCall")) {
+        if (!terminalSeen) throw new Error("LLM proxy stream ended before done");
+
+        const stopReason = terminalData.finishReason === "tool_calls" ? "toolUse" : "stop";
+        const message = createAssistantMessage(model, {
+          reasoning,
+          content,
+          toolCalls,
+          terminalData,
+          stopReason,
+        }, requestStartedAt);
+        if (thinkingStarted) {
+          stream.push({ type: "thinking_end", contentIndex: 0, content: reasoning, partial: message });
+        }
+        if (textStarted) {
+          const contentIndex = thinkingStarted ? 1 : 0;
+          stream.push({ type: "text_end", contentIndex, content, partial: message });
+        }
+        for (const toolCall of toolCalls) {
           stream.push({
             type: "toolcall_end",
             contentIndex: message.content.indexOf(toolCall),
@@ -838,7 +917,7 @@ function createStreamFn() {
             partial: message,
           });
         }
-        stream.push({ type: "done", reason: message.stopReason === "toolUse" ? "toolUse" : "stop", message });
+        stream.push({ type: "done", reason: stopReason, message });
         stream.end(message);
       } catch (error) {
         const message = {
@@ -866,7 +945,7 @@ const model = {
   api: "openai-completions",
   provider: "cap-control-plane",
   baseUrl: config.llmProxyUrl,
-  reasoning: false,
+  reasoning: true,
   input: ["text"],
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   contextWindow: 128000,
@@ -896,7 +975,7 @@ try {
 	        "Never access database, Redis, auth, or long-lived provider credentials directly.",
 	      ].join("\\n"),
       model,
-      thinkingLevel: "off",
+      thinkingLevel: config.thinkingLevel || "medium",
       tools,
       messages: [],
     },

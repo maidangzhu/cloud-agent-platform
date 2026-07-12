@@ -24,7 +24,7 @@ export function createPiRuntimeAgentShell(
     api: "openai-completions",
     provider: "cap-control-plane",
     baseUrl: config.llmProxyUrl,
-    reasoning: false,
+    reasoning: true,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128_000,
@@ -37,7 +37,7 @@ export function createPiRuntimeAgentShell(
     initialState: {
       systemPrompt: PI_RUNTIME_SYSTEM_PROMPT,
       model,
-      thinkingLevel: "off",
+      thinkingLevel: config.thinkingLevel,
       tools,
       messages: [],
     },

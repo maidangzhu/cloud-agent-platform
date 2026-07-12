@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   completeWithRealProvider,
   fakeComplete,
   normalizeFinishReason,
   normalizeOpenAiChatCompletion,
   resolveLlmModelChain,
+  streamWithRealProvider,
   type LlmHttpTransport,
 } from "./provider.js";
 
@@ -461,5 +462,160 @@ describe("real provider retry/fallback/timeout shell", () => {
         "success",
       ]);
     }
+  });
+});
+
+describe("real provider streaming", () => {
+  const env = {
+    OPENAI_API_KEY: "k1",
+    OPENAI_BASE_URL: "https://relay1.example/v1",
+    LLM_MODEL: "m1",
+  };
+
+  it("emits provider deltas before the terminal result is available", async () => {
+    const encoder = new TextEncoder();
+    let releaseTerminal = () => undefined;
+    let requestBody: Record<string, unknown> = {};
+    const transport: LlmHttpTransport = async (_url, init) => {
+      requestBody = JSON.parse(String(init.body));
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(
+            'data: {"model":"m1","choices":[{"delta":{"reasoning_content":"think "},"finish_reason":null}]}\n\n',
+          ));
+          releaseTerminal = () => {
+            controller.enqueue(encoder.encode(
+              'data: {"model":"m1","choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}\n\n',
+            ));
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+          };
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    };
+    const deltas: Array<{
+      provider: string;
+      model: string;
+      part: string;
+      text: string;
+    }> = [];
+    let settled = false;
+
+    const resultPromise = streamWithRealProvider({
+      messages: [{ role: "user", content: "hello" }],
+      env,
+      transport,
+      maxRetries: 0,
+      reasoningEffort: "medium",
+      onDelta: async (delta) => {
+        deltas.push(delta);
+      },
+    }).finally(() => {
+      settled = true;
+    });
+
+    await vi.waitFor(() => expect(deltas).toEqual([
+      {
+        provider: "openai-compatible",
+        model: "m1",
+        part: "reason",
+        text: "think ",
+      },
+    ]));
+    expect(settled).toBe(false);
+    releaseTerminal();
+
+    const result = await resultPromise;
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result).toMatchObject({
+        model: "m1",
+        reasoning: "think ",
+        content: "answer",
+        finishReason: "stop",
+        usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+      });
+    }
+    expect(deltas).toEqual([
+      {
+        provider: "openai-compatible",
+        model: "m1",
+        part: "reason",
+        text: "think ",
+      },
+      {
+        provider: "openai-compatible",
+        model: "m1",
+        part: "content",
+        text: "answer",
+      },
+    ]);
+    expect(requestBody).toMatchObject({
+      model: "m1",
+      stream: true,
+      stream_options: { include_usage: true },
+      reasoning_effort: "medium",
+    });
+  });
+
+  it("accumulates split tool call arguments", async () => {
+    const encoder = new TextEncoder();
+    const transport: LlmHttpTransport = async () => new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode([
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_1","function":{"name":"write_file","arguments":"{\\\"path\\\":"}}]},"finish_reason":null}]}',
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\\"report.md\\\"}"}}]},"finish_reason":"tool_calls"}]}',
+            "data: [DONE]",
+            "",
+          ].join("\n\n")));
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+
+    const result = await streamWithRealProvider({
+      messages: [{ role: "user", content: "write" }],
+      env,
+      transport,
+      maxRetries: 0,
+      onDelta: () => undefined,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.toolCalls).toEqual([{
+        id: "tool_1",
+        name: "write_file",
+        arguments: '{"path":"report.md"}',
+      }]);
+      expect(result.result.finishReason).toBe("tool_calls");
+    }
+  });
+
+  it("fails a stream that ends after a delta without a terminal event", async () => {
+    const transport: LlmHttpTransport = async () => new Response(
+      'data: {"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}\n\n',
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+
+    const result = await streamWithRealProvider({
+      messages: [{ role: "user", content: "hello" }],
+      env,
+      transport,
+      maxRetries: 0,
+      onDelta: () => undefined,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 502,
+      message: "LLM provider stream ended before a terminal event",
+    });
   });
 });

@@ -100,7 +100,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | ID | Level | Scenario | Required Env | Status |
 | --- | --- | --- | --- | --- |
 | LLM-U-101 | unit | provider response normalization: content only | none | done |
-| LLM-U-102 | unit | provider response normalization: reasoning/thinking + content | none | partial |
+| LLM-U-102 | unit | provider response normalization: reasoning/thinking + content | none | done（非流式与 SSE parser 均覆盖） |
 | LLM-U-103 | unit | provider response normalization: tool calls | none | done |
 | LLM-U-104 | unit | finish reason normalization across providers | none | done |
 | LLM-U-105 | unit | retry on 5xx/network error then success | none | done |
@@ -113,11 +113,11 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | LLM-I-103 | integration | terminal/waiting run rejects LLM call | DB/Auth | done |
 | LLM-W-101 | workflow | agent loop streams reason/content to Redis and persists semantic events once | DB/Auth/Redis | done |
 | LLM-W-102 | workflow | tool calls are complete objects over ingest/run detail | DB/Auth/Redis | done |
-| LLM-W-103 | workflow | no-thinking model: content streams, no agent_thinking event | DB/Auth/Redis | planned |
+| LLM-W-103 | workflow | no-thinking model: content streams, no agent_thinking event | DB/Auth/Redis | partial（Pi adapter content-only component case 已覆盖；完整 workflow 待补） |
 | LLM-W-104 | workflow | thinking-only or empty-content edge case | DB/Auth/Redis | planned |
 | LLM-W-105 | workflow | malformed tool call -> tool failed and run failed/interrupted | DB/Auth/Redis | planned |
-| LLM-W-106 | workflow | Pi runtime real streaming: content chunks reach Redis/SSE before final agent_message | DB/Auth/Redis/Vercel | planned |
-| LLM-W-107 | workflow | Pi runtime thinking enabled: reasoning chunks reach Redis/SSE as `thinking` | DB/Auth/Redis/Vercel | planned |
+| LLM-W-106 | workflow | Pi runtime real streaming: content chunks reach Redis/SSE before final agent_message | DB/Auth/Redis/Vercel | partial（真实 provider component/integration 与本地 Pi workflow 已证明增量 content fan-out；deployed API + Vercel Sandbox gate 待跑） |
+| LLM-W-107 | workflow | Pi runtime thinking enabled: reasoning chunks reach Redis/SSE as `thinking` | DB/Auth/Redis/Vercel | partial（`thinkingLevel=medium` 已透传且 synthetic reasoning SSE 已覆盖；2026-07-12 配置模型 `gpt-5.5` 实测 0 reasoning / 7 content delta，deployed thinking gate 未满足） |
 | LLM-L-101 | live | real provider returns basic answer | Real LLM | planned |
 | LLM-L-102 | live | real provider streaming first token under SLA | Real LLM | planned |
 | LLM-L-103 | live | real provider first-token timeout triggers fallback | Real LLM + fallback | planned |
@@ -141,7 +141,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | SBX-I-110 | integration | stdout/stderr truncation works | Vercel | partial（本地已补 captured stdout/stderr 截断回归测试；真实 Vercel exec gate 待跑） |
 | SBX-I-111 | integration | path traversal rejected by sandbox wrapper | none/Vercel | done（path-guard + VercelSandbox wrapper 单测覆盖，拒绝发生在 SDK 调用前） |
 | SBX-W-101 | workflow | sandbox script calls deployed ingest and completes run | Deployed API/Vercel | done（2026-07-12 对 `https://api.sandbox.maidang.me` 实跑：Vercel Sandbox 创建、Pi packages 安装、runtime 启动、hosted ingest 回调、文件/artifact/tool/run completed 全部通过） |
-| SBX-W-102 | workflow | sandbox script calls deployed LLM proxy and stream-chunk | Deployed API/Vercel/Redis | partial（standalone Pi runtime sandbox script 已补 `/stream-chunk` content/thinking 回写；Deployed API + Vercel + Redis gate 待跑） |
+| SBX-W-102 | workflow | sandbox consumes deployed LLM Proxy SSE while Control Plane fans out chunks to Redis | Deployed API/Vercel/Redis | partial（standalone Pi runtime script 已增量消费 SSE，Control Plane 直接双写 Sandbox SSE + Redis；Deployed API + Vercel + Redis gate 待跑） |
 | SBX-W-103 | workflow | sandbox script calls deployed search proxy | Deployed API/Vercel/Exa or fake | done（2026-07-12 production API + Vercel Sandbox + fake search 实跑：`web_search:completed`，2 条 `Source(kind=search_result)` 已验证） |
 | SBX-W-104 | workflow | cancel request stops sandbox runner | Deployed API/Vercel | done |
 | SBX-W-105 | workflow | waiting_for_input releases sandbox warm and Stage2 reuses it | Deployed API/Vercel | done |
@@ -166,14 +166,14 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | WF-009 | workflow | stale heartbeat sweep interrupts run | done |
 | WF-010 | workflow | deployed sandbox callback completes full run | planned |
 | WF-011 | workflow | tool call lifecycle is visible in timeline/SSE, not only run detail `toolCalls` | done |
-| WF-012 | workflow | Pi runtime content/reasoning stream before final semantic event | planned（不受本次复核影响，见下方交叉引用第二条的区分说明） |
+| WF-012 | workflow | Pi runtime content/reasoning stream before final semantic event | partial（本地 Pi workflow 已断言 Redis chunk 先于最终 `agent_message`；deployed API + Vercel Sandbox gate 待跑） |
 
 ### 6.1 与 architecture-test-plan.md 的交叉引用
 
 [architecture-test-plan.md §4.3](./architecture-test-plan.md#43-control-plane-用例清单) 的 Control Plane 用例清单里，以下 case 已复核，结论如下：
 
 - `CP-TOOL-005`（tool lifecycle appears in SSE timeline）和 `CP-SSE-005`（tool call lifecycle merged into SSE timeline）已在同一批改动中收敛：`/api/ingest/tool-calls` 会生产 `tool_call_started`/`tool_call_completed`/`tool_call_failed` RunEvent，`run/event-sse.integration.test.ts` 验证 SSE snapshot 可见，`ingest/routes.integration.test.ts` 和 `sandbox/scripted-ingest-fixture.integration.test.ts` 验证真实 ingest HTTP 路径会产生这些事件。因此本表 `WF-011` 标记为 done。`SBX-W-106` 仍标 partial，是因为 Deployed API + Vercel Sandbox 维度的 release gate 仍属于 Sandbox/Full Product Path 后续验收。
-- `CP-SSE-006`（content chunk arrives before final agent_message）验证的是"Redis stream chunk 先于语义 RunEvent 落库"这个协议机制本身，这个机制已经有自动化测试覆盖：`AGENT-W-002`（`agent-loop/agent-loop.workflow.test.ts`："streams LLM chunks to Redis before semantic events are persisted"）。但该测试跑的是旧的自写 agent-loop + fake LLM（`stream: true`），不是 Pi runtime 真实链路。**这不等于 `WF-012`/`LLM-W-106` 已完成**——Pi runtime 当前 LLM proxy 仍是 `stream:false`，一次性写 `agent_message`（见 `openspec/changes/hosted-hono-control-plane/tasks.md` 6.12、`v2-research-workspace-agent/tasks.md` 22.12），真实链路里根本没有 chunk 先于事件这件事发生。结论：机制层面（Redis/SSE 协议本身）的 `CP-SSE-006` 归属 Redis Streaming（architecture-test-plan.md Part 4）并标记 existing/done；但 Pi runtime 真实流式（`WF-012`/`LLM-W-106`/`LLM-W-107`）仍是 planned，留给 Pi runtime thinking/streaming 收敛阶段处理，不在本轮 Control Plane 范围内。
+- `CP-SSE-006`（content chunk arrives before final agent_message）验证的是"Redis stream chunk 先于语义 RunEvent 落库"这个协议机制。`AGENT-W-002` 已更新为由 LLM Proxy 直接写 Redis，旧自写 loop 只消费 SSE，并在写 `agent_thinking`/`agent_message` 前断言两条 chunk 已存在；Pi runtime workflow 也断言 Redis chunk 先于最终 `agent_message`。因此机制层面的 `CP-SSE-006` 归属 Redis Streaming（architecture-test-plan.md Part 4）并保持 done。**这仍不等于 `WF-012`/`LLM-W-106`/`LLM-W-107` 完成**：当前改动尚未部署到 `https://api.sandbox.maidang.me` 后运行真实 Vercel Sandbox gate，且配置模型实测没有 reasoning delta，所以这些跨模块 case 只标 partial。
 
 ## 7. Live / Expensive Case Matrix
 

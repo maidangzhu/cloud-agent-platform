@@ -5,6 +5,10 @@ import { buildPiRuntimeStartConfig } from "./config.js";
 import { issueRunToken } from "../run/run-token.js";
 import { resolveVercelCredentials } from "../sandbox/vercel-credentials.js";
 import {
+  deleteRunStream,
+  readRunStream,
+} from "../redis/streams.js";
+import {
   getOrCreateWorkspaceSandbox,
   releaseWorkspaceSandboxForRun,
   runPiRuntimeInSandbox,
@@ -40,6 +44,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
         await sandbox.stop().catch(() => undefined);
       }
       for (const runId of created.runIds) {
+        await deleteRunStream(runId).catch(() => undefined);
         await releaseWorkspaceSandboxForRun(runId, "stopped").catch(() => undefined);
       }
       await prisma.workspaceArtifactVersion.deleteMany({
@@ -93,7 +98,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
         });
         created.sandboxes.push(claim.sandbox);
 
-        const result = await runPiRuntimeInSandbox({
+        const runPromise = runPiRuntimeInSandbox({
           sandbox: claim.sandbox,
           config: buildPiRuntimeStartConfig({
             apiBaseUrl: PUBLIC_API_BASE_URL!,
@@ -112,6 +117,31 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
           installTimeoutMs: 240_000,
           execTimeoutMs: 120_000,
         });
+
+        const streamEntries = await readRunStream({
+          runId: graph.runId,
+          cursor: "0",
+          blockMs: 120_000,
+          count: 10,
+        });
+        expect(streamEntries.map((entry) => entry.streamType)).toEqual([
+          "thinking",
+          "content",
+        ]);
+        expect(streamEntries[0]?.chunk).toContain(
+          "pi runtime hosted callback smoke",
+        );
+        expect(streamEntries[1]?.chunk).toContain(
+          "pi runtime hosted callback smoke",
+        );
+        expect(await prisma.runEvent.count({
+          where: {
+            runId: graph.runId,
+            type: { in: ["agent_thinking", "agent_message"] },
+          },
+        })).toBe(0);
+
+        const result = await runPromise;
 
         expect(result.exitCode).toBe(0);
         expect(result.stderr).toBe("");

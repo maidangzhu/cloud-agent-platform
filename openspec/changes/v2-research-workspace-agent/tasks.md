@@ -149,8 +149,8 @@
 - [x] 22.8 部署新版 API 后跑公网 production E2E：`https://api.sandbox.maidang.me` 创建 run → 真实 Vercel Sandbox 内 Pi runtime → 真实 provider tool calls/runtime artifact fallback → ingest 写 `RunEvent`/`RunToolCall`/`WorkspaceFile`/`WorkspaceArtifact`，并从公网 API 读回验证（`CAP_API_BASE_URL=https://api.sandbox.maidang.me pnpm --dir apps/api test:live`：7/7 passed，2026-07-08）
 - [x] 22.9 补齐 Pi runtime sandbox 基础工具面：`read_file`、`write_file`、`list_directory`/`list_files`、`run_command`；`write_file` 同步写 sandbox 磁盘和 hosted ingest，`run_command` 在 workspace cwd 内执行 bash 并带 denylist、timeout、输出截断，不注入 DB/Auth/provider secrets
 - [x] 22.10 将 `RunToolCall` 变化投递进统一 timeline/SSE：工具 start/completed/failed/rejected/timeout 必须作为用户可见事件出现，不能只存在 `GET /api/runs/:runId` 的 `toolCalls` 数组里（`/api/ingest/tool-calls` 已写 `tool_call_started/completed/failed` RunEvent；`rejected`/`timeout` 映射为用户可见 failed 类事件；`run/event-sse.integration.test.ts`、`ingest/routes.integration.test.ts`、`sandbox/scripted-ingest-fixture.integration.test.ts` 已覆盖）
-- [ ] 22.11 打开并验证 Pi runtime thinking/reasoning：去掉当前 `thinkingLevel: "off"` 的硬编码，明确 thinking 配置来源，并把 reasoning chunk 通过 Redis stream/SSE 以 `streamType=thinking` 输出
-- [ ] 22.12 将 Pi runtime LLM proxy 改为真正 streaming：不再 `stream:false` 后一次性写 `agent_message`，而是逐 chunk 写 `/api/ingest/stream-chunk`，最终只落稳定语义事件
+- [ ] 22.11 打开并验证 Pi runtime thinking/reasoning：已去掉 `thinkingLevel: "off"` 硬编码，start config 默认 `medium` 并透传 `reasoning_effort`，synthetic reasoning delta 可通过 Redis/SSE 输出；尚未完成 deployed Vercel gate，且 2026-07-12 配置模型 `gpt-5.5` 实测 0 reasoning / 7 content delta
+- [ ] 22.12 将 Pi runtime LLM proxy 改为真正 streaming：本地已实现 provider SSE parser、LLM Proxy 直接 fan-out 到 Sandbox SSE + Redis、Pi adapter/standalone script 增量消费、Sandbox 最终只落稳定语义事件；unit/integration/workflow 已通过，尚待部署后真实 Vercel Sandbox gate
 
 ## 23. 架构分层测试收敛
 

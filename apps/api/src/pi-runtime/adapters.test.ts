@@ -50,27 +50,51 @@ describe("Pi runtime Control Plane adapters", () => {
   it("wraps /api/llm-proxy as a Pi AssistantMessageEventStream", async () => {
     const { calls, transport } = recordingTransport((url) => {
       if (url.endsWith("/api/llm-proxy")) {
-        return ok({
-          provider: "fake",
-          model: "fake-pi-runtime",
-          output: {
-            role: "assistant",
-            reasoning: "think",
-            content: "answer",
-            toolCalls: [
-              {
-                id: "tool_1",
-                name: "write_file",
-                arguments: JSON.stringify({ path: "report.md", content: "x" }),
-              },
-            ],
+        return sse([
+          {
+            event: "chunk",
+            data: {
+              provider: "fake",
+              model: "fake-pi-runtime",
+              part: "reason",
+              text: "think",
+            },
           },
-          finishReason: "tool_calls",
-          usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
-        });
-      }
-      if (url.endsWith("/api/ingest/stream-chunk")) {
-        return ok({ streamEntryId: "stream_1" });
+          {
+            event: "chunk",
+            data: {
+              provider: "fake",
+              model: "fake-pi-runtime",
+              part: "content",
+              text: "answer",
+            },
+          },
+          {
+            event: "tool_calls",
+            data: {
+              provider: "fake",
+              model: "fake-pi-runtime",
+              toolCalls: [
+                {
+                  id: "tool_1",
+                  name: "write_file",
+                  arguments: JSON.stringify({ path: "report.md", content: "x" }),
+                },
+              ],
+            },
+          },
+          {
+            event: "done",
+            data: {
+              provider: "fake",
+              model: "fake-pi-runtime",
+              finishReason: "tool_calls",
+              usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+              durationMs: 10,
+              attempts: [],
+            },
+          },
+        ]);
       }
       return error(404, "unexpected path");
     });
@@ -81,7 +105,7 @@ describe("Pi runtime Control Plane adapters", () => {
       systemPrompt: "system",
       messages: [{ role: "user", content: "hello", timestamp: Date.now() }],
       tools: [],
-    });
+    }, { reasoning: "medium" });
     const events = [];
     for await (const event of stream) events.push(event.type);
     const message = await stream.result();
@@ -98,10 +122,84 @@ describe("Pi runtime Control Plane adapters", () => {
     expect(calls[0].body).toMatchObject({
       runId: "run_1",
       provider: "fake",
-      stream: false,
+      stream: true,
       modelHint: "cap-llm-proxy",
+      thinkingLevel: "medium",
     });
-    expect(calls.filter((call) => call.url.endsWith("/api/ingest/stream-chunk"))).toHaveLength(2);
+    expect(calls.filter((call) => call.url.endsWith("/api/ingest/stream-chunk"))).toHaveLength(0);
+  });
+
+  it("accepts a content-only stream with no thinking events", async () => {
+    const { transport } = recordingTransport((url) => {
+      if (url.endsWith("/api/llm-proxy")) {
+        return sse([
+          { event: "chunk", data: { part: "content", text: "answer" } },
+          { event: "done", data: { finishReason: "stop", usage: {} } },
+        ]);
+      }
+      return error(404, "unexpected path");
+    });
+    const client = new PiRuntimeControlPlaneClient({ config, transport });
+    const stream = await createLlmProxyStreamFn(client, "fake")(
+      model,
+      { systemPrompt: "", messages: [], tools: [] },
+      { reasoning: "medium" },
+    );
+    const events = [];
+    for await (const event of stream) events.push(event.type);
+    const message = await stream.result();
+
+    expect(message.stopReason).toBe("stop");
+    expect(message.content).toEqual([{ type: "text", text: "answer" }]);
+    expect(events).not.toContain("thinking_start");
+  });
+
+  it("fails when the LLM proxy stream ends without done", async () => {
+    const { transport } = recordingTransport((url) => {
+      if (url.endsWith("/api/llm-proxy")) {
+        return sse([{ event: "chunk", data: { part: "content", text: "partial" } }]);
+      }
+      return error(404, "unexpected path");
+    });
+    const client = new PiRuntimeControlPlaneClient({ config, transport });
+    const stream = await createLlmProxyStreamFn(client, "fake")(
+      model,
+      { systemPrompt: "", messages: [], tools: [] },
+      { reasoning: "medium" },
+    );
+    for await (const _event of stream) {
+      // Drain the event stream so the result settles.
+    }
+    const message = await stream.result();
+
+    expect(message.stopReason).toBe("error");
+    expect(message.errorMessage).toBe("LLM proxy stream ended before done");
+  });
+
+  it("fails when reasoning arrives after content has started", async () => {
+    const { transport } = recordingTransport((url) => {
+      if (url.endsWith("/api/llm-proxy")) {
+        return sse([
+          { event: "chunk", data: { part: "content", text: "answer" } },
+          { event: "chunk", data: { part: "reason", text: "late thought" } },
+          { event: "done", data: { finishReason: "stop", usage: {} } },
+        ]);
+      }
+      return error(404, "unexpected path");
+    });
+    const client = new PiRuntimeControlPlaneClient({ config, transport });
+    const stream = await createLlmProxyStreamFn(client, "fake")(
+      model,
+      { systemPrompt: "", messages: [], tools: [] },
+      { reasoning: "medium" },
+    );
+    for await (const _event of stream) {
+      // Drain the event stream so the result settles.
+    }
+    const message = await stream.result();
+
+    expect(message.stopReason).toBe("error");
+    expect(message.errorMessage).toBe("LLM proxy emitted reasoning after content");
   });
 
   it("routes web_search through the hosted search proxy and records tool status", async () => {
@@ -638,4 +736,15 @@ function ok(data: unknown): Response {
 
 function error(status: number, message: string): Response {
   return Response.json({ code: 5000, message, data: null }, { status });
+}
+
+function sse(records: Array<{ event: string; data: unknown }>): Response {
+  return new Response(
+    records.map((record) => [
+      `event: ${record.event}`,
+      `data: ${JSON.stringify(record.data)}`,
+      "",
+    ].join("\n")).join("\n"),
+    { headers: { "content-type": "text/event-stream" } },
+  );
 }
