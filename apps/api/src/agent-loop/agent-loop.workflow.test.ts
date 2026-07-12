@@ -17,6 +17,7 @@ import {
   type WorkspaceSandboxClaim,
 } from "../sandbox/workspace-sandbox.js";
 import { runAgentLoop } from "./agent-loop.js";
+import { computeContentHash, upsertWorkspaceFile } from "../files/store.js";
 
 type SseRecord = {
   event?: string;
@@ -645,6 +646,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
             "tool_call_completed",
             "tool_call_started",
             "tool_call_completed",
+            "agent_thinking",
             "agent_message",
             "run_completed",
           ]);
@@ -671,6 +673,94 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
           expect(
             snapshot.events.map((event: { type: string }) => event.type),
           ).toEqual(events.map((event) => event.type));
+        } finally {
+          if (previousAutoStart === undefined) {
+            delete process.env.CAP_RUNNER_AUTO_START;
+          } else {
+            process.env.CAP_RUNNER_AUTO_START = previousAutoStart;
+          }
+          if (previousPiProvider === undefined) {
+            delete process.env.CAP_PI_RUNTIME_LLM_PROVIDER;
+          } else {
+            process.env.CAP_PI_RUNTIME_LLM_PROVIDER = previousPiProvider;
+          }
+          if (previousPiModelHint === undefined) {
+            delete process.env.CAP_PI_RUNTIME_MODEL_HINT;
+          } else {
+            process.env.CAP_PI_RUNTIME_MODEL_HINT = previousPiModelHint;
+          }
+          if (runId) {
+            const instances = await prisma.workspaceSandboxInstance.findMany({
+              where: { workspaceId },
+            });
+            await Promise.all(
+              instances.map((instance) =>
+                stopWorkspaceSandboxByName(instance.sandboxName).catch(
+                  () => undefined,
+                ),
+              ),
+            );
+          }
+        }
+      },
+      240_000,
+    );
+
+    it.skipIf(!HAS_VERCEL || !PUBLIC_API_BASE_URL)(
+      "hydrates Control Plane WorkspaceFiles before the auto-started Pi run",
+      async () => {
+        const seedRun = await createRun("seed workspace mapping state");
+        const content = "control-plane hydrated workspace content";
+        await upsertWorkspaceFile({
+          workspaceId,
+          runId: seedRun.id,
+          path: "notes/preloaded.md",
+          kind: "text",
+          mimeType: "text/markdown",
+          size: Buffer.byteLength(content),
+          contentHash: computeContentHash(content),
+          content,
+        });
+        await prisma.agentRun.update({
+          where: { id: seedRun.id },
+          data: { status: "completed", completedAt: new Date() },
+        });
+
+        const previousAutoStart = process.env.CAP_RUNNER_AUTO_START;
+        const previousPiProvider = process.env.CAP_PI_RUNTIME_LLM_PROVIDER;
+        const previousPiModelHint = process.env.CAP_PI_RUNTIME_MODEL_HINT;
+        process.env.CAP_RUNNER_AUTO_START = "true";
+        process.env.CAP_PI_RUNTIME_LLM_PROVIDER = "fake";
+        process.env.CAP_PI_RUNTIME_MODEL_HINT = "pi-runtime-workspace-sync";
+        let runId = "";
+        try {
+          const createRes = await app.request(`/api/threads/${threadId}/runs`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", cookie },
+            body: JSON.stringify({ prompt: "read hydrated workspace state" }),
+          });
+          expect(createRes.status).toBe(200);
+          runId = (await createRes.json()).data.run.id as string;
+          runIds.push(runId);
+
+          const completed = await waitForRunStatus(
+            runId,
+            (status) => status === "completed",
+          );
+          expect(completed.status).toBe("completed");
+          const readCall = await prisma.runToolCall.findFirst({
+            where: { runId, name: "read_file" },
+          });
+          expect(JSON.stringify(readCall?.result)).toContain(content);
+
+          const workspace = await prisma.workspace.findUniqueOrThrow({
+            where: { id: workspaceId },
+          });
+          const instance = await prisma.workspaceSandboxInstance.findFirstOrThrow({
+            where: { workspaceId },
+            orderBy: { updatedAt: "desc" },
+          });
+          expect(instance.syncedUpToRevision).toBe(workspace.fileRevision);
         } finally {
           if (previousAutoStart === undefined) {
             delete process.env.CAP_RUNNER_AUTO_START;

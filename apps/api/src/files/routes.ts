@@ -21,7 +21,7 @@ fileRoutes.get("/api/workspaces/:workspaceId/files", async (c) => {
   }
 
   const files = await prisma.workspaceFile.findMany({
-    where: { workspaceId },
+    where: { workspaceId, isDeleted: false },
     orderBy: { path: "asc" },
   });
 
@@ -60,7 +60,7 @@ fileRoutes.get("/api/workspaces/:workspaceId/files/content", async (c) => {
       },
     },
   });
-  if (!file) {
+  if (!file || file.isDeleted) {
     return c.json({ code: 1004, message: "not found", data: null }, 404);
   }
   if (file.content === null) {

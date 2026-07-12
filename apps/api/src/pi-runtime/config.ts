@@ -1,3 +1,9 @@
+import { posix as path } from "node:path";
+import type {
+  WorkspaceFileSyncEntry,
+  WorkspaceFileSyncPlan,
+} from "../workspace-mapping/sync.js";
+
 export const PI_RUNTIME_PACKAGES = {
   agentCore: "@earendil-works/pi-agent-core",
   ai: "@earendil-works/pi-ai",
@@ -39,6 +45,8 @@ export type PiRuntimeStartConfig = {
   maxDurationSec: number;
   toolPolicy: PiRuntimeToolPolicy;
   packages: typeof PI_RUNTIME_PACKAGES;
+  filesToSync: WorkspaceFileSyncEntry[];
+  syncTargetRevision: string;
 };
 
 export type BuildPiRuntimeStartConfigInput = {
@@ -59,6 +67,7 @@ export type BuildPiRuntimeStartConfigInput = {
   thinkingLevel?: PiRuntimeThinkingLevel;
   searchProvider?: "fake" | "http" | "exa";
   toolPolicy?: Partial<PiRuntimeToolPolicy>;
+  workspaceSyncPlan?: WorkspaceFileSyncPlan;
 };
 
 const DEFAULT_TOOL_POLICY: PiRuntimeToolPolicy = {
@@ -99,6 +108,8 @@ export function buildPiRuntimeStartConfig(
         input.toolPolicy?.denyCommands ?? DEFAULT_TOOL_POLICY.denyCommands,
     },
     packages: PI_RUNTIME_PACKAGES,
+    filesToSync: input.workspaceSyncPlan?.filesToSync ?? [],
+    syncTargetRevision: input.workspaceSyncPlan?.targetRevision ?? "0",
   };
 }
 
@@ -136,6 +147,32 @@ export function validatePiRuntimeStartConfig(
   }
   if (!config.modelHint.trim()) {
     return { ok: false, message: "modelHint is required" };
+  }
+  if (!/^\d+$/.test(config.syncTargetRevision)) {
+    return { ok: false, message: "syncTargetRevision must be a non-negative integer" };
+  }
+  for (const file of config.filesToSync) {
+    const raw = file.path.trim().replace(/\\/g, "/");
+    const normalized = path.normalize(raw);
+    if (
+      raw.length === 0 ||
+      raw.includes("\0") ||
+      path.isAbsolute(raw) ||
+      normalized === "." ||
+      normalized === ".." ||
+      normalized.startsWith("../")
+    ) {
+      return { ok: false, message: "filesToSync path is invalid" };
+    }
+    if (file.kind !== "text" && file.kind !== "directory") {
+      return { ok: false, message: "filesToSync kind is invalid" };
+    }
+    if (!/^\d+$/.test(file.revision)) {
+      return { ok: false, message: "filesToSync revision is invalid" };
+    }
+    if (!file.isDeleted && file.kind === "text" && typeof file.content !== "string") {
+      return { ok: false, message: "filesToSync text content is required" };
+    }
   }
   if (!(["off", "minimal", "low", "medium", "high", "xhigh"] as const).includes(
     config.thinkingLevel,

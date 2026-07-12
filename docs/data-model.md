@@ -64,6 +64,7 @@ id              String   primary key
 ownerUserId     String   Better Auth user id
 title           String
 status          WorkspaceStatus
+fileRevision    BigInt   workspace file monotonic revision watermark
 createdAt       DateTime
 updatedAt       DateTime
 archivedAt      DateTime?
@@ -330,6 +331,8 @@ contentHash     String
 content         String?
 storageKey      String?
 latestRunId     String?
+revision        BigInt
+isDeleted       Boolean
 createdAt       DateTime
 updatedAt       DateTime
 ```
@@ -345,6 +348,7 @@ unique(workspaceId, path)
 ```text
 workspaceId, updatedAt
 workspaceId, path
+workspaceId, revision
 latestRunId
 ```
 
@@ -355,6 +359,8 @@ latestRunId
 - 小文本内容存 `content`。
 - 大文件或二进制内容存对象存储并设置 `storageKey`。
 - `contentHash` 必须存在。
+- 内容、metadata 或删除状态变化时，必须从 `Workspace.fileRevision` 原子取得新 revision。
+- 删除采用 `isDeleted=true` 的 tombstone，不能物理删除后丢失同步指令。
 
 ### 3.9 WorkspaceFileVersion
 
@@ -521,6 +527,8 @@ currentRunId        String?
 state               Json?
 snapshotId          String?
 snapshotExpiresAt   DateTime?
+syncedUpToRevision  BigInt?
+pendingSyncRevision BigInt?
 workingDir          String?
 lastUsedAt          DateTime?
 createdAt           DateTime
@@ -528,6 +536,8 @@ updatedAt           DateTime
 ```
 
 `currentRunId`（[ADR-0018](./decisions/0018-atomic-state-transitions.md) 新增）：当前占用该沙箱的 run id，`NULL` 表示空闲可复用。认领动作必须走条件原子 UPDATE（`WHERE status IN ('warm','ready') AND current_run_id IS NULL`），防止两个并发的 getOrCreate 请求抢到同一个沙箱。Run 进入终态或 `waiting_for_input` 时必须原子清空该字段。同时是排障用的可观测性字段——可以直接看到某个沙箱当前被哪个 run 占用。
+
+`syncedUpToRevision` 为 `NULL` 表示 provider sandbox 从未完成文件同步或刚被 fresh recreate；非空值表示 persistent working copy 已确认同步到的 WorkspaceFile revision。`pendingSyncRevision` 由 Control Plane 在 runner 启动前写入，只有 `run_completed` side effect 能在释放 sandbox 前把它推进为 `syncedUpToRevision`；失败、取消、timeout 不推进。
 
 索引：
 
@@ -686,4 +696,3 @@ Workspace.sessionId -> Workspace.id as top-level object
 2. v1 branch 保留为参考。
 3. v2 API 直接使用新命名。
 4. 除非必须迁移已有数据，否则不保留兼容层。
-

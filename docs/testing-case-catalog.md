@@ -69,6 +69,13 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | SANDBOX-I-003 | integration | Sandbox | scripted runner in real Vercel with scoped token | partial |
 | SANDBOX-I-004 | integration | Sandbox | agent-loop files injected and Node starts inside real Vercel | done |
 | FILE-I-001 | integration | Files | ingest file, list, read content, ownership | done |
+| WM-I-001 | integration | Workspace Mapping | cold full sync and warm revision diff | done |
+| WM-I-002 | integration | Workspace Mapping | overwrite/delete tombstones and concurrent monotonic revisions | done |
+| WM-I-003 | integration | Workspace Mapping | storage-only file rejects hydration explicitly | done |
+| WM-W-001 | workflow | Workspace Mapping | Pi boot hydrates/overwrites/deletes files in real Vercel Sandbox | done |
+| WM-W-002 | workflow | Workspace Mapping | `run_command` temporary file is not promoted to WorkspaceFile | done |
+| WM-W-003 | workflow | Workspace Mapping | auto-start orchestrator hydrates before Pi and advances watermark on completion | done |
+| WM-L-001 | live | Workspace Mapping | deleted persistent sandbox fresh-creates and rehydrates from Control Plane | done（2026-07-12 production deployment `dpl_JAYkqzC6jNEpbPfj6jVhTeRWMKgZ`） |
 | ART-I-001 | integration | Artifacts | create/update/version/detail/download | done |
 | SRC-I-001 | integration | Sources | URL/search_result source ingest and artifact references | done |
 | SEARCH-I-001 | integration | Search | fake/http provider, retry, 4xx no retry, usage | done |
@@ -112,15 +119,16 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | LLM-I-101 | integration | `/api/llm-proxy` stream emits reason/content chunks in order | DB/Auth | done |
 | LLM-I-102 | integration | `/api/llm-proxy` records usage exactly once per call | DB/Auth | done |
 | LLM-I-103 | integration | terminal/waiting run rejects LLM call | DB/Auth | done |
+| LLM-I-104 | integration | streaming terminal metadata and LLMUsageRecord persist the same TTFB | DB/Auth/Redis | done |
 | LLM-W-101 | workflow | agent loop streams reason/content to Redis and persists semantic events once | DB/Auth/Redis | done |
 | LLM-W-102 | workflow | tool calls are complete objects over ingest/run detail | DB/Auth/Redis | done |
 | LLM-W-103 | workflow | no-thinking model: content streams, no agent_thinking event | DB/Auth/Redis | partial（Pi adapter content-only component case 已覆盖；完整 workflow 待补） |
 | LLM-W-104 | workflow | thinking-only or empty-content edge case | DB/Auth/Redis | planned |
 | LLM-W-105 | workflow | malformed tool call -> tool failed and run failed/interrupted | DB/Auth/Redis | planned |
 | LLM-W-106 | workflow | Pi runtime real streaming: content chunks reach Redis/SSE before final agent_message | DB/Auth/Redis/Vercel | done（2026-07-12 production API + real Vercel Sandbox + real provider：首批 content 到 Redis 时 `agent_message=0`，1500-entry retention integration 通过，长回复完整分页回放，最终 `agent_message.content` 与全部 content delta 拼接一致） |
-| LLM-W-107 | workflow | Pi runtime thinking enabled: reasoning chunks reach Redis/SSE as `thinking` | DB/Auth/Redis/Vercel | partial（`thinkingLevel=medium` 已透传且 synthetic reasoning SSE 已覆盖；2026-07-12 配置模型 `gpt-5.5` 实测 0 reasoning / 7 content delta，deployed thinking gate 未满足） |
+| LLM-W-107 | workflow | Pi runtime thinking enabled: reasoning chunks reach Redis/SSE as `thinking` | DB/Auth/Redis/Vercel | done（2026-07-12 channel 2 real-provider gate：thinking 在最终语义事件前进入 Redis；结束后 delta 拼接与单条 `agent_thinking` 完全一致，且先于 `agent_message`） |
 | LLM-L-101 | live | real provider returns basic answer | Real LLM | planned |
-| LLM-L-102 | live | real provider streaming first token under SLA | Real LLM | planned |
+| LLM-L-102 | live | real provider streaming first token under SLA | Real LLM | done（LLM Proxy terminal metadata 与 usage record 均记录 TTFB；production-backed reasoning gate 通过 `<=15s` release SLA，探测基线约 5.7-8.0s） |
 | LLM-L-103 | live | real provider first-token timeout triggers fallback | Real LLM + fallback | planned |
 | LLM-L-104 | live | real provider 429/5xx retry/fallback behavior | Real LLM test gateway | planned |
 | LLM-L-105 | live | long context budget and truncation/summarization | Real LLM | planned |
@@ -167,14 +175,14 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | WF-009 | workflow | stale heartbeat sweep interrupts run | done |
 | WF-010 | workflow | deployed sandbox callback completes full run | planned |
 | WF-011 | workflow | tool call lifecycle is visible in timeline/SSE, not only run detail `toolCalls` | done |
-| WF-012 | workflow | Pi runtime content/reasoning stream before final semantic event | partial（content 路径已完成 deployed real-provider 验收；reasoning 仍无真实 provider delta，跟随 `LLM-W-107`/22.11） |
+| WF-012 | workflow | Pi runtime content/reasoning stream before final semantic event | done（production API + Vercel Sandbox + real provider：两类 chunk 均先于最终语义事件，结束后分别与 `agent_message`/`agent_thinking` 一致） |
 
 ### 6.1 与 architecture-test-plan.md 的交叉引用
 
 [architecture-test-plan.md §4.3](./architecture-test-plan.md#43-control-plane-用例清单) 的 Control Plane 用例清单里，以下 case 已复核，结论如下：
 
 - `CP-TOOL-005`（tool lifecycle appears in SSE timeline）和 `CP-SSE-005`（tool call lifecycle merged into SSE timeline）已在同一批改动中收敛：`/api/ingest/tool-calls` 会生产 `tool_call_started`/`tool_call_completed`/`tool_call_failed` RunEvent，`run/event-sse.integration.test.ts` 验证 SSE snapshot 可见，`ingest/routes.integration.test.ts` 和 `sandbox/scripted-ingest-fixture.integration.test.ts` 验证真实 ingest HTTP 路径会产生这些事件。因此本表 `WF-011` 标记为 done。`SBX-W-106` 仍标 partial，是因为 Deployed API + Vercel Sandbox 维度的 release gate 仍属于 Sandbox/Full Product Path 后续验收。
-- `CP-SSE-006`（content chunk arrives before final agent_message）验证的是"Redis stream chunk 先于语义 RunEvent 落库"这个协议机制。`AGENT-W-002` 由 LLM Proxy 直接写 Redis，旧自写 loop 只消费 SSE；2026-07-12 production Pi + real-provider gate 进一步证明 content chunk 先于最终 `agent_message`，长回复可完整回放且最终语义一致。因此 `CP-SSE-006` 与 `LLM-W-106` 已完成。`WF-012`/`LLM-W-107` 仍为 partial 的唯一原因是当前配置模型没有真实 reasoning delta。
+- `CP-SSE-006`（content chunk arrives before final agent_message）验证的是"Redis stream chunk 先于语义 RunEvent 落库"这个协议机制。`AGENT-W-002` 由 LLM Proxy 直接写 Redis，旧自写 loop 只消费 SSE；2026-07-12 production Pi + channel 2 real-provider gate 进一步证明 content/thinking 均先于最终语义事件，完整回放后分别与 `agent_message`/`agent_thinking` 一致。因此 `CP-SSE-006`、`LLM-W-106`、`LLM-W-107`、`WF-012` 均已完成。
 
 ## 7. Live / Expensive Case Matrix
 
@@ -185,12 +193,12 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | LIVE-003 | live | deployed sign-in + workspace/thread/run write smoke | API base URL + live account | nightly/manual | planned |
 | LIVE-004 | live | deployed SSE connection and snapshot | API base URL + live account | nightly | planned |
 | LIVE-005 | live | deployed sandbox -> Control Plane ingest callback | API base URL + Vercel | nightly | planned |
-| LIVE-006 | live | deployed sandbox -> LLM proxy -> Redis stream -> SSE | API base URL + Vercel + Redis | manual/release | partial（content 的 Sandbox/Redis/最终语义链路已通过；浏览器鉴权 SSE live gate 与真实 reasoning 仍待补） |
+| LIVE-006 | live | deployed sandbox -> LLM proxy -> Redis stream -> SSE | API base URL + Vercel + Redis | manual/release | done（2026-07-12 production：authenticated POST SSE 从 cursor `0` 收到 thinking/content；断开后 Last-Event-ID 续传无重复无丢失；最终语义与完整 delta 拼接一致） |
 | LIVE-007 | live | real Exa query and Source normalization | API base URL + Exa | nightly | planned |
 | LIVE-008 | live | real LLM basic completion and usage | API base URL + LLM | nightly | planned |
 | LIVE-009 | live | real LLM fallback and retry | API base URL + multi LLM | manual/release | planned |
 | LIVE-010 | live | long-context expensive run | API base URL + LLM | manual | planned |
-| DEPLOY-001 | live | `apps/api` independent Vercel project Ready | Vercel CLI/API | manual/release | planned |
+| DEPLOY-001 | live | `apps/api` independent Vercel project Ready | Vercel CLI/API | manual/release | done（production deployment `dpl_JAYkqzC6jNEpbPfj6jVhTeRWMKgZ` Ready，并 alias 到 canonical API host） |
 | DEPLOY-002 | live | `apps/web` independent Vercel project Ready and no root Next.js detection | Vercel CLI/API | manual/release | planned |
 | DEPLOY-003 | live | sandbox callback uses hosted API base URL | API base URL + Vercel | manual/release | planned |
 | RUNTIME-001 | workflow/live | Pi AI runtime replaces product self-written loop | API base URL + Vercel + Pi AI | manual/release | planned |

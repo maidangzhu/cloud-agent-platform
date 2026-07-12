@@ -172,13 +172,14 @@ enum SandboxStatus {
 // P0 下访问控制收敛为字符串比较即可，见 docs/backend-domain-model.md
 // §2；外键 ON DELETE 行为留给后续需要时再补，不在本 Step 范围内）。
 model Workspace {
-  id          String          @id
-  ownerUserId String
-  title       String
-  status      WorkspaceStatus @default(active)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  archivedAt  DateTime?
+  id           String          @id
+  ownerUserId  String
+  title        String
+  status       WorkspaceStatus @default(active)
+  fileRevision BigInt          @default(0)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  archivedAt   DateTime?
 
   @@index([ownerUserId, updatedAt])
   @@index([status, updatedAt])
@@ -364,12 +365,15 @@ model WorkspaceFile {
   content     String?
   storageKey  String?
   latestRunId String?
+  revision    BigInt            @default(0)
+  isDeleted   Boolean           @default(false)
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
   @@unique([workspaceId, path])
   @@index([workspaceId, updatedAt])
   @@index([workspaceId, path])
+  @@index([workspaceId, revision])
   @@index([latestRunId])
 }
 
@@ -486,6 +490,8 @@ model WorkspaceSandboxInstance {
   sandboxState      Json?
   snapshotId        String?
   snapshotExpiresAt DateTime?
+  syncedUpToRevision BigInt?
+  pendingSyncRevision BigInt?
   workingDir        String?
   lastUsedAt        DateTime?
   error             String?

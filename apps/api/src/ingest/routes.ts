@@ -12,6 +12,7 @@ import { extractBearerRunToken, verifyRunToken } from "../run/run-token.js";
 import { transitionRun } from "../run/transition-run.js";
 import { isTerminalStatus, type RunStatus } from "../run/transitions.js";
 import { releaseWorkspaceSandboxForRun } from "../sandbox/workspace-sandbox.js";
+import { markWorkspaceFileSyncCompleteForRun } from "../workspace-mapping/sync.js";
 import {
   toWorkspaceFileDTO,
   upsertWorkspaceFile,
@@ -846,6 +847,7 @@ async function applyRunEventSideEffects(
       return;
     case "run_completed":
       await transitionRun(runId, "completed", ["running", "waiting_for_input"]);
+      await markWorkspaceFileSyncCompleteForRun(runId);
       await releaseWorkspaceSandboxForRun(runId, "warm");
       return;
     case "run_failed":

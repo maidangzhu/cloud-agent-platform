@@ -321,8 +321,14 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
           totalTokens: 12,
         },
       });
+      expect(parsed[2].ttfbMs).toBeGreaterThanOrEqual(0);
       expect(parsed[2].durationMs).toBeGreaterThanOrEqual(0);
       expect(parsed[2].attempts).toHaveLength(1);
+      const usageRecord = await prisma.lLMUsageRecord.findFirstOrThrow({
+        where: { runId: run.id },
+        orderBy: { createdAt: "desc" },
+      });
+      expect(usageRecord.ttfbMs).toBe(parsed[2].ttfbMs);
       const redisEntries = await readRunStream({
         runId: run.id,
         cursor: "0",
@@ -375,6 +381,11 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       ).toBeTruthy();
       expect(body.data.durationMs).toBeGreaterThanOrEqual(0);
       expect(body.data.attempts.length).toBeGreaterThanOrEqual(1);
+      const usageRecord = await prisma.lLMUsageRecord.findFirstOrThrow({
+        where: { runId: run.id },
+        orderBy: { createdAt: "desc" },
+      });
+      expect(usageRecord.ttfbMs).toBeNull();
     }, 120_000);
 
     it.skipIf(!HAS_REAL_LLM || !HAS_REDIS)("real provider streams chunks through Redis before done", async () => {
@@ -402,6 +413,8 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(res.status).toBe(200);
       const records = parseSseRecords(await res.text());
       expect(records.at(-1)?.event).toBe("done");
+      const terminal = JSON.parse(records.at(-1)?.data ?? "{}");
+      expect(terminal.ttfbMs).toBeGreaterThanOrEqual(0);
       const chunks = records
         .filter((record) => record.event === "chunk")
         .map((record) => JSON.parse(record.data));
@@ -417,6 +430,11 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       });
       expect(redisEntries.map((entry) => entry.chunk).join(""))
         .toBe(chunks.map((chunk) => chunk.text).join(""));
+      const usageRecord = await prisma.lLMUsageRecord.findFirstOrThrow({
+        where: { runId: run.id },
+        orderBy: { createdAt: "desc" },
+      });
+      expect(usageRecord.ttfbMs).toBe(terminal.ttfbMs);
     }, 120_000);
   },
 );

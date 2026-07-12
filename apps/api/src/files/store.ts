@@ -156,34 +156,69 @@ export function validateWorkspaceFileInput(
 }
 
 export async function upsertWorkspaceFile(input: IngestWorkspaceFileInput) {
-  return prisma.workspaceFile.upsert({
-    where: {
-      workspaceId_path: {
+  return prisma.$transaction(async (tx) => {
+    const workspace = await tx.workspace.update({
+      where: { id: input.workspaceId },
+      data: { fileRevision: { increment: 1 } },
+      select: { fileRevision: true },
+    });
+    return tx.workspaceFile.upsert({
+      where: {
+        workspaceId_path: {
+          workspaceId: input.workspaceId,
+          path: input.path,
+        },
+      },
+      create: {
+        id: randomUUID(),
         workspaceId: input.workspaceId,
         path: input.path,
+        kind: input.kind,
+        mimeType: input.mimeType,
+        size: input.size,
+        contentHash: input.contentHash,
+        content: input.content,
+        storageKey: input.storageKey,
+        latestRunId: input.runId,
+        revision: workspace.fileRevision,
       },
-    },
-    create: {
-      id: randomUUID(),
-      workspaceId: input.workspaceId,
-      path: input.path,
-      kind: input.kind,
-      mimeType: input.mimeType,
-      size: input.size,
-      contentHash: input.contentHash,
-      content: input.content,
-      storageKey: input.storageKey,
-      latestRunId: input.runId,
-    },
-    update: {
-      kind: input.kind,
-      mimeType: input.mimeType ?? null,
-      size: input.size,
-      contentHash: input.contentHash,
-      content: input.content ?? null,
-      storageKey: input.storageKey ?? null,
-      latestRunId: input.runId,
-    },
+      update: {
+        kind: input.kind,
+        mimeType: input.mimeType ?? null,
+        size: input.size,
+        contentHash: input.contentHash,
+        content: input.content ?? null,
+        storageKey: input.storageKey ?? null,
+        latestRunId: input.runId,
+        revision: workspace.fileRevision,
+        isDeleted: false,
+      },
+    });
+  });
+}
+
+export async function markWorkspaceFileDeleted(input: {
+  workspaceId: string;
+  path: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const workspace = await tx.workspace.update({
+      where: { id: input.workspaceId },
+      data: { fileRevision: { increment: 1 } },
+      select: { fileRevision: true },
+    });
+    return tx.workspaceFile.update({
+      where: {
+        workspaceId_path: {
+          workspaceId: input.workspaceId,
+          path: input.path,
+        },
+      },
+      data: {
+        isDeleted: true,
+        revision: workspace.fileRevision,
+      },
+    });
   });
 }
 
@@ -196,6 +231,7 @@ export function toWorkspaceFileDTO(row: {
   size: number;
   contentHash: string;
   latestRunId: string | null;
+  revision: bigint;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -208,6 +244,7 @@ export function toWorkspaceFileDTO(row: {
     size: row.size,
     contentHash: row.contentHash,
     latestRunId: row.latestRunId ?? undefined,
+    revision: row.revision.toString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

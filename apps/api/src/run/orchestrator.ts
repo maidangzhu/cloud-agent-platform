@@ -8,6 +8,10 @@ import {
 import { issueRunToken } from "./run-token.js";
 import { transitionRun } from "./transition-run.js";
 import type { RunStatus } from "./transitions.js";
+import {
+  prepareWorkspaceFileSync,
+  stageWorkspaceFileSync,
+} from "../workspace-mapping/sync.js";
 
 type WaitUntil = (promise: Promise<unknown>) => void;
 
@@ -144,6 +148,18 @@ export async function runCreatedRunOrchestration(params: {
       runId: run.id,
       timeoutMs: 60_000,
     });
+    const workspaceSyncPlan = await prepareWorkspaceFileSync({
+      workspaceId: run.workspaceId,
+      syncedUpToRevision: claim.instance.syncedUpToRevision,
+    });
+    const syncStaged = await stageWorkspaceFileSync({
+      instanceId: claim.instance.id,
+      runId: run.id,
+      targetRevision: workspaceSyncPlan.targetRevision,
+    });
+    if (!syncStaged) {
+      throw new Error("Workspace file sync target could not be staged");
+    }
 
     const running = await transitionRun(run.id, "running", [
       "provisioning_sandbox",
@@ -186,6 +202,7 @@ export async function runCreatedRunOrchestration(params: {
         },
         llmProvider: resolvePiRuntimeLlmProvider(),
         modelHint: process.env.CAP_PI_RUNTIME_MODEL_HINT ?? "pi-runtime",
+        workspaceSyncPlan,
       }),
       execTimeoutMs: Math.max(30_000, run.maxDurationSec * 1000),
     });

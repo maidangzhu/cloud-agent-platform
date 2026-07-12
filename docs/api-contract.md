@@ -267,6 +267,7 @@ type WorkspaceFileDTO = {
   size: number;
   contentHash: string;
   latestRunId?: string;
+  revision: string;
   createdAt: string;
   updatedAt: string;
 };

@@ -80,6 +80,39 @@ describe("LLM provider config resolution", () => {
       ]);
     }
   });
+
+  it("routes a model hint through the server-owned provider channel", () => {
+    const resolved = resolveLlmModelChain({
+      modelHint: "pi-runtime",
+      env: {
+        OPENAI_API_KEY: "k1",
+        OPENAI_BASE_URL: "https://relay1.example/v1",
+        LLM_MODEL: "m1",
+        OPENAI_API_KEY2: "k2",
+        OPENAI_BASE_URL2: "https://relay2.example/v1",
+        LLM_MODEL2: "m2",
+        LLM_CHANNEL_PI_RUNTIME: "2",
+      },
+    });
+
+    expect(resolved.ok).toBe(true);
+    if (resolved.ok) {
+      expect(resolved.chain.map((entry) => entry.key)).toEqual(["ch2-primary"]);
+      expect(resolved.chain[0]?.model).toBe("m2");
+    }
+  });
+
+  it("rejects an invalid model-hint channel", () => {
+    const resolved = resolveLlmModelChain({
+      modelHint: "pi-runtime",
+      env: { LLM_CHANNEL_PI_RUNTIME: "99" },
+    });
+
+    expect(resolved).toEqual({
+      ok: false,
+      message: "LLM_CHANNEL_PI_RUNTIME must be an integer between 1 and 20",
+    });
+  });
 });
 
 describe("finishReason normalization", () => {
@@ -165,6 +198,21 @@ describe("fake provider agent-loop fixture", () => {
     expect(JSON.parse(result.toolCalls[0]?.arguments ?? "{}")).toMatchObject({
       query: "agent runtime search",
       limit: 2,
+    });
+  });
+
+  it("returns a read_file call for the workspace hydration gate", () => {
+    const result = fakeComplete(
+      [{ role: "user", content: "read hydrated workspace state" }],
+      "pi-runtime-workspace-sync",
+    );
+
+    expect(result.finishReason).toBe("tool_calls");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "read_file",
+    ]);
+    expect(JSON.parse(result.toolCalls[0]?.arguments ?? "{}")).toEqual({
+      path: "notes/preloaded.md",
     });
   });
 
@@ -539,6 +587,7 @@ describe("real provider streaming", () => {
         finishReason: "stop",
         usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
       });
+      expect(result.result.ttfbMs).toBeGreaterThanOrEqual(0);
     }
     expect(deltas).toEqual([
       {

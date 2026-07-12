@@ -19,6 +19,8 @@ const HAS_DB = Boolean(process.env.DATABASE_URL);
 const HAS_SECRET = Boolean(process.env.BETTER_AUTH_SECRET);
 const HAS_VERCEL = Boolean(resolveVercelCredentials());
 const RUN_REAL_PROVIDER_GATE = process.env.CAP_RUN_REAL_PROVIDER_GATE === "1";
+const RUN_REAL_REASONING_GATE =
+  process.env.CAP_RUN_REAL_REASONING_GATE === "1";
 const PUBLIC_API_BASE_URL =
   process.env.PUBLIC_AGENT_LOOP_BASE_URL ??
   process.env.CAP_API_BASE_URL ??
@@ -177,6 +179,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
           "tool_call_completed",
           "tool_call_started",
           "tool_call_completed",
+          "agent_thinking",
           "agent_message",
           "run_completed",
         ]);
@@ -249,14 +252,12 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
           execTimeoutMs: 180_000,
         });
 
-        const firstEntries = await readRunStream({
-          runId: graph.runId,
-          cursor: "0",
-          blockMs: 120_000,
-          count: 10,
-        });
-        expect(firstEntries.some((entry) => entry.streamType === "content"))
-          .toBe(true);
+        const firstContent = await readRunStreamUntilType(
+          graph.runId,
+          "content",
+          120_000,
+        );
+        expect(firstContent.streamType).toBe("content");
         expect(await prisma.runEvent.count({
           where: { runId: graph.runId, type: "agent_message" },
         })).toBe(0);
@@ -290,6 +291,228 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
         })).toBeTruthy();
         expect(streamedContent.length).toBeGreaterThan(100);
         expect(message?.content).toBe(streamedContent);
+      },
+      300_000,
+    );
+
+    it.skipIf(!RUN_REAL_REASONING_GATE)(
+      "streams real provider reasoning before final semantic events and records TTFB",
+      async () => {
+        const graph = await createGraph(`${suiteId}-real-reasoning`, created);
+        const runToken = issueRunToken({
+          userId: graph.userId,
+          workspaceId: graph.workspaceId,
+          threadId: graph.threadId,
+          runId: graph.runId,
+          ttlSeconds: 900,
+        });
+        const claim = await getOrCreateWorkspaceSandbox({
+          workspaceId: graph.workspaceId,
+          runId: graph.runId,
+          timeoutMs: 60_000,
+        });
+        created.sandboxes.push(claim.sandbox);
+
+        const runPromise = runPiRuntimeInSandbox({
+          sandbox: claim.sandbox,
+          config: buildPiRuntimeStartConfig({
+            apiBaseUrl: PUBLIC_API_BASE_URL!,
+            runToken,
+            run: {
+              id: graph.runId,
+              workspaceId: graph.workspaceId,
+              threadId: graph.threadId,
+              userId: graph.userId,
+              prompt: [
+                "Respond directly without using tools.",
+                "Reason briefly about why Redis Streams IDs are ordered but not globally gap-free.",
+                "Then give a final answer in exactly two sentences.",
+              ].join(" "),
+              maxDurationSec: 180,
+            },
+            llmProvider: "real",
+            modelHint: "pi-runtime",
+            thinkingLevel: "medium",
+          }),
+          installTimeoutMs: 240_000,
+          execTimeoutMs: 180_000,
+        });
+
+        const firstEntries = await readRunStream({
+          runId: graph.runId,
+          cursor: "0",
+          blockMs: 120_000,
+          count: 10,
+        });
+        expect(firstEntries.some((entry) => entry.streamType === "thinking"))
+          .toBe(true);
+        expect(await prisma.runEvent.count({
+          where: {
+            runId: graph.runId,
+            type: { in: ["agent_thinking", "agent_message"] },
+          },
+        })).toBe(0);
+
+        const result = await runPromise;
+        expect(result.exitCode, result.stderr || result.stdout).toBe(0);
+        expect(result.stderr).toBe("");
+
+        const streamEntries = await readAllRunStream(graph.runId);
+        const streamedReasoning = streamEntries
+          .filter((entry) => entry.streamType === "thinking")
+          .map((entry) => entry.chunk)
+          .join("");
+        const streamedContent = streamEntries
+          .filter((entry) => entry.streamType === "content")
+          .map((entry) => entry.chunk)
+          .join("");
+        const events = await prisma.runEvent.findMany({
+          where: { runId: graph.runId },
+          orderBy: { seq: "asc" },
+        });
+        const thinking = events.find((event) => event.type === "agent_thinking");
+        const message = events.find((event) => event.type === "agent_message");
+
+        expect(streamedReasoning.length).toBeGreaterThan(0);
+        expect(streamedContent.length).toBeGreaterThan(0);
+        expect(thinking?.content).toBe(streamedReasoning);
+        expect(message?.content).toBe(streamedContent);
+        expect(thinking?.seq).toBeLessThan(message?.seq ?? 0);
+
+        const usageRecord = await prisma.lLMUsageRecord.findFirstOrThrow({
+          where: { runId: graph.runId },
+          orderBy: { createdAt: "desc" },
+        });
+        expect(usageRecord.ttfbMs).toBeGreaterThan(0);
+        expect(usageRecord.ttfbMs).toBeLessThanOrEqual(15_000);
+      },
+      300_000,
+    );
+
+    it(
+      "hydrates, overwrites, and deletes WorkspaceFiles inside a real sandbox",
+      async () => {
+        const graph = await createGraph(`${suiteId}-workspace-sync`, created);
+        const claim = await getOrCreateWorkspaceSandbox({
+          workspaceId: graph.workspaceId,
+          runId: graph.runId,
+          timeoutMs: 60_000,
+        });
+        created.sandboxes.push(claim.sandbox);
+
+        const firstResult = await runPiRuntimeInSandbox({
+          sandbox: claim.sandbox,
+          config: buildPiRuntimeStartConfig({
+            apiBaseUrl: PUBLIC_API_BASE_URL!,
+            runToken: issueRunToken({
+              userId: graph.userId,
+              workspaceId: graph.workspaceId,
+              threadId: graph.threadId,
+              runId: graph.runId,
+              ttlSeconds: 900,
+            }),
+            run: {
+              id: graph.runId,
+              workspaceId: graph.workspaceId,
+              threadId: graph.threadId,
+              userId: graph.userId,
+              prompt: "read hydrated workspace state",
+              maxDurationSec: 180,
+            },
+            llmProvider: "fake",
+            modelHint: "pi-runtime-workspace-sync",
+            workspaceSyncPlan: {
+              fromRevision: null,
+              targetRevision: "1",
+              filesToSync: [
+                {
+                  path: "notes/preloaded.md",
+                  kind: "text",
+                  content: "workspace version one",
+                  isDeleted: false,
+                  revision: "1",
+                },
+              ],
+            },
+          }),
+          installTimeoutMs: 240_000,
+          execTimeoutMs: 120_000,
+        });
+        expect(firstResult.exitCode, firstResult.stderr).toBe(0);
+        const readCall = await prisma.runToolCall.findFirst({
+          where: { runId: graph.runId, name: "read_file" },
+        });
+        expect(JSON.stringify(readCall?.result)).toContain("workspace version one");
+
+        const secondRunId = `${graph.runId}-second`;
+        created.runIds.push(secondRunId);
+        await prisma.agentRun.create({
+          data: {
+            id: secondRunId,
+            workspaceId: graph.workspaceId,
+            threadId: graph.threadId,
+            userId: graph.userId,
+            prompt: "apply incremental workspace state",
+            status: "running",
+            maxDurationSec: 180,
+          },
+        });
+        const secondClaim = await getOrCreateWorkspaceSandbox({
+          workspaceId: graph.workspaceId,
+          runId: secondRunId,
+          timeoutMs: 60_000,
+        });
+        created.sandboxes.push(secondClaim.sandbox);
+        const secondResult = await runPiRuntimeInSandbox({
+          sandbox: secondClaim.sandbox,
+          config: buildPiRuntimeStartConfig({
+            apiBaseUrl: PUBLIC_API_BASE_URL!,
+            runToken: issueRunToken({
+              userId: graph.userId,
+              workspaceId: graph.workspaceId,
+              threadId: graph.threadId,
+              runId: secondRunId,
+              ttlSeconds: 900,
+            }),
+            run: {
+              id: secondRunId,
+              workspaceId: graph.workspaceId,
+              threadId: graph.threadId,
+              userId: graph.userId,
+              prompt: "apply incremental workspace state",
+              maxDurationSec: 180,
+            },
+            llmProvider: "fake",
+            modelHint: "research-default",
+            workspaceSyncPlan: {
+              fromRevision: "1",
+              targetRevision: "3",
+              filesToSync: [
+                {
+                  path: "notes/preloaded.md",
+                  kind: "text",
+                  content: "workspace version two",
+                  isDeleted: false,
+                  revision: "2",
+                },
+                {
+                  path: "notes/deleted.md",
+                  kind: "text",
+                  isDeleted: true,
+                  revision: "3",
+                },
+              ],
+            },
+          }),
+          installTimeoutMs: 240_000,
+          execTimeoutMs: 120_000,
+        });
+        expect(secondResult.exitCode, secondResult.stderr).toBe(0);
+        const disk = await secondClaim.sandbox.exec(
+          "cat /workspace/notes/preloaded.md && test ! -e /workspace/notes/deleted.md",
+        );
+        expect(disk.exitCode).toBe(0);
+        expect(disk.stdout.trim()).toBe("workspace version two");
       },
       300_000,
     );
@@ -361,6 +584,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
 	        const readFile = toolCalls.find((tool) => tool.name === "read_file");
 	        expect(JSON.stringify(runCommand?.result)).toContain("maidang-smoke");
 	        expect(JSON.stringify(readFile?.result)).toContain("maidang-smoke");
+	        expect(await prisma.workspaceFile.count({
+	          where: { workspaceId: graph.workspaceId, path: "command-output.txt" },
+	        })).toBe(0);
 	      },
 	      300_000,
 	    );
@@ -529,6 +755,29 @@ async function readAllRunStream(runId: string) {
     if (page.length < 1000) return entries;
     cursor = page.at(-1)?.id ?? cursor;
   }
+}
+
+async function readRunStreamUntilType(
+  runId: string,
+  streamType: "thinking" | "content",
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let cursor = "0";
+
+  while (Date.now() < deadline) {
+    const entries = await readRunStream({
+      runId,
+      cursor,
+      blockMs: Math.min(5_000, Math.max(1, deadline - Date.now())),
+      count: 100,
+    });
+    const matched = entries.find((entry) => entry.streamType === streamType);
+    if (matched) return matched;
+    cursor = entries.at(-1)?.id ?? cursor;
+  }
+
+  throw new Error(`run ${runId} did not stream ${streamType} within ${timeoutMs}ms`);
 }
 
 async function createGraph(

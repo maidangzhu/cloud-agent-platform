@@ -28,6 +28,7 @@ export type WorkspaceSandboxClaim = {
   instance: WorkspaceSandboxRow;
   sandbox: VercelSandboxHandle;
   reused: boolean;
+  fresh: boolean;
 };
 
 export function sandboxNameForWorkspace(workspaceId: string): string {
@@ -75,15 +76,20 @@ export async function getOrCreateWorkspaceSandbox(params: {
     "ready",
   );
   if (reusable) {
-    const sandbox = await getVercelSandboxByName(
+    const acquired = await getVercelSandboxByName(
       reusable.sandboxName,
       params.timeoutMs,
     );
-    await markSandboxReady(reusable.id, sandbox);
+    await markSandboxReady(reusable.id, acquired.sandbox, acquired.created);
     const updated = await prisma.workspaceSandboxInstance.findUniqueOrThrow({
       where: { id: reusable.id },
     });
-    return { instance: updated, sandbox, reused: true };
+    return {
+      instance: updated,
+      sandbox: acquired.sandbox,
+      reused: true,
+      fresh: acquired.created,
+    };
   }
 
   const stopped = await claimExistingWorkspaceSandbox(
@@ -114,15 +120,20 @@ export async function getOrCreateWorkspaceSandbox(params: {
     }));
 
   try {
-    const sandbox = await getVercelSandboxByName(
+    const acquired = await getVercelSandboxByName(
       instance.sandboxName,
       params.timeoutMs,
     );
-    await markSandboxReady(instance.id, sandbox);
+    await markSandboxReady(instance.id, acquired.sandbox, acquired.created);
     const updated = await prisma.workspaceSandboxInstance.findUniqueOrThrow({
       where: { id: instance.id },
     });
-    return { instance: updated, sandbox, reused: Boolean(stopped) };
+    return {
+      instance: updated,
+      sandbox: acquired.sandbox,
+      reused: Boolean(stopped),
+      fresh: acquired.created,
+    };
   } catch (error) {
     await prisma.workspaceSandboxInstance.update({
       where: { id: instance.id },
@@ -143,6 +154,7 @@ export async function releaseWorkspaceSandboxForRun(
     where: { currentRunId: runId },
     data: {
       currentRunId: null,
+      pendingSyncRevision: null,
       status,
       lastUsedAt: new Date(),
     },
@@ -467,6 +479,7 @@ async function claimExistingWorkspaceSandbox(
 async function markSandboxReady(
   instanceId: string,
   sandbox: VercelSandboxHandle,
+  fresh: boolean,
 ): Promise<void> {
   const state = sandbox.getState();
   await prisma.workspaceSandboxInstance.update({
@@ -476,6 +489,7 @@ async function markSandboxReady(
       provider: state.provider,
       sandboxName: state.sandboxName ?? undefined,
       snapshotId: state.snapshotId ?? undefined,
+      syncedUpToRevision: fresh ? null : undefined,
       workingDir: sandbox.workingDir,
       sandboxState: state,
       error: null,
@@ -487,13 +501,13 @@ async function markSandboxReady(
 async function getVercelSandboxByName(
   sandboxName: string,
   timeoutMs?: number,
-): Promise<VercelSandboxHandle> {
+): Promise<{ sandbox: VercelSandboxHandle; created: boolean }> {
   const { getOrCreateSandbox } = await import("./factory.js");
   const result = await getOrCreateSandbox({
     sessionId: sandboxName.replace(/^cap-/, ""),
     timeoutMs,
   });
-  return result.sandbox;
+  return result;
 }
 
 async function stopVercelSandboxByName(sandboxName: string): Promise<void> {

@@ -62,6 +62,43 @@ describe("Pi runtime start protocol", () => {
     });
   });
 
+  it("carries a validated workspace revision diff into the runtime config", () => {
+    const config = buildPiRuntimeStartConfig({
+      apiBaseUrl: "https://api.sandbox.maidang.me",
+      runToken: "scoped-run-token",
+      run,
+      workspaceSyncPlan: {
+        fromRevision: "3",
+        targetRevision: "5",
+        filesToSync: [
+          {
+            path: "notes/research.md",
+            kind: "text",
+            content: "hydrated",
+            isDeleted: false,
+            revision: "4",
+          },
+          {
+            path: "tmp/old.txt",
+            kind: "text",
+            isDeleted: true,
+            revision: "5",
+          },
+        ],
+      },
+    });
+
+    expect(config.syncTargetRevision).toBe("5");
+    expect(config.filesToSync).toHaveLength(2);
+    expect(validatePiRuntimeStartConfig(config)).toEqual({ ok: true });
+
+    config.filesToSync[0]!.path = "../escape.txt";
+    expect(validatePiRuntimeStartConfig(config)).toEqual({
+      ok: false,
+      message: "filesToSync path is invalid",
+    });
+  });
+
   it("does not pass database, auth, Redis, or provider secrets to sandbox env", () => {
     const env = pickPiRuntimeSandboxEnv({
       CAP_PI_RUNTIME_CONFIG_FILE: "runtime.json",

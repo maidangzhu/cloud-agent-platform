@@ -313,7 +313,7 @@ gap        已知缺口，需要新增或改测试
 
 裁定：`CP-SSE-006` 验证的是"Redis stream chunk 先于语义 RunEvent 落库"这个协议机制本身，机制层面已经有测试覆盖（`AGENT-W-002`），职责上更贴近 Part 4 Redis Streaming（"content/thinking chunk 的瞬时流、cursor、重连、清理"，见 §1 模块表），因为它验证的是 chunk 相对语义事件的时序，而不是 Control Plane 内部状态机或鉴权。本文档不再把 `CP-SSE-006` 标记为 Control Plane 的独立缺口；进入 Part 4 时应把 `AGENT-W-002` 正式收编为该层的验收用例。
 
-需要注意的边界：`AGENT-W-002` 仍是旧自写 agent-loop + fake LLM，但 2026-07-12 production Pi + real-provider gate 已完成 content 路径验收：首批 content 到 Redis 时最终 `agent_message` 尚未落库，长回复完整回放，最终语义与 delta 拼接一致。`LLM-W-106` 已关闭；`WF-012`/`LLM-W-107` 剩余的唯一缺口是配置模型未产出真实 reasoning delta。
+需要注意的边界：`AGENT-W-002` 仍是旧自写 agent-loop + fake LLM；2026-07-12 production Pi + real-provider gate 已补齐真实路径。content/thinking 均在最终语义事件前进入 Redis，长回复完整回放，最终 `agent_message`/`agent_thinking` 分别与对应 delta 拼接一致。`LLM-W-106`、`LLM-W-107`、`WF-012` 均已关闭。
 
 ### 4.4 Part 1 验收门槛
 
@@ -361,7 +361,25 @@ Control Plane 进入下一部分前，必须完成：
 - Workflow：provider chunk -> LLM Proxy 同步 fan-out 到 Sandbox SSE + Redis -> browser SSE -> done；`/api/ingest/stream-chunk` 只保留给非 LLM Proxy 的瞬时输出和旧 fixture。
 - Failure：断线重连、空洞、重复 chunk、terminal 后拒绝。
 
-完成后才能讨论前端流式体验。
+### 7.1 Provider 与延迟边界
+
+- provider channel 由 Control Plane 按 `modelHint` 映射，Sandbox 只发送 `modelHint=pi-runtime`，不持有 provider channel 选择权。production 使用 `LLM_CHANNEL_PI_RUNTIME=2`。
+- 2026-07-12 capability probe：channel 1 的配置模型只返回 content；channel 2 的配置模型同时返回 reasoning/content；channel 3 在探测时返回 429，因此不作为 Pi runtime 当前 release channel。
+- LLM Proxy 从请求开始计时到首个 reasoning/content delta，终态 SSE metadata 和 `LLMUsageRecord.ttfbMs` 使用同一值。实测基线约 5.7-8.0 秒，release gate 暂定 `ttfbMs <= 15_000`。
+- 不允许为了减少 Redis entry 数量而等待或批量攒 thinking/content；每个 provider delta 立即同步 fan-out 到 Sandbox SSE 和 Redis。
+
+### 7.2 2026-07-12 验收结果
+
+| 验收面 | 自动化证据 | 结果 |
+| --- | --- | --- |
+| Redis cursor/retention | `redis/streams.integration.test.ts`、`run/event-sse.integration.test.ts` | cursor `0`、Last-Event-ID、1500+ entries 回放、TTL/cleanup 均通过 |
+| LLM Proxy fan-out/TTFB | `llm/routes.integration.test.ts` | reason/content 同步写 SSE + Redis；terminal metadata 与 usage record TTFB 一致 |
+| Pi real content/reasoning | `pi-runtime/pi-runtime.workflow.test.ts` | 首批 chunk 到达时最终语义事件为 0；结束后两类流分别与 `agent_message`/`agent_thinking` 完全一致 |
+| Authenticated browser SSE | `live/deployed-api.live.test.ts` + production deployment `dpl_3dN7msEEmRvq97i1cDQWjpBWqWPp` | cookie + CORS POST SSE、cursor `0`、断开后 Last-Event-ID 续传、无重复无丢失、thinking/content 均可见 |
+
+验收中修复了两个只会在真实 reasoning-first 长流中稳定暴露的问题：Pi 后台 stream task 未被 finalize 显式等待，以及最终 `agent_message` 错把 thinking 与 content 拼在一起。现在 finalize 会等待全部 stream task，`agent_thinking` 与 `agent_message` 分开持久化。
+
+Part 4 已关闭，可以进入 Part 5 Workspace Mapping。
 
 ## 8. Part 5: Workspace Mapping
 
@@ -374,7 +392,26 @@ Control Plane 进入下一部分前，必须完成：
 - Workflow：run 前水合、run 中 write_file 回写、run_command 临时文件边界。
 - Failure：删除、覆盖、冲突、超大文件、非 inline 内容。
 
-完成后才能说 workspace 文件系统完成。
+### 8.1 同步协议
+
+- `Workspace.fileRevision` 是 workspace 级单调水位；每次 WorkspaceFile 写入/删除在同一事务内取得新 revision。
+- `syncedUpToRevision=NULL` 表示 cold/fresh sandbox；非空时只查询 `(synced, target]` 增量。
+- Control Plane stage `pendingSyncRevision`，Pi boot 在任何 heartbeat/event 前应用 `filesToSync`，`run_completed` 在释放 sandbox 前推进 watermark。
+- Vercel `onCreate` 或显式 404 fallback create 都视为 fresh，必须清空旧 watermark。
+- Artifact 不自动水合；只有 WorkspaceFile 是文件 working copy 的下行事实。`run_command` 文件不自动 ingest。
+
+### 8.2 2026-07-12 验收结果
+
+| 验收面 | 自动化证据 | 结果 |
+| --- | --- | --- |
+| revision/diff | `workspace-mapping/sync.integration.test.ts` | cold 全量、warm 增量、并发 revision 唯一、overwrite/delete 均通过 |
+| 文件 API | `files/routes.integration.test.ts` | ingest 原子分配 revision，soft-deleted 文件不出现在 list/content |
+| Pi boot working copy | `pi-runtime/pi-runtime.workflow.test.ts` | 真实 Vercel Sandbox 中完成 hydrate、overwrite、delete；`run_command` 临时文件不进入 DB |
+| 产品 auto-start | `agent-loop/agent-loop.workflow.test.ts` | 正常 POST run 前水合，Pi `read_file` 读到 DB 内容，watermark 推进到 workspace revision |
+| fresh recovery live | `live/deployed-api.live.test.ts` + production deployment `dpl_JAYkqzC6jNEpbPfj6jVhTeRWMKgZ` | 删除 persistent sandbox 后 deployed API fresh create，重新从 Neon 物化 `/workspace` 并读回 marker |
+| 非 inline failure | `workspace-mapping/sync.integration.test.ts` | storage-only/binary 在对象存储下载未实现时明确拒绝 provisioning，不静默漏文件 |
+
+Part 5 已关闭，可以进入 Part 6 Full Product Path。
 
 ## 9. Part 6: Full Product Path
 

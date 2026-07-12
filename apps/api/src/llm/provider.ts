@@ -40,6 +40,7 @@ export type LlmProviderResult = {
   toolCalls: LlmToolCall[];
   finishReason: LlmFinishReason;
   usage: LlmUsage;
+  ttfbMs?: number;
   durationMs: number;
   attempts: Array<{
     key: string;
@@ -77,8 +78,13 @@ export function resolveLlmModelChain(params: {
   | { ok: false; message: string } {
   const env = params.env ?? process.env;
   const chain: LlmModelConfig[] = [];
+  const channelSelection = resolvePreferredChannel(params.modelHint, env);
+  if (channelSelection.ok === false) return channelSelection;
+  const channelIndexes = channelSelection.channel
+    ? [channelSelection.channel]
+    : Array.from({ length: MAX_CHANNELS }, (_, index) => index + 1);
 
-  for (let idx = 1; idx <= MAX_CHANNELS; idx += 1) {
+  for (const idx of channelIndexes) {
     const suffix = idx === 1 ? "" : String(idx);
     const apiKey = env[`OPENAI_API_KEY${suffix}`]?.trim();
     const baseUrl = env[`OPENAI_BASE_URL${suffix}`]?.trim();
@@ -87,11 +93,11 @@ export function resolveLlmModelChain(params: {
       env[`LLM_MODEL_FALLBACK${suffix}`]?.trim() || primary || undefined;
 
     if (!apiKey || !baseUrl || !primary) {
-      if (idx === 1) {
+      if (channelSelection.channel || idx === 1) {
         return {
           ok: false,
           message:
-            "LLM provider is not configured: set OPENAI_API_KEY, OPENAI_BASE_URL, and LLM_MODEL",
+            `LLM provider channel ${idx} is not configured: set OPENAI_API_KEY${suffix}, OPENAI_BASE_URL${suffix}, and LLM_MODEL${suffix}`,
         };
       }
       break;
@@ -166,6 +172,9 @@ export function fakeComplete(
       : modelHint === "pi-runtime-tools" &&
           !messages.some((message) => message.role === "tool")
         ? fakePiRuntimeToolCalls()
+        : modelHint === "pi-runtime-workspace-sync" &&
+            !messages.some((message) => message.role === "tool")
+          ? fakePiRuntimeWorkspaceSyncToolCalls()
         : modelHint === "pi-runtime-search" &&
             !messages.some((message) => message.role === "tool")
           ? fakePiRuntimeSearchToolCalls(prompt)
@@ -259,6 +268,16 @@ function fakePiRuntimeToolCalls(): LlmToolCall[] {
       arguments: JSON.stringify({
         path: "command-output.txt",
       }),
+    },
+  ];
+}
+
+function fakePiRuntimeWorkspaceSyncToolCalls(): LlmToolCall[] {
+  return [
+    {
+      id: "fake-read-hydrated-file",
+      name: "read_file",
+      arguments: JSON.stringify({ path: "notes/preloaded.md" }),
     },
   ];
 }
@@ -392,6 +411,7 @@ export async function streamWithRealProvider(params: {
   const maxRetries = params.maxRetries ?? DEFAULT_MAX_RETRIES;
   const timeoutMs = params.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const overallStartedAt = Date.now();
+  let firstDeltaAt: number | undefined;
   const attempts: LlmProviderResult["attempts"] = [];
   let lastError = "LLM provider failed";
 
@@ -409,6 +429,7 @@ export async function streamWithRealProvider(params: {
           reasoningEffort: params.reasoningEffort,
           onDelta: async (delta) => {
             emittedDelta = true;
+            firstDeltaAt ??= Date.now();
             await params.onDelta(delta);
           },
         });
@@ -422,6 +443,9 @@ export async function streamWithRealProvider(params: {
           ok: true,
           result: {
             ...result,
+            ...(firstDeltaAt !== undefined
+              ? { ttfbMs: firstDeltaAt - overallStartedAt }
+              : {}),
             durationMs: Date.now() - overallStartedAt,
             attempts,
           },
@@ -743,6 +767,24 @@ function resolveModelId(
   if (!modelHint) return direct;
   const hintKey = `LLM_MODEL_${modelHint.replace(/[^a-zA-Z0-9]+/g, "_").toUpperCase()}${suffix}`;
   return env[hintKey]?.trim() || direct;
+}
+
+function resolvePreferredChannel(
+  modelHint: string | undefined,
+  env: NodeJS.ProcessEnv,
+): { ok: true; channel?: number } | { ok: false; message: string } {
+  if (!modelHint) return { ok: true };
+  const hint = modelHint.replace(/[^a-zA-Z0-9]+/g, "_").toUpperCase();
+  const raw = env[`LLM_CHANNEL_${hint}`]?.trim();
+  if (!raw) return { ok: true };
+  const channel = Number(raw);
+  if (!Number.isInteger(channel) || channel < 1 || channel > MAX_CHANNELS) {
+    return {
+      ok: false,
+      message: `LLM_CHANNEL_${hint} must be an integer between 1 and ${MAX_CHANNELS}`,
+    };
+  }
+  return { ok: true, channel };
 }
 
 function normalizeContent(value: unknown): string {

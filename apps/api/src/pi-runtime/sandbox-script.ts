@@ -15,7 +15,10 @@ let seq = 1;
 const writtenFiles = [];
 let completedArtifactCount = 0;
 let latestArtifact = null;
+let latestAssistantReasoning = "";
 let latestAssistantContent = "";
+let latestAssistantModel = "";
+const pendingLlmStreams = new Set();
 
 const forbiddenEnvKeys = [
   "DATABASE_URL",
@@ -165,6 +168,27 @@ function textResult(text, details, terminate = false) {
 
 function ensureWorkspaceRoot() {
   fs.mkdirSync(config.workspaceRoot, { recursive: true });
+}
+
+function applyWorkspaceFilesToSync() {
+  ensureWorkspaceRoot();
+  const files = Array.isArray(config.filesToSync) ? config.filesToSync : [];
+  for (const file of files) {
+    const resolved = resolveWorkspacePath(file.path);
+    if (file.isDeleted === true) {
+      fs.rmSync(resolved.absolute, { recursive: true, force: true });
+      continue;
+    }
+    if (file.kind === "directory") {
+      fs.mkdirSync(resolved.absolute, { recursive: true });
+      continue;
+    }
+    if (file.kind !== "text" || typeof file.content !== "string") {
+      throw new Error("Unsupported workspace sync entry: " + file.path);
+    }
+    fs.mkdirSync(path.dirname(resolved.absolute), { recursive: true });
+    fs.writeFileSync(resolved.absolute, file.content, "utf8");
+  }
 }
 
 function resolveWorkspacePath(inputPath) {
@@ -820,7 +844,7 @@ function parseSseRecord(value) {
 function createStreamFn() {
   return async (model, context) => {
     const stream = createAssistantMessageEventStream();
-    void (async () => {
+    const task = (async () => {
       const requestStartedAt = Date.now();
       try {
         const response = await fetch(config.llmProxyUrl, {
@@ -903,7 +927,10 @@ function createStreamFn() {
           terminalData,
           stopReason,
         }, requestStartedAt);
-        if (content) latestAssistantContent = content;
+        latestAssistantReasoning = reasoning;
+        latestAssistantContent = content;
+        latestAssistantModel =
+          typeof terminalData.model === "string" ? terminalData.model : "";
         if (thinkingStarted) {
           stream.push({ type: "thinking_end", contentIndex: 0, content: reasoning, partial: message });
         }
@@ -937,8 +964,16 @@ function createStreamFn() {
         stream.end(message);
       }
     })();
+    pendingLlmStreams.add(task);
+    void task.finally(() => pendingLlmStreams.delete(task));
     return stream;
   };
+}
+
+async function waitForPendingLlmStreams() {
+  while (pendingLlmStreams.size > 0) {
+    await Promise.all([...pendingLlmStreams]);
+  }
 }
 
 const model = {
@@ -955,6 +990,7 @@ const model = {
 };
 
 try {
+  applyWorkspaceFilesToSync();
   await postHeartbeat("boot");
   await postRunEvent("run_created", null);
   await postRunEvent("runner_started", null);
@@ -986,6 +1022,7 @@ try {
     toolExecution: "sequential",
   });
   await agent.prompt(config.prompt);
+  await waitForPendingLlmStreams();
   await ensureArtifactsForWrittenFiles();
   await postHeartbeat("finalize");
 
@@ -993,7 +1030,12 @@ try {
     (message) => message.role === "assistant" && stringifyContent(message.content),
   );
   const assistantText =
-    (assistant ? stringifyContent(assistant.content) : "") || latestAssistantContent;
+    latestAssistantContent || (assistant ? stringifyContent(assistant.content) : "");
+  if (latestAssistantReasoning) {
+    await postRunEvent("agent_thinking", latestAssistantModel ? { model: latestAssistantModel } : {}, {
+      content: latestAssistantReasoning,
+    });
+  }
   if (assistantText) {
     await postRunEvent("agent_message", { messageId: "pi-runtime-message-" + config.runId }, {
       role: "assistant",
@@ -1013,6 +1055,8 @@ try {
     packages: config.packages,
     messageCount: agent.state.messages.length,
     forbiddenEnvPresent: forbiddenEnvKeys.some((key) => Boolean(process.env[key])),
+    syncedFileCount: Array.isArray(config.filesToSync) ? config.filesToSync.length : 0,
+    syncTargetRevision: config.syncTargetRevision || "0",
   }));
   process.exit(0);
 } catch (error) {

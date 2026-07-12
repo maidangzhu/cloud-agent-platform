@@ -192,6 +192,7 @@ async function recordUsageBestEffort(
       promptTokens: result.usage.inputTokens,
       completionTokens: result.usage.outputTokens,
       totalTokens: result.usage.totalTokens,
+      ttfbMs: result.ttfbMs,
       durationMs: result.durationMs,
     });
   } catch (err) {
@@ -209,8 +210,11 @@ async function streamFakeProvider(input: {
   modelHint: string;
   onDelta: (delta: LlmStreamDelta) => Promise<void>;
 }): Promise<{ ok: true; result: LlmProviderResult }> {
+  const startedAt = Date.now();
+  let firstDeltaAt: number | undefined;
   const result = fakeComplete(input.messages, input.modelHint);
   if (result.reasoning) {
+    firstDeltaAt ??= Date.now();
     await input.onDelta({
       provider: result.provider,
       model: result.model,
@@ -219,6 +223,7 @@ async function streamFakeProvider(input: {
     });
   }
   if (result.content) {
+    firstDeltaAt ??= Date.now();
     await input.onDelta({
       provider: result.provider,
       model: result.model,
@@ -226,7 +231,15 @@ async function streamFakeProvider(input: {
       text: result.content,
     });
   }
-  return { ok: true, result };
+  return {
+    ok: true,
+    result: {
+      ...result,
+      ...(firstDeltaAt !== undefined
+        ? { ttfbMs: firstDeltaAt - startedAt }
+        : {}),
+    },
+  };
 }
 
 async function fanOutLlmDelta(
@@ -274,6 +287,7 @@ async function writeLlmTerminal(
       model: result.model,
       finishReason: result.finishReason,
       usage: result.usage,
+      ttfbMs: result.ttfbMs,
       durationMs: result.durationMs,
       attempts: result.attempts,
     }),

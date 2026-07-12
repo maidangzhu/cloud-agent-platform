@@ -5,6 +5,7 @@ import { issueRunToken } from "../run/run-token.js";
 import {
   MAX_INLINE_FILE_CONTENT_BYTES,
   computeContentHash,
+  markWorkspaceFileDeleted,
 } from "./store.js";
 
 const HAS_DB = Boolean(process.env.DATABASE_URL);
@@ -251,7 +252,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         content: firstContent,
       });
       expect(first.status).toBe(200);
-      const firstFileId = (await first.json()).data.file.id;
+      const firstFile = (await first.json()).data.file;
+      const firstFileId = firstFile.id;
+      const firstRevision = BigInt(firstFile.revision);
 
       const secondRun = await createRun("upsert second");
       const secondContent = "second";
@@ -267,6 +270,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
 
       expect(secondFile.id).toBe(firstFileId);
       expect(secondFile.latestRunId).toBe(secondRun.id);
+      expect(BigInt(secondFile.revision)).toBeGreaterThan(firstRevision);
       const count = await prisma.workspaceFile.count({
         where: { workspaceId, path: "notes/upsert.md" },
       });
@@ -317,6 +321,27 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(res.status).toBe(403);
       const body = await res.json();
       expect(body.code).toBe(1003);
+    });
+
+    it("keeps soft-deleted files out of list and content routes", async () => {
+      await markWorkspaceFileDeleted({
+        workspaceId,
+        path: "notes/research.md",
+      });
+
+      const list = await app.request(`/api/workspaces/${workspaceId}/files`, {
+        headers: { cookie },
+      });
+      expect(list.status).toBe(200);
+      expect(
+        (await list.json()).data.files.map((file: { path: string }) => file.path),
+      ).not.toContain("notes/research.md");
+
+      const content = await app.request(
+        `/api/workspaces/${workspaceId}/files/content?path=notes/research.md`,
+        { headers: { cookie } },
+      );
+      expect(content.status).toBe(404);
     });
   },
 );

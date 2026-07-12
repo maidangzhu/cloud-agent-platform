@@ -53,6 +53,10 @@ describe("Pi runtime sandbox install", () => {
 	    expect(writes["pi-runtime.mjs"]).toContain("/heartbeat");
     expect(writes["pi-runtime.mjs"]).toContain('Accept: "text/event-stream"');
     expect(writes["pi-runtime.mjs"]).toContain("stream: true");
+    expect(writes["pi-runtime.mjs"]).toContain('postRunEvent("agent_thinking"');
+    expect(writes["pi-runtime.mjs"]).toContain("await waitForPendingLlmStreams()");
+    expect(writes["pi-runtime.mjs"]).toContain("applyWorkspaceFilesToSync()");
+    expect(writes["pi-runtime.mjs"]).toContain("fs.rmSync(resolved.absolute");
     expect(writes["pi-runtime.mjs"]).not.toContain('postStreamChunk("content"');
     expect(writes["pi-runtime.mjs"]).not.toContain('postStreamChunk("thinking"');
     expect(writes["pi-runtime.mjs"]).toContain(

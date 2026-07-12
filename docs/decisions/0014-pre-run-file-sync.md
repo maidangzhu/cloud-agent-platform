@@ -9,7 +9,7 @@ UI/API 对 WorkspaceFile 的修改（在没有活跃 run 时发生）如何让�
 核心机制：
 
 1. `WorkspaceFile` 表新增 `revision: bigint`，每次内容变化（无论来自 agent `write_file` 还是 UI 编辑）从 workspace 级自增序列取号递增。
-2. `SandboxInstance` 表新增 `syncedUpToRevision: bigint`，记录这个沙箱快照已同步到的版本号。
+2. `SandboxInstance` 表新增 nullable `syncedUpToRevision: bigint` 和 `pendingSyncRevision: bigint`。`NULL` 明确表示从未同步或 provider fresh recreate；pending target 只由 Control Plane 写入。
 3. 新 run 启动、沙箱点火**之前**，Control Plane 执行：
    ```sql
    SELECT * FROM WorkspaceFile
@@ -18,11 +18,15 @@ UI/API 对 WorkspaceFile 的修改（在没有活跃 run 时发生）如何让�
    ```
 4. 查询结果（增量文件集合，可能是 0 条、1 条或上百条，处理逻辑一致）打包进 runner 启动配置新增字段 `filesToSync`，随 [agent-runtime-protocol.md](../agent-runtime-protocol.md) 第 4 节的启动 JSON 一并下发。
 5. Runner 在 boot 阶段（协议第 5.1 节）第一件事：遍历 `filesToSync`，逐条覆盖写入 `workspaceRoot`，再进入 `agent_loop`。Runner 不做任何"新旧判断"，纯执行覆盖指令。
-6. 写入完成后，Control Plane 把这次沙箱快照的 `syncedUpToRevision` 更新为本次同步到的最大 revision。
+6. Control Plane 在 runner 启动前 stage `pendingSyncRevision`。只有 `run_completed` ingest side effect 可以在释放 sandbox 前把 pending target 推进为 `syncedUpToRevision`；失败、取消和 timeout 只清 pending，保留旧 watermark 以便下次安全重放。
 
 删除处理：`WorkspaceFile` 不做物理删除（否则 revision 机制查不到"这行曾变化过"），改为软删除标记（如 `isDeleted: true` + 递增 revision）。`filesToSync` 数组里对应项带 `isDeleted: true`，runner 收到后删除沙箱磁盘上的对应文件。
 
-冷启动 / 从未同步过：`syncedUpToRevision` 视为 0，diff 查询退化为返回全部文件，逻辑与增量同步一致，无需额外分支。
+冷启动 / 从未同步过：`syncedUpToRevision=NULL`，diff 查询返回全部 WorkspaceFile（包括 legacy revision 0 行），完成后可以推进到 workspace 当前 revision。
+
+Vercel named sandbox 的 `onCreate` 是快照是否真正恢复的判据。若 persistent sandbox 被删除、快照过期或 provider 以同名 fresh create，Control Plane 必须清空 watermark。当前 SDK 对已删除 named sandbox 可能直接返回 404，因此 factory 显式 fallback 到 named `Sandbox.create`，并同样标记 fresh。
+
+P0 只水合 inline text、directory 和 delete tombstone。只有 `storageKey`、没有 inline content 的文件会让 provisioning 明确失败；在对象存储下载链路落地前，不允许静默跳过后启动不完整 workspace。
 
 沙箱离线时长（几分钟或几天）不影响这个机制——`syncedUpToRevision` 安全存在 Postgres，不因沙箱关机/挂掉而丢失或过期，下次点火时无论离线多久，一次查询就能拿到期间全部增量。
 
@@ -45,7 +49,7 @@ UI/API 对 WorkspaceFile 的修改（在没有活跃 run 时发生）如何让�
 ## 未覆盖的相邻问题（不在本 ADR 范围内，待续）
 
 - **活跃 run 执行期间，UI 编辑文件是否生效：** 本 ADR 只解决"run 启动前"的水合，不解决"run 正在跑的几十分钟内"外部编辑如何让沙箱感知——这个场景倾向于不做实时同步，UI 层面在 active run 期间锁定文件编辑入口（与 [design-system.md](../design-system.md) 9.3 "active run 时 composer 禁用" 同一思路），但尚未正式拍板落盘。
-- **Agent 通过非 `write_file` 手段产生的文件（如 `run_command` 跑脚本/`git clone` 生成的中间产物）不会被自动 ingest：** `write_file → ingest` 链路（[ADR-0003](./0003-sandbox-snapshot-vs-source-of-truth.md)）依赖 agent 显式调用该工具，`run_command` 目前没有兜底扫描机制。是否在 runner finalize 阶段加一次目录扫描对账（类比 [ADR-0008](./0008-sweep-safety-net.md) 的兜底裁判哲学），或明确划定"未显式 write_file 的产出不保证留存"作为产品边界，尚未拍板。
+- **Agent 通过非 `write_file` 手段产生的文件（如 `run_command` 跑脚本/`git clone` 生成的中间产物）不会被自动 ingest：** 该边界已按 ADR-0003 固定为临时 working-copy 文件，不做 finalize 全盘扫描。需要持久化的产出必须显式走 `write_file`；workflow gate 已验证 `run_command` 产生的文件不会变成 WorkspaceFile。
 
 ## 连锁影响
 

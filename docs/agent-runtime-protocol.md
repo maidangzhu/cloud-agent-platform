@@ -112,6 +112,16 @@ Control Plane 使用 JSON config 启动 sandbox 内 Pi AI runtime（固定版本
   "runToken": "scoped-token",
   "maxSteps": 80,
   "maxDurationSec": 1800,
+  "syncTargetRevision": "42",
+  "filesToSync": [
+    {
+      "path": "notes/research.md",
+      "kind": "text",
+      "content": "latest Control Plane content",
+      "isDeleted": false,
+      "revision": "42"
+    }
+  ],
   "toolPolicy": {
     "allowNetwork": true,
     "allowRunCommand": true,
@@ -123,6 +133,7 @@ Control Plane 使用 JSON config 启动 sandbox 内 Pi AI runtime（固定版本
 规则：
 
 - Config 只作用于一个 run。
+- `filesToSync` 由 Control Plane 根据 sandbox watermark 生成；Runtime 不能自行判断新旧或修改 target revision。
 - Token 必须过期。
 - Token 应该通过环境变量或权限受限的临时文件传入。
 - Runtime 不能打印 token。
@@ -149,6 +160,7 @@ Runtime 必须：
 - validate required fields
 - initialize ingest client
 - set workspace root
+- 在发送 heartbeat/event 前，按顺序应用 `filesToSync`：text 覆盖写、directory 创建、`isDeleted=true` 递归删除
 - send heartbeat
 - send `agent_started` or `runner_started` event
 
