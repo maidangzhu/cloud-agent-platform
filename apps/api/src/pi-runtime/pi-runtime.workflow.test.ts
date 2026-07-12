@@ -374,7 +374,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
           where: { runId: graph.runId, kind: "url" },
         });
         expect(sources).toHaveLength(1);
-        expect(sources[0]?.uri).toBe("https://example.com/");
+        expect(sources[0]?.uri).toBe("https://example.com");
       },
       300_000,
     );
