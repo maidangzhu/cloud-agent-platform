@@ -544,6 +544,9 @@ describe("Pi runtime Control Plane adapters", () => {
     );
     const { calls, transport } = recordingTransport((url) => {
       if (url.endsWith("/api/ingest/tool-calls")) return ok({ toolCall: {} });
+      if (url.endsWith("/api/ingest/sources")) {
+        return ok({ source: { id: "source_fetch_1" } });
+      }
       return error(404, "unexpected path");
     });
     const client = new PiRuntimeControlPlaneClient({ config, transport });
@@ -559,7 +562,26 @@ describe("Pi runtime Control Plane adapters", () => {
       status: "completed",
       result: { url: "https://example.com/", statusCode: 200 },
     });
-    expect(calls.map((call) => call.body.status)).toEqual(["running", "completed"]);
+    expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
+      "/api/ingest/tool-calls",
+      "/api/ingest/sources",
+      "/api/ingest/tool-calls",
+    ]);
+    expect(calls[1].body).toMatchObject({
+      eventSeq: 2,
+      kind: "url",
+      uri: "https://example.com/",
+      title: "Example",
+      metadata: {
+        statusCode: 200,
+        contentType: "text/html",
+        truncated: false,
+      },
+    });
+    expect(calls.map((call) => call.body.status).filter(Boolean)).toEqual([
+      "running",
+      "completed",
+    ]);
   });
 
   it("records fetch_url SSRF rejection as a rejected tool call", async () => {

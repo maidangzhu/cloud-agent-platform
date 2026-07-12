@@ -311,6 +311,73 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
       },
       300_000,
     );
+
+    it(
+      "fetches a public URL and records its source from inside real sandbox workspace",
+      async () => {
+        const graph = await createGraph(`${suiteId}-fetch`, created);
+        const runToken = issueRunToken({
+          userId: graph.userId,
+          workspaceId: graph.workspaceId,
+          threadId: graph.threadId,
+          runId: graph.runId,
+          ttlSeconds: 900,
+        });
+        const claim = await getOrCreateWorkspaceSandbox({
+          workspaceId: graph.workspaceId,
+          runId: graph.runId,
+          timeoutMs: 60_000,
+        });
+        created.sandboxes.push(claim.sandbox);
+
+        const result = await runPiRuntimeInSandbox({
+          sandbox: claim.sandbox,
+          config: buildPiRuntimeStartConfig({
+            apiBaseUrl: PUBLIC_API_BASE_URL!,
+            runToken,
+            run: {
+              id: graph.runId,
+              workspaceId: graph.workspaceId,
+              threadId: graph.threadId,
+              userId: graph.userId,
+              prompt: "fetch a public page",
+              maxDurationSec: 180,
+            },
+            llmProvider: "fake",
+            modelHint: "pi-runtime-fetch",
+          }),
+          installTimeoutMs: 240_000,
+          execTimeoutMs: 120_000,
+        });
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toBe("");
+        expect(parseLastJsonLine(result.stdout)).toMatchObject({
+          piRuntimeStarted: true,
+          completed: true,
+          runId: graph.runId,
+          forbiddenEnvPresent: false,
+        });
+
+        const toolCalls = await prisma.runToolCall.findMany({
+          where: { runId: graph.runId },
+          orderBy: { startedAt: "asc" },
+        });
+        expect(toolCalls.map((tool) => `${tool.name}:${tool.status}`)).toEqual([
+          "fetch_url:completed",
+        ]);
+        expect(JSON.stringify(toolCalls[0]?.result)).toContain(
+          "https://example.com/",
+        );
+
+        const sources = await prisma.source.findMany({
+          where: { runId: graph.runId, kind: "url" },
+        });
+        expect(sources).toHaveLength(1);
+        expect(sources[0]?.uri).toBe("https://example.com/");
+      },
+      300_000,
+    );
 	  },
 	);
 

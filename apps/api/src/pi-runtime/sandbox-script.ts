@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { Type, createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 
@@ -27,6 +29,8 @@ const MAX_FILE_READ_BYTES = 120000;
 const MAX_LIST_ENTRIES = 200;
 const MAX_COMMAND_OUTPUT_CHARS = 20000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 120000;
+const FETCH_URL_TIMEOUT_MS = 15000;
+const FETCH_URL_MAX_BYTES = 5 * 1024 * 1024;
 
 function jsonHeaders() {
   return {
@@ -133,12 +137,20 @@ async function runTrackedTool(toolCallId, name, args, run) {
       id: toolCallId,
       eventSeq: seq++,
       name,
-      status: "failed",
+      status: error instanceof RuntimeToolError ? error.status : "failed",
       args,
       error: error instanceof Error ? error.message : String(error),
       completedAt: new Date().toISOString(),
     });
     throw error;
+  }
+}
+
+class RuntimeToolError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = "RuntimeToolError";
+    this.status = status;
   }
 }
 
@@ -185,6 +197,148 @@ function resolveWorkspacePath(inputPath) {
 function truncateText(value, maxLength = MAX_COMMAND_OUTPUT_CHARS) {
   if (value.length <= maxLength) return { text: value, truncated: false };
   return { text: value.slice(0, maxLength), truncated: true };
+}
+
+function stripIpBrackets(host) {
+  return host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+}
+
+function isBlockedIpAddress(address) {
+  const host = stripIpBrackets(String(address).toLowerCase());
+  const version = isIP(host);
+  if (version === 4) {
+    const parts = host.split(".").map(Number);
+    const a = parts[0];
+    const b = parts[1];
+    return parts.length !== 4 || parts.some((part) => !Number.isInteger(part)) ||
+      a === 0 || a === 10 || a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 198 && (b === 18 || b === 19)) || a >= 224;
+  }
+  if (version === 6) {
+    return host === "::1" || host === "::" || host.startsWith("fe80:") ||
+      host.startsWith("fc") || host.startsWith("fd") ||
+      host.startsWith("::ffff:127.") || host.startsWith("::ffff:10.") ||
+      host.startsWith("::ffff:192.168.") || host.startsWith("::ffff:169.254.");
+  }
+  return true;
+}
+
+async function validateFetchTarget(value) {
+  if (config.toolPolicy?.allowNetwork !== true) {
+    throw new RuntimeToolError("fetch_url is disabled by policy", "rejected");
+  }
+  let url;
+  try {
+    url = new URL(String(value));
+  } catch {
+    throw new RuntimeToolError("fetch_url URL is invalid", "rejected");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new RuntimeToolError("fetch_url only allows http/https URLs", "rejected");
+  }
+  const host = stripIpBrackets(url.hostname.toLowerCase());
+  if (host === "localhost" || host.endsWith(".localhost") ||
+      host === "metadata" || host === "metadata.google.internal") {
+    throw new RuntimeToolError("SSRF guard rejected host", "rejected");
+  }
+  if (isIP(host)) {
+    if (isBlockedIpAddress(host)) {
+      throw new RuntimeToolError("SSRF guard rejected private address", "rejected");
+    }
+  } else {
+    const addresses = await lookup(host, { all: true });
+    const blocked = addresses.find((entry) => isBlockedIpAddress(entry.address));
+    if (blocked) {
+      throw new RuntimeToolError(
+        "SSRF guard rejected resolved private address " + blocked.address,
+        "rejected",
+      );
+    }
+  }
+  return url;
+}
+
+function isTextContentType(contentType) {
+  if (!contentType) return false;
+  const type = contentType.toLowerCase().split(";")[0].trim();
+  return type.startsWith("text/") || type === "application/json" ||
+    type === "application/xml" || type === "application/xhtml+xml" ||
+    type.endsWith("+json") || type.endsWith("+xml");
+}
+
+async function fetchPublicUrl(url, signal, redirectCount = 0) {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: { accept: "*/*" },
+    redirect: "manual",
+    signal,
+  });
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers.get("location");
+    if (!location) throw new Error("fetch_url redirect is missing location");
+    if (redirectCount >= 5) throw new Error("fetch_url exceeded redirect limit");
+    const nextUrl = await validateFetchTarget(new URL(location, url).toString());
+    return fetchPublicUrl(nextUrl, signal, redirectCount + 1);
+  }
+  return { response, url };
+}
+
+async function fetchUrl(params) {
+  let lastError = "fetch_url failed";
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort(new Error("fetch_url timeout after " + FETCH_URL_TIMEOUT_MS + "ms"));
+    }, FETCH_URL_TIMEOUT_MS);
+    try {
+      const url = await validateFetchTarget(params.url);
+      const fetched = await fetchPublicUrl(url, controller.signal);
+      const response = fetched.response;
+      if (response.status >= 400 && response.status < 500) {
+        throw new RuntimeToolError(
+          "fetch_url received non-retryable status " + response.status,
+          "rejected",
+        );
+      }
+      if (response.status >= 500) {
+        throw new Error("fetch_url received retryable status " + response.status);
+      }
+      const contentType = response.headers.get("content-type") || undefined;
+      const full = new Uint8Array(await response.arrayBuffer());
+      const truncated = full.byteLength > FETCH_URL_MAX_BYTES;
+      const kept = truncated ? full.slice(0, FETCH_URL_MAX_BYTES) : full;
+      const text = isTextContentType(contentType)
+        ? new TextDecoder().decode(kept)
+        : undefined;
+      const titleMatch = text ? text.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i) : null;
+      return {
+        url: fetched.url.toString(),
+        statusCode: response.status,
+        ...(contentType ? { contentType } : {}),
+        ...(text ? {
+          text,
+          ...(titleMatch?.[1] ? { title: titleMatch[1].replace(/\\s+/g, " ").trim() } : {}),
+        } : {}),
+        contentHash: sha256(kept),
+        size: full.byteLength,
+        truncated,
+      };
+    } catch (error) {
+      if (error instanceof RuntimeToolError) throw error;
+      lastError = controller.signal.aborted
+        ? "fetch_url timeout after " + FETCH_URL_TIMEOUT_MS + "ms"
+        : (error instanceof Error ? error.message : String(error));
+      if (attempt === 2) throw new RuntimeToolError(lastError, "failed");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new RuntimeToolError(lastError, "failed");
 }
 
 function safeCommandEnv() {
@@ -387,6 +541,34 @@ const tools = [
         limit: params.limit,
       });
       return textResult(JSON.stringify(data.results || []), data);
+    }),
+  },
+  {
+    name: "fetch_url",
+    label: "Fetch URL",
+    description: "Fetch and clean a public URL directly from the sandbox with SSRF protection.",
+    parameters: Type.Object({
+      url: Type.String(),
+    }),
+    execute: async (toolCallId, params) => runTrackedTool(toolCallId, "fetch_url", params, async (eventSeq) => {
+      const result = await fetchUrl(params);
+      await postJson(config.ingestUrl + "/sources", {
+        kind: "url",
+        uri: result.url,
+        ...(result.title ? { title: result.title } : {}),
+        contentHash: result.contentHash,
+        metadata: {
+          statusCode: result.statusCode,
+          contentType: result.contentType,
+          truncated: result.truncated,
+          size: result.size,
+        },
+        eventSeq,
+      });
+      return textResult(result.text || "Fetched " + result.url, {
+        status: "completed",
+        result,
+      });
     }),
   },
   {
@@ -707,6 +889,7 @@ try {
 	    systemPrompt: [
 	        "You are a research workspace agent running inside an isolated Vercel Sandbox.",
 	        "Use web_search for web research through the hosted Control Plane search proxy.",
+	        "Use fetch_url to retrieve public URLs directly with SSRF protection.",
 	        "Use read_file, write_file, list_directory, list_files, and run_command for workspace filesystem and bash tasks.",
 	        "When the user asks to run a command, execute it with run_command and report the stdout, stderr, and exit code.",
 	        "Use tools to write durable workspace files and create artifacts.",

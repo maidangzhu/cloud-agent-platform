@@ -139,6 +139,26 @@ export class PiRuntimeControlPlaneClient {
     return data;
   }
 
+  async recordSource(input: {
+    kind: "url" | "search_result";
+    uri: string;
+    title?: string;
+    contentHash?: string;
+    metadata?: unknown;
+    eventSeq?: number;
+  }): Promise<ControlPlaneJson> {
+    const { data } = await this.postJson(`${this.config.ingestUrl}/sources`, {
+      runId: this.config.runId,
+      kind: input.kind,
+      uri: input.uri,
+      ...(input.title ? { title: input.title } : {}),
+      ...(input.contentHash ? { contentHash: input.contentHash } : {}),
+      ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+      ...(input.eventSeq !== undefined ? { eventSeq: input.eventSeq } : {}),
+    });
+    return asRecord(data.source);
+  }
+
   async writeTextFile(input: {
     path: string;
     content: string;

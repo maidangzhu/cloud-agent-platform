@@ -166,6 +166,21 @@ describe("fake provider agent-loop fixture", () => {
       limit: 2,
     });
   });
+
+  it("returns a complete fetch_url tool call for Pi runtime fetch smoke", () => {
+    const result = fakeComplete(
+      [{ role: "user", content: "fetch a public page" }],
+      "pi-runtime-fetch",
+    );
+
+    expect(result.finishReason).toBe("tool_calls");
+    expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
+      "fetch_url",
+    ]);
+    expect(JSON.parse(result.toolCalls[0]?.arguments ?? "{}")).toEqual({
+      url: "https://example.com/",
+    });
+  });
 	});
 
 describe("OpenAI-compatible response normalization", () => {

@@ -191,7 +191,7 @@ export function createPiRuntimeAdapterTools(
           toolCallId,
           name: "fetch_url",
           args: params,
-          run: async () => {
+          run: async (eventSeq) => {
             const result = await fetchUrlTool({
               url: params.url,
               transport: (url, init) => fetch(url, { ...init, signal }),
@@ -199,6 +199,19 @@ export function createPiRuntimeAdapterTools(
             if (result.status !== "completed") {
               throw new RuntimeToolError(result.error, result.status);
             }
+            await client.recordSource({
+              kind: "url",
+              uri: result.result.url,
+              title: result.result.title,
+              contentHash: result.result.contentHash,
+              metadata: {
+                statusCode: result.result.statusCode,
+                contentType: result.result.contentType,
+                truncated: result.result.truncated,
+                size: result.result.size,
+              },
+              eventSeq,
+            });
             return toolResult(
               [result.result.text ?? `Fetched ${result.result.url}`],
               result,

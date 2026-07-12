@@ -45,6 +45,9 @@ describe("Pi runtime sandbox install", () => {
 	    expect(writes["pi-runtime.mjs"]).toContain('name: "list_files"');
     expect(writes["pi-runtime.mjs"]).toContain('name: "web_search"');
     expect(writes["pi-runtime.mjs"]).toContain("config.searchProxyUrl");
+	    expect(writes["pi-runtime.mjs"]).toContain('name: "fetch_url"');
+	    expect(writes["pi-runtime.mjs"]).toContain("config.toolPolicy?.allowNetwork");
+	    expect(writes["pi-runtime.mjs"]).toContain('config.ingestUrl + "/sources"');
 	    expect(writes["pi-runtime.mjs"]).toContain('name: "run_command"');
 	    expect(writes["pi-runtime.mjs"]).toContain('spawn("bash"');
 	    expect(writes["pi-runtime.mjs"]).toContain("/heartbeat");

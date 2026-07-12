@@ -77,6 +77,8 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | TOOL-I-002 | integration | web_search | tool result -> Source records | done |
 | RT-U-001 | unit/component | Pi runtime tools | `read_file` large output truncation matches sandbox script budget | done |
 | RT-C-002 | component | Pi runtime tools | `fetch_url` SSRF rejection maps to `RunToolCall.status=rejected` | done |
+| RT-C-003 | component | Pi runtime tools | successful `fetch_url` records `Source(kind=url)` before tool completion | done |
+| RT-W-004 | workflow | Pi runtime tools | standalone sandbox `fetch_url` enforces network/SSRF policy and records URL source | partial（standalone script + deterministic fake fixture + Vercel workflow gate 已补；2026-07-12 真实 sandbox 已启动，但 production API 为 2026-07-09 旧部署、尚无 `pi-runtime-fetch` fixture，部署同步后重跑） |
 | LLM-U-001 | unit | LLM | model config, finish_reason normalization | done |
 | LLM-U-002 | unit | LLM | retry/fallback/timeout shell using fake transport | done |
 | LLM-I-001 | integration | LLM Proxy | auth, terminal reject, fake output, usage, stream | done |
@@ -138,9 +140,9 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | SBX-I-109 | integration | exec timeout maps to sandbox timeout error | Vercel | done |
 | SBX-I-110 | integration | stdout/stderr truncation works | Vercel | partial（本地已补 captured stdout/stderr 截断回归测试；真实 Vercel exec gate 待跑） |
 | SBX-I-111 | integration | path traversal rejected by sandbox wrapper | none/Vercel | done（path-guard + VercelSandbox wrapper 单测覆盖，拒绝发生在 SDK 调用前） |
-| SBX-W-101 | workflow | sandbox script calls deployed ingest and completes run | Deployed API/Vercel | partial |
+| SBX-W-101 | workflow | sandbox script calls deployed ingest and completes run | Deployed API/Vercel | done（2026-07-12 对 `https://api.sandbox.maidang.me` 实跑：Vercel Sandbox 创建、Pi packages 安装、runtime 启动、hosted ingest 回调、文件/artifact/tool/run completed 全部通过） |
 | SBX-W-102 | workflow | sandbox script calls deployed LLM proxy and stream-chunk | Deployed API/Vercel/Redis | partial（standalone Pi runtime sandbox script 已补 `/stream-chunk` content/thinking 回写；Deployed API + Vercel + Redis gate 待跑） |
-| SBX-W-103 | workflow | sandbox script calls deployed search proxy | Deployed API/Vercel/Exa or fake | partial（standalone Pi runtime sandbox script 已补 `web_search` -> hosted `/api/search-proxy`，默认 fake/provider 可配置；Deployed API + Vercel gate 待跑） |
+| SBX-W-103 | workflow | sandbox script calls deployed search proxy | Deployed API/Vercel/Exa or fake | partial（standalone `web_search` 与 gate 已补；2026-07-12 真实 sandbox 已启动，但 production API 是 2026-07-09 旧部署、未包含 `8f2654a` 的 `pi-runtime-search` fixture，tool call 为空；部署同步后重跑） |
 | SBX-W-104 | workflow | cancel request stops sandbox runner | Deployed API/Vercel | done |
 | SBX-W-105 | workflow | waiting_for_input releases sandbox warm and Stage2 reuses it | Deployed API/Vercel | done |
 | SBX-W-106 | workflow | Pi runtime tool calls emit user-visible timeline/SSE start/completed/failed events | Deployed API/Vercel | partial（本地已补 sandbox runner 脚本 seq 回归测试；Deployed API + Vercel gate 仍需具备公网 base URL 后跑） |
