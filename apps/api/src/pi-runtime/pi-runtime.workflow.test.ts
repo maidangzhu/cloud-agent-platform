@@ -18,6 +18,7 @@ import {
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 const HAS_SECRET = Boolean(process.env.BETTER_AUTH_SECRET);
 const HAS_VERCEL = Boolean(resolveVercelCredentials());
+const RUN_REAL_PROVIDER_GATE = process.env.CAP_RUN_REAL_PROVIDER_GATE === "1";
 const PUBLIC_API_BASE_URL =
   process.env.PUBLIC_AGENT_LOOP_BASE_URL ??
   process.env.CAP_API_BASE_URL ??
@@ -170,8 +171,12 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
           "run_created",
           "runner_started",
           "agent_started",
+          "tool_call_started",
           "file_written",
           "artifact_created",
+          "tool_call_completed",
+          "tool_call_started",
+          "tool_call_completed",
           "agent_message",
           "run_completed",
         ]);
@@ -201,6 +206,93 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL || !PUBLIC_API_BASE_URL)(
       },
       300_000,
 	    );
+
+    it.skipIf(!RUN_REAL_PROVIDER_GATE)(
+      "streams real provider content to Redis before the final agent message",
+      async () => {
+        const graph = await createGraph(`${suiteId}-real-stream`, created);
+        const runToken = issueRunToken({
+          userId: graph.userId,
+          workspaceId: graph.workspaceId,
+          threadId: graph.threadId,
+          runId: graph.runId,
+          ttlSeconds: 900,
+        });
+        const claim = await getOrCreateWorkspaceSandbox({
+          workspaceId: graph.workspaceId,
+          runId: graph.runId,
+          timeoutMs: 60_000,
+        });
+        created.sandboxes.push(claim.sandbox);
+
+        const runPromise = runPiRuntimeInSandbox({
+          sandbox: claim.sandbox,
+          config: buildPiRuntimeStartConfig({
+            apiBaseUrl: PUBLIC_API_BASE_URL!,
+            runToken,
+            run: {
+              id: graph.runId,
+              workspaceId: graph.workspaceId,
+              threadId: graph.threadId,
+              userId: graph.userId,
+              prompt: [
+                "Respond directly without using tools.",
+                "Write a detailed 800-word explanation of Redis Streams consumer groups.",
+              ].join(" "),
+              maxDurationSec: 180,
+            },
+            llmProvider: "real",
+            modelHint: "pi-runtime",
+            thinkingLevel: "medium",
+          }),
+          installTimeoutMs: 240_000,
+          execTimeoutMs: 180_000,
+        });
+
+        const firstEntries = await readRunStream({
+          runId: graph.runId,
+          cursor: "0",
+          blockMs: 120_000,
+          count: 10,
+        });
+        expect(firstEntries.some((entry) => entry.streamType === "content"))
+          .toBe(true);
+        expect(await prisma.runEvent.count({
+          where: { runId: graph.runId, type: "agent_message" },
+        })).toBe(0);
+
+        const result = await runPromise;
+        expect(result.exitCode, result.stderr || result.stdout).toBe(0);
+        expect(result.stderr).toBe("");
+        const output = parseLastJsonLine(result.stdout);
+        expect(output).toMatchObject({
+          piRuntimeStarted: true,
+          completed: true,
+          runId: graph.runId,
+          forbiddenEnvPresent: false,
+        });
+
+        const streamEntries = await readAllRunStream(graph.runId);
+        const streamedContent = streamEntries
+          .filter((entry) => entry.streamType === "content")
+          .map((entry) => entry.chunk)
+          .join("");
+        const events = await prisma.runEvent.findMany({
+          where: { runId: graph.runId },
+          orderBy: { seq: "asc" },
+        });
+        const message = events.find((event) => event.type === "agent_message");
+        expect(message, JSON.stringify({
+          output,
+          eventTypes: events.map((event) => event.type),
+          streamTypes: streamEntries.map((entry) => entry.streamType),
+          streamedContentLength: streamedContent.length,
+        })).toBeTruthy();
+        expect(streamedContent.length).toBeGreaterThan(100);
+        expect(message?.content).toBe(streamedContent);
+      },
+      300_000,
+    );
 
 	    it(
 	      "runs filesystem and bash tools inside real sandbox workspace",
@@ -420,6 +512,22 @@ function publicUrlOrUndefined(value: string | undefined): string | undefined {
       : value;
   } catch {
     return undefined;
+  }
+}
+
+async function readAllRunStream(runId: string) {
+  const entries = [];
+  let cursor = "0";
+  while (true) {
+    const page = await readRunStream({
+      runId,
+      cursor,
+      blockMs: 100,
+      count: 1000,
+    });
+    entries.push(...page);
+    if (page.length < 1000) return entries;
+    cursor = page.at(-1)?.id ?? cursor;
   }
 }
 

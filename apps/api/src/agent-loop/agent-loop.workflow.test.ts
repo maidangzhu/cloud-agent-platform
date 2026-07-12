@@ -639,8 +639,12 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
             "run_created",
             "runner_started",
             "agent_started",
+            "tool_call_started",
             "file_written",
             "artifact_created",
+            "tool_call_completed",
+            "tool_call_started",
+            "tool_call_completed",
             "agent_message",
             "run_completed",
           ]);

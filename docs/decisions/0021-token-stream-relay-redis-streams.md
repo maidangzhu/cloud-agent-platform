@@ -32,7 +32,7 @@ SSE 侧：维护一个 cursor 变量
 ## 不引入的复杂度（避免过度设计）
 
 - **不使用 consumer group（`XREADGROUP`）**。Consumer group 解决的是"多个 worker 竞争消费、需要 ack/重新分配"的场景；这里即使同一个 run 被多个浏览器 tab 同时看，每个 tab 也是独立维护自己的 cursor 各读各的，普通 `XREAD` 足够。
-- **Stream 不是持久事实源**，短生命周期缓冲：`XADD` 时用 `MAXLEN ~1000` 限制单个 run 的 entry 数上限；对 stream key 设 TTL（`maxDurationSec` + 心跳宽限期，run 终态后一段时间过期）。这条清理并入 [ADR-0015](./0015-usage-telemetry-and-ops-priorities.md) 已扩大范围的 sweep job（孤儿 Redis stream 和孤儿沙箱是同类"占用即计费/占用即噪音"问题）。
+- **Stream 不是持久事实源**，短生命周期缓冲：`XADD` 时用 `MAXLEN ~10000` 限制单个 run 的 entry 数上限；对 stream key 设 TTL（`maxDurationSec` + 心跳宽限期，run 终态后一段时间过期）。最初的 `~1000` 在真实 provider 逐 delta 输出下会截断一条 800-word 回复的开头，破坏断线回放，因此在不增加转发合批延迟的前提下提高到 `~10000`。这条清理并入 [ADR-0015](./0015-usage-telemetry-and-ops-priorities.md) 已扩大范围的 sweep job（孤儿 Redis stream 和孤儿沙箱是同类"占用即计费/占用即噪音"问题）。
 - 转发路径依然不落库，依然和"语义完整落库"（[ADR-0011](./0011-dual-channel-streaming.md)/[ADR-0017](./0017-token-accumulation-and-persistence-timing.md)）那条独立路径解耦——变的只是"沙箱到前端"这一段中间层用什么原语，不是重新设计整个双通道模型。
 
 ## 端点契约调整

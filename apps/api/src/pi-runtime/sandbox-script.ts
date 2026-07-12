@@ -15,6 +15,7 @@ let seq = 1;
 const writtenFiles = [];
 let completedArtifactCount = 0;
 let latestArtifact = null;
+let latestAssistantContent = "";
 
 const forbiddenEnvKeys = [
   "DATABASE_URL",
@@ -902,6 +903,7 @@ function createStreamFn() {
           terminalData,
           stopReason,
         }, requestStartedAt);
+        if (content) latestAssistantContent = content;
         if (thinkingStarted) {
           stream.push({ type: "thinking_end", contentIndex: 0, content: reasoning, partial: message });
         }
@@ -987,8 +989,11 @@ try {
   await ensureArtifactsForWrittenFiles();
   await postHeartbeat("finalize");
 
-  const assistant = [...agent.state.messages].reverse().find((message) => message.role === "assistant");
-  const assistantText = assistant ? stringifyContent(assistant.content) : "";
+  const assistant = [...agent.state.messages].reverse().find(
+    (message) => message.role === "assistant" && stringifyContent(message.content),
+  );
+  const assistantText =
+    (assistant ? stringifyContent(assistant.content) : "") || latestAssistantContent;
   if (assistantText) {
     await postRunEvent("agent_message", { messageId: "pi-runtime-message-" + config.runId }, {
       role: "assistant",

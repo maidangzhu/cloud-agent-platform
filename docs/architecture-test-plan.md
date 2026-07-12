@@ -313,7 +313,7 @@ gap        已知缺口，需要新增或改测试
 
 裁定：`CP-SSE-006` 验证的是"Redis stream chunk 先于语义 RunEvent 落库"这个协议机制本身，机制层面已经有测试覆盖（`AGENT-W-002`），职责上更贴近 Part 4 Redis Streaming（"content/thinking chunk 的瞬时流、cursor、重连、清理"，见 §1 模块表），因为它验证的是 chunk 相对语义事件的时序，而不是 Control Plane 内部状态机或鉴权。本文档不再把 `CP-SSE-006` 标记为 Control Plane 的独立缺口；进入 Part 4 时应把 `AGENT-W-002` 正式收编为该层的验收用例。
 
-需要注意的边界：`AGENT-W-002` 仍是旧自写 agent-loop + fake LLM；新增 Pi runtime workflow 与真实 provider integration 已覆盖本地增量链路，但当前改动尚未部署并通过真实 Vercel Sandbox gate。因此 `CP-SSE-006` 的协议机制已验证，`LLM-W-106`/`WF-012` 只到 partial；`LLM-W-107` 还受配置模型未产出 reasoning delta 限制。
+需要注意的边界：`AGENT-W-002` 仍是旧自写 agent-loop + fake LLM。2026-07-12 的 deployed Pi + real-provider gate 已证明首批 content 到 Redis 时最终 `agent_message` 尚未落库，但同时发现最终语义 fallback 缺失及 `MAXLEN ~1000` 截断长回复；修复已在本地完成，待重新部署复验后才能把 `LLM-W-106`/`WF-012` 从 partial 关闭。`LLM-W-107` 还受配置模型未产出 reasoning delta 限制。
 
 ### 4.4 Part 1 验收门槛
 

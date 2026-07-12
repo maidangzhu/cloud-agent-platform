@@ -3,6 +3,7 @@ import { prisma } from "@cap/db";
 import { createApp } from "../app.js";
 import { issueRunToken } from "../run/run-token.js";
 import {
+  addRunStreamChunk,
   deleteRunStream,
   disconnectRedis,
   readRunStream,
@@ -198,6 +199,36 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_REDIS)(
         blockMs: 100,
       });
       expect(entries).toEqual([]);
+    });
+
+    it("retains more than 1000 fine-grained deltas for full replay", async () => {
+      const run = await createRun("long fine-grained stream", "running");
+      const chunks = Array.from({ length: 1500 }, (_, index) => `chunk-${index}`);
+
+      await Promise.all(chunks.map((chunk) => addRunStreamChunk({
+        runId: run.id,
+        chunk,
+        streamType: "content",
+      })));
+
+      const entries = [];
+      let cursor = "0";
+      while (true) {
+        const page = await readRunStream({
+          runId: run.id,
+          cursor,
+          blockMs: 100,
+          count: 500,
+        });
+        entries.push(...page);
+        if (page.length < 500) break;
+        cursor = page.at(-1)?.id ?? cursor;
+      }
+
+      expect(entries).toHaveLength(chunks.length);
+      expect(entries.map((entry) => entry.chunk)).toEqual(
+        expect.arrayContaining(["chunk-0", "chunk-1499"]),
+      );
     });
   },
 );

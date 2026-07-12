@@ -59,6 +59,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | EVENT-I-001 | integration | Events | ingest events, seq idempotency/conflict | done |
 | REDIS-I-001 | integration | Redis | stream-chunk writes Redis and does not create RunEvent | done |
 | REDIS-I-002 | integration | Redis | stream cleanup deletes old streams only | done |
+| REDIS-I-003 | integration | Redis | more than 1000 fine-grained deltas retain full cursor-0 replay | done（1500 entries，分页回放保留首尾） |
 | SWEEP-I-001 | integration | Sweep | orphan resource cleanup paths: sandbox instance and Redis streams | done |
 | SWEEP-U-001 | unit/route | Sweep | cron endpoint auth and sweep orchestration | done |
 | SSE-I-001 | integration | SSE | snapshot, live events, done for terminal/waiting | done |
@@ -116,7 +117,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | LLM-W-103 | workflow | no-thinking model: content streams, no agent_thinking event | DB/Auth/Redis | partial（Pi adapter content-only component case 已覆盖；完整 workflow 待补） |
 | LLM-W-104 | workflow | thinking-only or empty-content edge case | DB/Auth/Redis | planned |
 | LLM-W-105 | workflow | malformed tool call -> tool failed and run failed/interrupted | DB/Auth/Redis | planned |
-| LLM-W-106 | workflow | Pi runtime real streaming: content chunks reach Redis/SSE before final agent_message | DB/Auth/Redis/Vercel | partial（真实 provider component/integration 与本地 Pi workflow 已证明增量 content fan-out；deployed API + Vercel Sandbox gate 待跑） |
+| LLM-W-106 | workflow | Pi runtime real streaming: content chunks reach Redis/SSE before final agent_message | DB/Auth/Redis/Vercel | partial（2026-07-12 deployed API + real Vercel Sandbox + real provider 已证明首批 content 到 Redis 时 `agent_message=0`；gate 同时发现 Pi state 未恢复最终文本及 `MAXLEN ~1000` 截断长回复，均已本地修复，待重新部署后复验完整回放与最终语义一致性） |
 | LLM-W-107 | workflow | Pi runtime thinking enabled: reasoning chunks reach Redis/SSE as `thinking` | DB/Auth/Redis/Vercel | partial（`thinkingLevel=medium` 已透传且 synthetic reasoning SSE 已覆盖；2026-07-12 配置模型 `gpt-5.5` 实测 0 reasoning / 7 content delta，deployed thinking gate 未满足） |
 | LLM-L-101 | live | real provider returns basic answer | Real LLM | planned |
 | LLM-L-102 | live | real provider streaming first token under SLA | Real LLM | planned |
@@ -141,7 +142,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | SBX-I-110 | integration | stdout/stderr truncation works | Vercel | partial（本地已补 captured stdout/stderr 截断回归测试；真实 Vercel exec gate 待跑） |
 | SBX-I-111 | integration | path traversal rejected by sandbox wrapper | none/Vercel | done（path-guard + VercelSandbox wrapper 单测覆盖，拒绝发生在 SDK 调用前） |
 | SBX-W-101 | workflow | sandbox script calls deployed ingest and completes run | Deployed API/Vercel | done（2026-07-12 对 `https://api.sandbox.maidang.me` 实跑：Vercel Sandbox 创建、Pi packages 安装、runtime 启动、hosted ingest 回调、文件/artifact/tool/run completed 全部通过） |
-| SBX-W-102 | workflow | sandbox consumes deployed LLM Proxy SSE while Control Plane fans out chunks to Redis | Deployed API/Vercel/Redis | partial（standalone Pi runtime script 已增量消费 SSE，Control Plane 直接双写 Sandbox SSE + Redis；Deployed API + Vercel + Redis gate 待跑） |
+| SBX-W-102 | workflow | sandbox consumes deployed LLM Proxy SSE while Control Plane fans out chunks to Redis | Deployed API/Vercel/Redis | partial（2026-07-12 deployed fake-provider gate 已通过；real-provider gate 已证明增量 content 时序，并暴露最终语义 fallback/长流 retention 问题，修复待重新部署复验） |
 | SBX-W-103 | workflow | sandbox script calls deployed search proxy | Deployed API/Vercel/Exa or fake | done（2026-07-12 production API + Vercel Sandbox + fake search 实跑：`web_search:completed`，2 条 `Source(kind=search_result)` 已验证） |
 | SBX-W-104 | workflow | cancel request stops sandbox runner | Deployed API/Vercel | done |
 | SBX-W-105 | workflow | waiting_for_input releases sandbox warm and Stage2 reuses it | Deployed API/Vercel | done |
@@ -166,7 +167,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | WF-009 | workflow | stale heartbeat sweep interrupts run | done |
 | WF-010 | workflow | deployed sandbox callback completes full run | planned |
 | WF-011 | workflow | tool call lifecycle is visible in timeline/SSE, not only run detail `toolCalls` | done |
-| WF-012 | workflow | Pi runtime content/reasoning stream before final semantic event | partial（本地 Pi workflow 已断言 Redis chunk 先于最终 `agent_message`；deployed API + Vercel Sandbox gate 待跑） |
+| WF-012 | workflow | Pi runtime content/reasoning stream before final semantic event | partial（deployed real-provider gate 已证明 content chunk 先于最终 `agent_message`；最终语义 fallback 与长流 retention 修复待重新部署复验，reasoning 仍无真实 delta） |
 
 ### 6.1 与 architecture-test-plan.md 的交叉引用
 
@@ -184,7 +185,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | LIVE-003 | live | deployed sign-in + workspace/thread/run write smoke | API base URL + live account | nightly/manual | planned |
 | LIVE-004 | live | deployed SSE connection and snapshot | API base URL + live account | nightly | planned |
 | LIVE-005 | live | deployed sandbox -> Control Plane ingest callback | API base URL + Vercel | nightly | planned |
-| LIVE-006 | live | deployed sandbox -> LLM proxy -> Redis stream -> SSE | API base URL + Vercel + Redis | manual/release | planned |
+| LIVE-006 | live | deployed sandbox -> LLM proxy -> Redis stream -> SSE | API base URL + Vercel + Redis | manual/release | partial（content 低延迟时序已通过；完整长流回放与最终语义一致性待修复版部署） |
 | LIVE-007 | live | real Exa query and Source normalization | API base URL + Exa | nightly | planned |
 | LIVE-008 | live | real LLM basic completion and usage | API base URL + LLM | nightly | planned |
 | LIVE-009 | live | real LLM fallback and retry | API base URL + multi LLM | manual/release | planned |

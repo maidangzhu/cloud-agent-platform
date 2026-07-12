@@ -157,26 +157,29 @@ for (const call of toolCalls) {
   if (call.name === "create_artifact" && manifest.updateArtifactId) {
     args.artifactId = manifest.updateArtifactId;
   }
+  const startedEventSeq = seq++;
   await post("/api/ingest/tool-calls", {
     id: toolCallId,
-    eventSeq: seq,
+    eventSeq: startedEventSeq,
     name: call.name,
     status: "running",
     args
   });
 
   let result;
+  const effectEventSeq = seq++;
   if (call.name === "write_file") {
-    result = await executeWriteFile(args, seq++);
+    result = await executeWriteFile(args, effectEventSeq);
   } else if (call.name === "create_artifact") {
-    result = await executeCreateArtifact(args, seq++);
+    result = await executeCreateArtifact(args, effectEventSeq);
   } else {
     throw new Error("unsupported tool: " + call.name);
   }
 
+  const completedEventSeq = seq++;
   await post("/api/ingest/tool-calls", {
     id: toolCallId,
-    eventSeq: seq - 1,
+    eventSeq: completedEventSeq,
     name: call.name,
     status: "completed",
     args,

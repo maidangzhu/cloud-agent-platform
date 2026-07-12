@@ -10,7 +10,7 @@ export type RunStreamEntry = {
   streamType: StreamChunkType;
 };
 
-const DEFAULT_MAXLEN = 1000;
+const DEFAULT_MAXLEN = 10_000;
 const DEFAULT_TTL_SECONDS = 60 * 60;
 const DEFAULT_CLEANUP_GRACE_MS = 60 * 60 * 1000;
 const DEFAULT_CLEANUP_BATCH_SIZE = 100;
