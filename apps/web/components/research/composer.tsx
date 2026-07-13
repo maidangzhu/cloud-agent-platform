@@ -31,6 +31,7 @@ export function Composer({
   activeWorkspace,
   isCancellingRun,
   isStartingRun,
+  isThreadLoading,
   loadState,
   onCancelRun,
   onCreateThread,
@@ -42,6 +43,7 @@ export function Composer({
   activeWorkspace: Workspace | null;
   isCancellingRun: boolean;
   isStartingRun: boolean;
+  isThreadLoading: boolean;
   loadState: LoadState;
   onCancelRun: () => void;
   onCreateWorkspace: () => void;
@@ -97,6 +99,7 @@ export function Composer({
     Boolean(activeThread || activeWorkspace) &&
     loadState === "ready" &&
     !isStartingRun &&
+    !isThreadLoading &&
     !isRunActive(run) &&
     input.trim().length > 0;
 
@@ -192,7 +195,7 @@ export function Composer({
         <div className="flex min-h-[58px] items-end overflow-hidden px-3 py-2">
           <textarea
             className="field-sizing-content max-h-36 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[14px] leading-5 outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={loadState === "loading" || isStartingRun}
+            disabled={loadState === "loading" || isStartingRun || isThreadLoading}
             onChange={(event) => {
               const value = event.target.value;
               setInput(value);

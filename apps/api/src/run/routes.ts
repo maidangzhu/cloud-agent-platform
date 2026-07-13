@@ -199,7 +199,7 @@ runRoutes.post("/api/threads/:threadId/runs", async (c) => {
   if (shouldAutoStartRunner()) {
     void dispatchRunOrchestration({
       runId: created.id,
-      apiBaseUrl: resolveRunOrchestratorApiBaseUrl(c.req.url),
+      apiBaseUrl: resolveRunOrchestratorApiBaseUrl(),
       waitUntil: getWaitUntil(c),
     });
   }

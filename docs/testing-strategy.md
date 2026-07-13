@@ -471,7 +471,7 @@ Route：
 6. create thread with explicit title
 7. create thread with initialPrompt derives title
 8. list threads inside workspace
-9. read thread detail (includes messages and runs)
+9. read thread detail (messages and runs are joined by runId; every run includes events)
 10. update thread title
 11. archive thread
 12. user A cannot access user B's thread -> FORBIDDEN or 404
@@ -479,7 +479,7 @@ Route：
 
 Integration：
 
-14. thread detail includes messages and runs after real run completes
+14. thread detail includes user/assistant messages and run events after real run completes
 15. archived thread rejects run creation via insert-select（ADR-0018，同 workspace 的原子拒绝模式）
 
 ### 4.4 Run

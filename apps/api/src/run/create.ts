@@ -42,14 +42,34 @@ export async function createRunIfThreadActive(
   }
 
   const runId = randomUUID();
+  const messageId = randomUUID();
 
-  const rowCount = await prisma.$executeRaw`
-    INSERT INTO "AgentRun" (id, "workspaceId", "threadId", "userId", prompt, status, "createdAt", "updatedAt")
-    SELECT ${runId}, w.id, t.id, ${userId}, ${prompt}, 'created', now(), now()
-    FROM "Thread" t
-    JOIN "Workspace" w ON w.id = t."workspaceId"
-    WHERE t.id = ${threadId} AND t.status = 'active' AND w.status = 'active' AND w."ownerUserId" = ${userId}
-  `;
+  const rowCount = await prisma.$transaction(async (tx) => {
+    const inserted = await tx.$executeRaw`
+      INSERT INTO "AgentRun" (id, "workspaceId", "threadId", "userId", prompt, status, "createdAt", "updatedAt")
+      SELECT ${runId}, w.id, t.id, ${userId}, ${prompt}, 'created', now(), now()
+      FROM "Thread" t
+      JOIN "Workspace" w ON w.id = t."workspaceId"
+      WHERE t.id = ${threadId} AND t.status = 'active' AND w.status = 'active' AND w."ownerUserId" = ${userId}
+    `;
+
+    if (inserted === 0) {
+      return 0;
+    }
+
+    const run = await tx.agentRun.findUniqueOrThrow({ where: { id: runId } });
+    await tx.threadMessage.create({
+      data: {
+        id: messageId,
+        workspaceId: run.workspaceId,
+        threadId: run.threadId,
+        runId: run.id,
+        role: "user",
+        content: prompt,
+      },
+    });
+    return inserted;
+  });
 
   if (rowCount === 0) {
     return { created: false };

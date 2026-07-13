@@ -1,7 +1,7 @@
 "use client";
 
 import { fetchEventSource } from "@microsoft/fetch-event-source";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ResearchShell } from "@/components/research/research-shell";
 import { ResearchSidebar } from "@/components/research/research-sidebar";
 import type { AuthRequest } from "@/components/research/auth-panel";
@@ -33,8 +33,10 @@ type ApiEnvelope<T> = {
 type ThreadSnapshot = {
   thread: Thread;
   messages: ThreadMessage[];
-  runs?: AgentRun[];
+  runs: ThreadRun[];
 };
+
+type ThreadRun = AgentRun & { events: RunEventDTO[] };
 
 type RunSnapshot = {
   run: AgentRun;
@@ -90,6 +92,7 @@ export function AppShell() {
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>([]);
+  const [threadRuns, setThreadRuns] = useState<ThreadRun[]>([]);
   const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
   const [runEvents, setRunEvents] = useState<RunEventDTO[]>([]);
   const [streamChunks, setStreamChunks] = useState<ClientStreamChunk[]>([]);
@@ -99,6 +102,8 @@ export function AppShell() {
   const [runError, setRunError] = useState("");
   const [isStartingRun, setIsStartingRun] = useState(false);
   const [isCancellingRun, setIsCancellingRun] = useState(false);
+  const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null);
+  const threadLoadRequestId = useRef(0);
 
   async function loadWorkspaceSnapshot(nextWorkspaceId?: string | null) {
     setState("loading");
@@ -195,12 +200,15 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
+    const requestId = ++threadLoadRequestId.current;
     if (!activeThreadId) {
+      setLoadingThreadId(null);
       clearThreadRunState();
       return;
     }
     clearThreadRunState();
-    void loadThreadSnapshot(activeThreadId);
+    setLoadingThreadId(activeThreadId);
+    void loadThreadSnapshot(activeThreadId, requestId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThreadId]);
 
@@ -216,105 +224,111 @@ export function AppShell() {
     }
 
     const controller = new AbortController();
+    const runId = activeRun.id;
 
-    void fetchEventSource(`/api/runs/${activeRun.id}/events`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        Accept: "text/event-stream",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({}),
-      openWhenHidden: true,
-      signal: controller.signal,
-      async onopen(response) {
-        if (!response.ok) {
-          throw new Error(`SSE connection failed with HTTP ${response.status}`);
-        }
-        const contentType = response.headers.get("content-type") ?? "";
-        if (!contentType.includes("text/event-stream")) {
-          throw new Error("SSE connection did not return an event stream.");
-        }
-        setRunError("");
-      },
-      onmessage(message) {
-        if (message.event === "snapshot") {
-          const snapshot = parseSseData<{
-            run: AgentRun;
-            events: RunEventDTO[];
-          }>(message.data);
-          if (!snapshot) {
-            return;
+    const connectionTimer = window.setTimeout(() => {
+      void fetchEventSource(`/api/runs/${runId}/events`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          Accept: "text/event-stream",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+        openWhenHidden: true,
+        signal: controller.signal,
+        async onopen(response) {
+          if (!response.ok) {
+            throw new Error(`SSE connection failed with HTTP ${response.status}`);
           }
-          setActiveRun(snapshot.run);
-          setRunEvents(snapshot.events);
-          setStreamChunks([]);
+          const contentType = response.headers.get("content-type") ?? "";
+          if (!contentType.includes("text/event-stream")) {
+            throw new Error("SSE connection did not return an event stream.");
+          }
           setRunError("");
-          return;
-        }
-
-        if (message.event === "stream_chunk") {
-          const chunk = parseSseData<StreamChunkDTO>(message.data);
-          if (!chunk) {
+        },
+        onmessage(message) {
+          if (message.event === "snapshot") {
+            const snapshot = parseSseData<{
+              run: AgentRun;
+              events: RunEventDTO[];
+            }>(message.data);
+            if (!snapshot) {
+              return;
+            }
+            setActiveRun(snapshot.run);
+            setRunEvents(snapshot.events);
+            setStreamChunks([]);
+            setRunError("");
             return;
           }
-          const id = message.id || `${Date.now()}-${Math.random()}`;
-          setStreamChunks((current) =>
-            current.some((item) => item.id === id)
-              ? current
-              : [...current, { ...chunk, id }]
-          );
-          return;
-        }
 
-        if (message.event === "done") {
-          const done = parseSseData<{ runId: string; status: RunStatus }>(
-            message.data
-          );
-          if (done?.runId === activeRun.id) {
-            setActiveRun((current) =>
-              current && current.id === done.runId
-                ? { ...current, status: done.status }
-                : current
+          if (message.event === "stream_chunk") {
+            const chunk = parseSseData<StreamChunkDTO>(message.data);
+            if (!chunk) {
+              return;
+            }
+            const id = message.id || `${Date.now()}-${Math.random()}`;
+            setStreamChunks((current) =>
+              current.some((item) => item.id === id)
+                ? current
+                : [...current, { ...chunk, id }]
             );
-            void loadRunSnapshot(done.runId);
-          }
-          controller.abort();
-          return;
-        }
-
-        if (message.event === "ping") {
-          return;
-        }
-
-        if (RUN_EVENT_TYPES.includes(message.event as RunEventType)) {
-          const event = parseSseData<RunEventDTO>(message.data);
-          if (!event) {
             return;
           }
-          setRunEvents((current) => mergeRunEvents(current, [event]));
-        }
-      },
-      onclose() {
-        if (!controller.signal.aborted && !isTerminalRunStatus(activeRun.status)) {
-          setRunError("Live event stream disconnected; showing last snapshot.");
-        }
-      },
-      onerror(error) {
-        if (!controller.signal.aborted && !isTerminalRunStatus(activeRun.status)) {
-          setRunError(
-            error instanceof Error
-              ? error.message
-              : "Live event stream disconnected; showing last snapshot."
-          );
-        }
-        return 2_000;
-      },
-    });
 
-    return () => controller.abort();
+          if (message.event === "done") {
+            const done = parseSseData<{ runId: string; status: RunStatus }>(
+              message.data
+            );
+            if (done?.runId === runId) {
+              setActiveRun((current) =>
+                current && current.id === done.runId
+                  ? { ...current, status: done.status }
+                  : current
+              );
+              void loadRunSnapshot(done.runId);
+            }
+            controller.abort();
+            return;
+          }
+
+          if (message.event === "ping") {
+            return;
+          }
+
+          if (RUN_EVENT_TYPES.includes(message.event as RunEventType)) {
+            const event = parseSseData<RunEventDTO>(message.data);
+            if (!event) {
+              return;
+            }
+            setRunEvents((current) => mergeRunEvents(current, [event]));
+          }
+        },
+        onclose() {
+          if (!controller.signal.aborted && !isTerminalRunStatus(activeRun.status)) {
+            setRunError("Live event stream disconnected; showing last snapshot.");
+          }
+        },
+        onerror(error) {
+          if (!controller.signal.aborted && !isTerminalRunStatus(activeRun.status)) {
+            setRunError(
+              error instanceof Error
+                ? error.message
+                : "Live event stream disconnected; showing last snapshot."
+            );
+          }
+          return 2_000;
+        },
+      });
+    }, 0);
+
+    return () => {
+      window.clearTimeout(connectionTimer);
+      controller.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRun?.id, activeRun?.status]);
+  }, [activeRun?.id]);
 
   const activeWorkspace = useMemo(
     () =>
@@ -440,6 +454,7 @@ export function AppShell() {
 
   function clearThreadRunState() {
     setThreadMessages([]);
+    setThreadRuns([]);
     setActiveRun(null);
     setRunEvents([]);
     setStreamChunks([]);
@@ -449,23 +464,30 @@ export function AppShell() {
     setRunError("");
   }
 
-  async function loadThreadSnapshot(threadId: string) {
+  async function loadThreadSnapshot(threadId: string, requestId: number) {
     setRunError("");
     try {
       const result = await apiGet<ThreadSnapshot>(`/api/threads/${threadId}`);
+      if (requestId !== threadLoadRequestId.current) {
+        return;
+      }
       if (!result.ok) {
         throw new Error(result.message);
       }
       setThreadMessages(result.data.messages);
+      setThreadRuns(result.data.runs);
 
       const latestRunId =
         [...result.data.messages].reverse().find((message) => message.runId)
           ?.runId ??
-        result.data.runs?.[0]?.id ??
+        result.data.runs.at(-1)?.id ??
         readStoredRunId(threadId);
 
       if (latestRunId) {
-        await loadRunSnapshot(latestRunId);
+        await loadRunSnapshot(
+          latestRunId,
+          () => requestId === threadLoadRequestId.current
+        );
       } else {
         setActiveRun(null);
         setRunEvents([]);
@@ -475,11 +497,20 @@ export function AppShell() {
         setRunUsage([]);
       }
     } catch (err) {
-      setRunError(err instanceof Error ? err.message : String(err));
+      if (requestId === threadLoadRequestId.current) {
+        setRunError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (requestId === threadLoadRequestId.current) {
+        setLoadingThreadId(null);
+      }
     }
   }
 
-  async function loadRunSnapshot(runId: string) {
+  async function loadRunSnapshot(
+    runId: string,
+    shouldApply: () => boolean = () => true
+  ) {
     const [result, usageResult] = await Promise.all([
       apiGet<RunSnapshot>(`/api/runs/${runId}`),
       apiGet<UsageSnapshot>(
@@ -492,11 +523,20 @@ export function AppShell() {
     if (!usageResult.ok) {
       throw new Error(usageResult.message);
     }
+    if (!shouldApply()) {
+      return;
+    }
     setActiveRun(result.data.run);
     setRunEvents(result.data.events);
     setRunArtifacts(result.data.artifacts);
     setRunSources(result.data.sources);
     setRunUsage(usageResult.data.records);
+    setThreadRuns((current) =>
+      upsertThreadRun(current, {
+        ...result.data.run,
+        events: result.data.events,
+      })
+    );
     setRunError("");
     storeRunId(result.data.run.threadId, result.data.run.id);
   }
@@ -517,7 +557,12 @@ export function AppShell() {
       if (!result.ok) {
         throw new Error(result.message);
       }
+      threadLoadRequestId.current += 1;
+      setLoadingThreadId(null);
       setActiveRun(result.data.run);
+      setThreadRuns((current) =>
+        upsertThreadRun(current, { ...result.data.run, events: [] })
+      );
       setRunEvents([]);
       setStreamChunks([]);
       setRunArtifacts([]);
@@ -585,6 +630,9 @@ export function AppShell() {
           error={error}
           isCancellingRun={isCancellingRun}
           isStartingRun={isStartingRun}
+          isThreadLoading={
+            activeThreadId !== null && loadingThreadId === activeThreadId
+          }
           loadState={state}
           onCancelRun={cancelRun}
           onAuthenticate={authenticate}
@@ -597,6 +645,7 @@ export function AppShell() {
           runEvents={runEvents}
           runSources={runSources}
           runUsage={runUsage}
+          runs={threadRuns}
           streamChunks={streamChunks}
           threadMessages={threadMessages}
           user={user}
@@ -626,6 +675,12 @@ function mergeRunEvents(current: RunEventDTO[], incoming: RunEventDTO[]) {
     bySeq.set(event.seq, event);
   }
   return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+}
+
+function upsertThreadRun(current: ThreadRun[], incoming: ThreadRun) {
+  return [...current.filter((run) => run.id !== incoming.id), incoming].sort(
+    (left, right) => left.createdAt.localeCompare(right.createdAt)
+  );
 }
 
 function isTerminalRunStatus(status: RunStatus) {

@@ -16,6 +16,9 @@ import {
 
 type WaitUntil = (promise: Promise<unknown>) => void;
 
+export const DEFAULT_RUN_ORCHESTRATOR_API_BASE_URL =
+  "https://api.sandbox.maidang.me";
+
 export type RunOrchestrationResult =
   | { started: true; status: RunStatus }
   | { started: false; reason: string; status?: RunStatus };
@@ -31,47 +34,35 @@ export function shouldAutoStartRunner(): boolean {
   return true;
 }
 
-export function resolveRunOrchestratorApiBaseUrl(
-  requestUrl?: string,
-): string | null {
-  const configured =
-    process.env.PUBLIC_AGENT_LOOP_BASE_URL ??
-    process.env.CAP_API_BASE_URL ??
-    process.env.INGEST_BASE_URL ??
-    process.env.API_BASE_URL ??
-    process.env.PUBLIC_API_BASE_URL ??
-    process.env.PUBLIC_INGEST_BASE_URL ??
-    publicUrlOrNull(process.env.BETTER_AUTH_URL);
-  if (configured) return configured.replace(/\/$/, "");
+export function resolveRunOrchestratorApiBaseUrl(): string {
+  const configured = [
+    process.env.PUBLIC_AGENT_LOOP_BASE_URL,
+    process.env.CAP_API_BASE_URL,
+    process.env.INGEST_BASE_URL,
+    process.env.API_BASE_URL,
+    process.env.PUBLIC_API_BASE_URL,
+    process.env.PUBLIC_INGEST_BASE_URL,
+  ]
+    .map((value) => publicHttpUrlOrNull(value))
+    .find((value) => value !== null);
 
-  if (!requestUrl) return null;
-  let url: URL;
-  try {
-    url = new URL(requestUrl);
-  } catch {
-    return null;
-  }
-  const isLocalhost =
-    url.hostname === "localhost" ||
-    url.hostname === "127.0.0.1" ||
-    url.hostname === "::1";
-  if (isLocalhost && process.env.CAP_ALLOW_LOCAL_RUNNER_BASE_URL !== "true") {
-    return null;
-  }
-  return url.origin.replace(/\/$/, "");
+  return configured ?? DEFAULT_RUN_ORCHESTRATOR_API_BASE_URL;
 }
 
-function publicUrlOrNull(value: string | undefined): string | undefined {
-  if (!value) return undefined;
+function publicHttpUrlOrNull(value: string | undefined): string | null {
+  if (!value) return null;
   try {
     const url = new URL(value);
     const isLocalhost =
       url.hostname === "localhost" ||
       url.hostname === "127.0.0.1" ||
       url.hostname === "::1";
-    return isLocalhost ? undefined : value;
+    if (isLocalhost || (url.protocol !== "http:" && url.protocol !== "https:")) {
+      return null;
+    }
+    return value.replace(/\/$/, "");
   } catch {
-    return undefined;
+    return null;
   }
 }
 

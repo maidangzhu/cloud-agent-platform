@@ -43,6 +43,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       });
       const workspaceIds = workspaces.map((w) => w.id);
       if (workspaceIds.length > 0) {
+        await prisma.threadMessage.deleteMany({
+          where: { workspaceId: { in: workspaceIds } },
+        });
         const threads = await prisma.thread.findMany({
           where: { workspaceId: { in: workspaceIds } },
         });
@@ -146,6 +149,37 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       });
       expect(event?.type).toBe("agent_message");
       expect(event?.content).toBe("hello");
+
+      const assistantMessage = await prisma.threadMessage.findFirst({
+        where: { runId: run.id, role: "assistant" },
+      });
+      expect(assistantMessage).toMatchObject({
+        workspaceId,
+        threadId,
+        runId: run.id,
+        role: "assistant",
+        content: "hello",
+      });
+
+      const retry = await app.request("/api/ingest/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${tokenFor(run)}`,
+        },
+        body: JSON.stringify({
+          seq: 1,
+          type: "agent_message",
+          content: "hello",
+          payload: { messageId: "msg_1" },
+        }),
+      });
+      expect(retry.status).toBe(200);
+      expect(
+        await prisma.threadMessage.count({
+          where: { runId: run.id, role: "assistant" },
+        }),
+      ).toBe(1);
     });
 
     it("reject ingest without token -> 401", async () => {

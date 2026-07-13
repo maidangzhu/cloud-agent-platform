@@ -45,11 +45,17 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       });
       const workspaceIds = workspaces.map((w) => w.id);
       if (workspaceIds.length > 0) {
+        await prisma.threadMessage.deleteMany({
+          where: { workspaceId: { in: workspaceIds } },
+        });
         const threads = await prisma.thread.findMany({
           where: { workspaceId: { in: workspaceIds } },
         });
         const threadIds = threads.map((t) => t.id);
         if (threadIds.length > 0) {
+          await prisma.runEvent.deleteMany({
+            where: { threadId: { in: threadIds } },
+          });
           await prisma.agentRun.deleteMany({
             where: { threadId: { in: threadIds } },
           });
@@ -162,7 +168,22 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
         },
       );
       expect(runRes.status).toBe(200);
-      const createdRunId = (await runRes.json()).data.run.id;
+      const createdRun = (await runRes.json()).data.run;
+      const createdRunId = createdRun.id;
+
+      await prisma.runEvent.create({
+        data: {
+          id: crypto.randomUUID(),
+          workspaceId: workspaceIdOwnedByA,
+          threadId: threadIdOwnedByA,
+          runId: createdRunId,
+          seq: 1,
+          type: "agent_message",
+          role: "assistant",
+          content: "restored assistant response",
+          raw: { messageId: `legacy-${createdRunId}` },
+        },
+      });
 
       const res = await app.request(`/api/threads/${threadIdOwnedByA}`, {
         headers: { cookie: cookieA },
@@ -172,12 +193,35 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       const body = await res.json();
       expect(body.data.thread.id).toBe(threadIdOwnedByA);
       expect(Array.isArray(body.data.messages)).toBe(true);
-      expect(body.data.messages.length).toBe(0);
+      expect(body.data.messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            runId: createdRunId,
+            role: "user",
+            content: "restore this run from thread",
+          }),
+          expect.objectContaining({
+            runId: createdRunId,
+            role: "assistant",
+            content: "restored assistant response",
+          }),
+        ]),
+      );
       expect(Array.isArray(body.data.runs)).toBe(true);
       expect(body.data.runs.length).toBeGreaterThanOrEqual(1);
-      expect(body.data.runs[0].id).toBe(createdRunId);
-      expect(body.data.runs[0].threadId).toBe(threadIdOwnedByA);
-      expect(body.data.runs[0].derivedUiState).toBe("idle");
+      const restoredRun = body.data.runs.find(
+        (run: { id: string }) => run.id === createdRunId,
+      );
+      expect(restoredRun.threadId).toBe(threadIdOwnedByA);
+      expect(restoredRun.derivedUiState).toBe("idle");
+      expect(restoredRun.events).toEqual([
+        expect.objectContaining({
+          seq: 1,
+          type: "agent_message",
+          role: "assistant",
+          content: "restored assistant response",
+        }),
+      ]);
     });
 
     it("update thread title", async () => {

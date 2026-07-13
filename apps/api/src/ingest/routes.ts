@@ -120,6 +120,7 @@ ingestRoutes.post("/api/ingest/events", async (c) => {
     return c.json({ code: 5000, message: "internal error", data: null }, 500);
   }
 
+  await persistAssistantMessage(run, event.input, result.eventId);
   await applyRunEventSideEffects(run.id, event.input.type);
 
   return c.json({
@@ -874,6 +875,30 @@ async function applyRunEventSideEffects(
     default:
       return;
   }
+}
+
+async function persistAssistantMessage(
+  run: AuthenticatedRun,
+  event: RunEventInput,
+  eventId: string,
+): Promise<void> {
+  if (event.type !== "agent_message" || !event.content?.trim()) {
+    return;
+  }
+
+  await prisma.threadMessage.upsert({
+    where: { id: eventId },
+    create: {
+      id: eventId,
+      workspaceId: run.workspaceId,
+      threadId: run.threadId,
+      runId: run.id,
+      role: "assistant",
+      content: event.content,
+      metadata: event.payload as Prisma.InputJsonValue,
+    },
+    update: {},
+  });
 }
 
 async function hasExistingArtifactEvent(

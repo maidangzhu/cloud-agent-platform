@@ -46,6 +46,9 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       });
       const workspaceIds = workspaces.map((w) => w.id);
       if (workspaceIds.length > 0) {
+        await prisma.threadMessage.deleteMany({
+          where: { workspaceId: { in: workspaceIds } },
+        });
         const threads = await prisma.thread.findMany({
           where: { workspaceId: { in: workspaceIds } },
         });
@@ -107,6 +110,17 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(body.data.run.workspaceId).toBe(workspaceId);
       expect(body.data.run.threadId).toBe(threadId);
       expect(body.data.run.derivedUiState).toBe("idle");
+
+      const userMessage = await prisma.threadMessage.findFirst({
+        where: { runId: body.data.run.id, role: "user" },
+      });
+      expect(userMessage).toMatchObject({
+        workspaceId,
+        threadId,
+        runId: body.data.run.id,
+        role: "user",
+        content: "summarize this paper",
+      });
     });
 
     it("create run rejects empty prompt -> VALIDATION_FAILED", async () => {

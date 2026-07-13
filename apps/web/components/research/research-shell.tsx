@@ -31,6 +31,7 @@ export function ResearchShell({
   error,
   isCancellingRun,
   isStartingRun,
+  isThreadLoading,
   loadState,
   onCancelRun,
   onAuthenticate,
@@ -43,6 +44,7 @@ export function ResearchShell({
   runEvents,
   runSources,
   runUsage,
+  runs,
   streamChunks,
   threadMessages,
   user,
@@ -52,6 +54,7 @@ export function ResearchShell({
   error: string;
   isCancellingRun: boolean;
   isStartingRun: boolean;
+  isThreadLoading: boolean;
   loadState: LoadState;
   onCancelRun: () => void;
   onAuthenticate: (request: AuthRequest) => Promise<boolean>;
@@ -64,6 +67,7 @@ export function ResearchShell({
   runEvents: RunEventDTO[];
   runSources: RunSource[];
   runUsage: RunUsageRecord[];
+  runs: Array<AgentRun & { events: RunEventDTO[] }>;
   streamChunks: StreamChunkDTO[];
   threadMessages: ThreadMessage[];
   user: CurrentUser | null;
@@ -76,6 +80,7 @@ export function ResearchShell({
         error={error}
         isCancellingRun={isCancellingRun}
         isStartingRun={isStartingRun}
+        isThreadLoading={isThreadLoading}
         loadState={loadState}
         onCancelRun={onCancelRun}
         onAuthenticate={onAuthenticate}
@@ -88,6 +93,7 @@ export function ResearchShell({
         runEvents={runEvents}
         runSources={runSources}
         runUsage={runUsage}
+        runs={runs}
         streamChunks={streamChunks}
         threadMessages={threadMessages}
         user={user}
@@ -102,6 +108,7 @@ function ResearchShellContent({
   error,
   isCancellingRun,
   isStartingRun,
+  isThreadLoading,
   loadState,
   onCancelRun,
   onAuthenticate,
@@ -114,6 +121,7 @@ function ResearchShellContent({
   runEvents,
   runSources,
   runUsage,
+  runs,
   streamChunks,
   threadMessages,
   user,
@@ -123,6 +131,7 @@ function ResearchShellContent({
   error: string;
   isCancellingRun: boolean;
   isStartingRun: boolean;
+  isThreadLoading: boolean;
   loadState: LoadState;
   onCancelRun: () => void;
   onAuthenticate: (request: AuthRequest) => Promise<boolean>;
@@ -135,6 +144,7 @@ function ResearchShellContent({
   runEvents: RunEventDTO[];
   runSources: RunSource[];
   runUsage: RunUsageRecord[];
+  runs: Array<AgentRun & { events: RunEventDTO[] }>;
   streamChunks: StreamChunkDTO[];
   threadMessages: ThreadMessage[];
   user: CurrentUser | null;
@@ -168,10 +178,12 @@ function ResearchShellContent({
                 activeThread={activeThread}
                 error={error}
                 loadState={loadState}
+                isThreadLoading={isThreadLoading}
                 run={run}
                 runArtifacts={runArtifacts}
                 runSources={runSources}
                 runUsage={runUsage}
+                runs={runs}
                 runError={runError}
                 runEvents={runEvents}
                 streamChunks={streamChunks}
@@ -185,6 +197,7 @@ function ResearchShellContent({
                   activeWorkspace={activeWorkspace}
                   isCancellingRun={isCancellingRun}
                   isStartingRun={isStartingRun}
+                  isThreadLoading={isThreadLoading}
                   loadState={loadState}
                   onCancelRun={onCancelRun}
                   onCreateThread={onCreateThread}

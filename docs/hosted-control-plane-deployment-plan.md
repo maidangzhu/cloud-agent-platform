@@ -85,7 +85,7 @@ Workspace root
 
 1. `apps/web` Vercel 项目 Root Directory 固定为 `apps/web`。
 2. `apps/web` 项目设置 `API_PROXY_TARGET=https://<api-host>`。
-3. 保持本地默认 `API_PROXY_TARGET=http://localhost:8787`，但需要真实 sandbox 回调的 workflow/live 测试必须显式使用公网 API base。
+3. 保持本地默认 `API_PROXY_TARGET=http://localhost:8787`；这只影响浏览器到 API 的代理。Sandbox callback 默认使用 `https://api.sandbox.maidang.me`，preview/其他 hosted Control Plane 再通过 `PUBLIC_AGENT_LOOP_BASE_URL`/`CAP_API_BASE_URL` 显式覆盖。
 
 验证：
 

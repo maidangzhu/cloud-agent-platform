@@ -416,9 +416,14 @@ Thread detail response：
 type ThreadDetailData = {
   thread: ThreadDTO;
   messages: MessageDTO[];
-  runs: RunDTO[];
+  runs: Array<RunDTO & { events: AgentEventDTO[] }>;
 };
 ```
+
+`messages` 与 `runs` 通过 `runId` 关联。创建 run 时必须在同一事务写入 user
+message；`agent_message` ingest 必须幂等写入 assistant message。为兼容该约束
+落地前的历史数据，thread detail 可从 `Run.prompt` 和 `agent_message` events
+只读补齐缺失的 message DTO。
 
 规则：
 

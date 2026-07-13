@@ -84,6 +84,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | TOOL-I-001 | integration | fetch_url | SSRF guard, retry, failed/rejected status, source recording | done |
 | TOOL-I-002 | integration | web_search | tool result -> Source records | done |
 | RT-U-001 | unit/component | Pi runtime tools | `read_file` large output truncation matches sandbox script budget | done |
+| ORCH-U-001 | unit | Run Orchestrator | local request/auth URLs cannot become Sandbox callbacks; hosted default and public overrides resolve deterministically | done |
 | RT-C-002 | component | Pi runtime tools | `fetch_url` SSRF rejection maps to `RunToolCall.status=rejected` | done |
 | RT-C-003 | component | Pi runtime tools | successful `fetch_url` records `Source(kind=url)` before tool completion | done |
 | RT-W-004 | workflow | Pi runtime tools | standalone sandbox `fetch_url` enforces network/SSRF policy and records URL source | done（2026-07-12 production API + Vercel Sandbox 实跑：`fetch_url:completed`，抓取结果与 `Source(kind=url)` 均已验证） |

@@ -32,6 +32,27 @@ type RunDTO = {
   error?: string;
   createdAt: string;
   updatedAt: string;
+  events: RunEventDTO[];
+};
+
+type RunEventDTO = {
+  seq: number;
+  type: string;
+  role?: string;
+  title?: string;
+  content?: string;
+  payload: unknown;
+  createdAt: string;
+};
+
+type MessageDTO = {
+  id: string;
+  workspaceId: string;
+  threadId: string;
+  runId?: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
 };
 
 function toDTO(row: {
@@ -52,19 +73,22 @@ function toDTO(row: {
   };
 }
 
-function toRunDTO(row: {
-  id: string;
-  workspaceId: string;
-  threadId: string;
-  status: string;
-  prompt: string;
-  startedAt: Date | null;
-  completedAt: Date | null;
-  lastHeartbeatAt: Date | null;
-  error: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}): RunDTO {
+function toRunDTO(
+  row: {
+    id: string;
+    workspaceId: string;
+    threadId: string;
+    status: string;
+    prompt: string;
+    startedAt: Date | null;
+    completedAt: Date | null;
+    lastHeartbeatAt: Date | null;
+    error: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  events: RunEventDTO[],
+): RunDTO {
   const status = row.status as RunStatus;
   return {
     id: row.id,
@@ -86,6 +110,27 @@ function toRunDTO(row: {
     ...(row.error ? { error: row.error } : {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    events,
+  };
+}
+
+function toRunEventDTO(row: {
+  seq: number;
+  type: string;
+  role: string | null;
+  title: string | null;
+  content: string | null;
+  raw: unknown;
+  createdAt: Date;
+}): RunEventDTO {
+  return {
+    seq: row.seq,
+    type: row.type,
+    role: row.role ?? undefined,
+    title: row.title ?? undefined,
+    content: row.content ?? undefined,
+    payload: row.raw ?? null,
+    createdAt: row.createdAt.toISOString(),
   };
 }
 
@@ -163,33 +208,92 @@ threadRoutes.get("/api/threads/:threadId", async (c) => {
     return c.json({ code: 1004, message: "not found", data: null }, 404);
   }
 
-  const [messages, runs] = await Promise.all([
+  const [messages, runs, events] = await Promise.all([
     prisma.threadMessage.findMany({
       where: { threadId },
       orderBy: { createdAt: "asc" },
     }),
     prisma.agentRun.findMany({
       where: { threadId },
-      orderBy: { updatedAt: "desc" },
-      take: 10,
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.runEvent.findMany({
+      where: { threadId },
+      orderBy: [{ createdAt: "asc" }, { seq: "asc" }],
     }),
   ]);
+
+  const eventDtosByRun = new Map<string, RunEventDTO[]>();
+  for (const event of events) {
+    const current = eventDtosByRun.get(event.runId) ?? [];
+    current.push(toRunEventDTO(event));
+    eventDtosByRun.set(event.runId, current);
+  }
+
+  const messageDtos: MessageDTO[] = messages
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .map((message) => ({
+      id: message.id,
+      workspaceId: message.workspaceId,
+      threadId: message.threadId,
+      runId: message.runId ?? undefined,
+      role: message.role as "user" | "assistant",
+      content: message.content,
+      createdAt: message.createdAt.toISOString(),
+    }));
+  const persistedRolesByRun = new Set(
+    messageDtos
+      .filter((message) => message.runId)
+      .map((message) => `${message.runId}:${message.role}`),
+  );
+
+  for (const run of runs) {
+    if (!persistedRolesByRun.has(`${run.id}:user`)) {
+      messageDtos.push({
+        id: `legacy-user-${run.id}`,
+        workspaceId: run.workspaceId,
+        threadId: run.threadId,
+        runId: run.id,
+        role: "user",
+        content: run.prompt,
+        createdAt: run.createdAt.toISOString(),
+      });
+    }
+
+    if (!persistedRolesByRun.has(`${run.id}:assistant`)) {
+      for (const event of events) {
+        if (
+          event.runId === run.id &&
+          event.type === "agent_message" &&
+          event.content?.trim()
+        ) {
+          messageDtos.push({
+            id: `legacy-assistant-${event.id}`,
+            workspaceId: run.workspaceId,
+            threadId: run.threadId,
+            runId: run.id,
+            role: "assistant",
+            content: event.content,
+            createdAt: event.createdAt.toISOString(),
+          });
+        }
+      }
+    }
+  }
+
+  messageDtos.sort((left, right) => {
+    const byTime = left.createdAt.localeCompare(right.createdAt);
+    if (byTime !== 0) return byTime;
+    return left.role === right.role ? 0 : left.role === "user" ? -1 : 1;
+  });
 
   return c.json({
     code: 0,
     message: "ok",
     data: {
       thread: toDTO(thread),
-      messages: messages.map((m) => ({
-        id: m.id,
-        workspaceId: m.workspaceId,
-        threadId: m.threadId,
-        runId: m.runId ?? undefined,
-        role: m.role as "user" | "assistant",
-        content: m.content,
-        createdAt: m.createdAt.toISOString(),
-      })),
-      runs: runs.map(toRunDTO),
+      messages: messageDtos,
+      runs: runs.map((run) => toRunDTO(run, eventDtosByRun.get(run.id) ?? [])),
     },
   });
 });
