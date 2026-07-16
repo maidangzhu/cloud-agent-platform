@@ -144,17 +144,17 @@ P0 可以先只做策略约束，不做完整 UI 审批流。规则是：
 
 ## 6. P0 用户故事
 
-### Story 1：创建任务 workspace
+### Story 1：在个人 workspace 中创建任务
 
 用户打开网页，输入一个任务：
 
 > “帮我研究 OpenClaw 和我的 Personal Task Workspace Agent 有什么区别，生成一份产品定位报告。”
 
-系统创建 workspace 和 run。
+系统首次进入时已初始化唯一的个人 workspace；提交任务后创建 run。
 
 验收：
 
-- workspace 被创建
+- 用户始终只有一个默认 workspace
 - run 进入执行状态
 - UI 能看到任务标题和运行状态
 
@@ -306,4 +306,3 @@ P2：
 可以这样介绍：
 
 > 我做的是一个 Personal Task Workspace Agent。它不是聊天机器人，也不是替我操作所有账号的 AI 分身，而是一个云端任务助理。用户把一个明确任务放进 workspace，agent 在隔离 sandbox 里搜索、读文件、跑命令、写报告，并把完整执行轨迹、sources 和 artifact 同步回浏览器。核心技术点是 agent-in-sandbox、run lifecycle、event ingest、artifact workflow、cancel/timeout 和 workspace 复用。
-

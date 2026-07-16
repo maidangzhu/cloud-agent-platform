@@ -52,8 +52,6 @@ type UsageSnapshot = {
 
 type ClientStreamChunk = StreamChunkDTO & { id: string };
 
-const DEFAULT_WORKSPACE_TITLE = "Research workspace";
-
 const RUN_EVENT_TYPES: RunEventType[] = [
   "run_created",
   "sandbox_provisioning",
@@ -89,7 +87,6 @@ export function AppShell() {
     null
   );
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>([]);
   const [threadRuns, setThreadRuns] = useState<ThreadRun[]>([]);
@@ -132,17 +129,7 @@ export function AppShell() {
         throw new Error(workspaceResult.message);
       }
 
-      let nextWorkspaces = workspaceResult.data.workspaces;
-      if (nextWorkspaces.length === 0) {
-        const createdWorkspace = await apiPost<{ workspace: Workspace }>(
-          "/api/workspaces",
-          { title: DEFAULT_WORKSPACE_TITLE }
-        );
-        if (!createdWorkspace.ok) {
-          throw new Error(createdWorkspace.message);
-        }
-        nextWorkspaces = [createdWorkspace.data.workspace];
-      }
+      const nextWorkspaces = workspaceResult.data.workspaces;
 
       setWorkspaces(nextWorkspaces);
       const requestedWorkspaceId =
@@ -392,24 +379,6 @@ export function AppShell() {
     setState("unauthorized");
   }
 
-  async function createWorkspace() {
-    setIsCreatingWorkspace(true);
-    try {
-      const result = await apiPost<{ workspace: Workspace }>("/api/workspaces", {
-        title: "Untitled workspace",
-      });
-      if (!result.ok) {
-        throw new Error(result.message);
-      }
-      await loadWorkspaceSnapshot(result.data.workspace.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setState("error");
-    } finally {
-      setIsCreatingWorkspace(false);
-    }
-  }
-
   async function createThread() {
     if (!activeWorkspaceId) {
       return;
@@ -435,7 +404,7 @@ export function AppShell() {
 
   async function createThreadForPrompt(prompt: string) {
     if (!activeWorkspaceId) {
-      throw new Error("Select or create a workspace before starting a run.");
+      throw new Error("The default workspace is unavailable.");
     }
     const result = await apiPost<{ thread: Thread }>(
       `/api/workspaces/${activeWorkspaceId}/threads`,
@@ -548,7 +517,7 @@ export function AppShell() {
       const targetThreadId =
         activeThreadId ?? (await createThreadForPrompt(prompt)).id;
       if (!targetThreadId) {
-        throw new Error("Create a workspace before starting a run.");
+        throw new Error("The default workspace is unavailable.");
       }
       const result = await apiPost<{ run: AgentRun }>(
         `/api/threads/${targetThreadId}/runs`,
@@ -607,10 +576,8 @@ export function AppShell() {
         activeThreadId={activeThreadId}
         activeWorkspaceId={activeWorkspaceId}
         isCreatingThread={isCreatingThread}
-        isCreatingWorkspace={isCreatingWorkspace}
         loadState={state}
         onCreateThread={createThread}
-        onCreateWorkspace={createWorkspace}
         onSelectThread={setActiveThreadId}
         onSelectWorkspace={(workspaceId) => {
           setActiveWorkspaceId(workspaceId);
@@ -637,7 +604,6 @@ export function AppShell() {
           onCancelRun={cancelRun}
           onAuthenticate={authenticate}
           onCreateThread={createThread}
-          onCreateWorkspace={createWorkspace}
           onStartRun={startRun}
           run={activeRun}
           runArtifacts={runArtifacts}

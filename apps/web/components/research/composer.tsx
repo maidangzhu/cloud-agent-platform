@@ -4,7 +4,6 @@ import {
   ArrowUpIcon,
   MessageSquareIcon,
   PaletteIcon,
-  PlusIcon,
   SquareIcon,
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -35,7 +34,6 @@ export function Composer({
   loadState,
   onCancelRun,
   onCreateThread,
-  onCreateWorkspace,
   onStartRun,
   run,
 }: {
@@ -46,7 +44,6 @@ export function Composer({
   isThreadLoading: boolean;
   loadState: LoadState;
   onCancelRun: () => void;
-  onCreateWorkspace: () => void;
   onCreateThread: () => void;
   onStartRun: (prompt: string) => Promise<boolean>;
   run: AgentRun | null;
@@ -60,13 +57,6 @@ export function Composer({
 
   const commands = useMemo<SlashCommand[]>(
     () => [
-      {
-        name: "workspace",
-        description: "Create a new workspace",
-        icon: <PlusIcon className="size-3.5" />,
-        disabled: loadState === "loading",
-        action: onCreateWorkspace,
-      },
       {
         name: "thread",
         description: "Create a thread in the selected workspace",
@@ -85,7 +75,6 @@ export function Composer({
       activeWorkspace,
       loadState,
       onCreateThread,
-      onCreateWorkspace,
       resolvedTheme,
       setTheme,
     ]
@@ -156,7 +145,7 @@ export function Composer({
           ? isRunActive(run)
             ? "A run is already active for this thread."
             : "Enter a prompt before starting a run."
-          : "Create a workspace before starting a run."
+          : "The default workspace is unavailable."
       );
       return;
     }
@@ -211,7 +200,7 @@ export function Composer({
             placeholder={
               activeThread || activeWorkspace
                 ? "Ask what to research next..."
-                : "Create a workspace to start..."
+                : "Workspace unavailable"
             }
             ref={textareaRef}
             value={input}

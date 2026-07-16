@@ -33,19 +33,28 @@ function toDTO(row: {
 
 export const workspaceRoutes = new Hono();
 
+const DEFAULT_WORKSPACE_TITLE = "Research workspace";
+
+async function ensureWorkspace(ownerUserId: string, title: string) {
+  return prisma.workspace.upsert({
+    where: { ownerUserId },
+    create: {
+      id: randomUUID(),
+      ownerUserId,
+      title,
+    },
+    update: {},
+  });
+}
+
 workspaceRoutes.get("/api/workspaces", async (c) => {
   const user = await requireUser(c);
   if (user instanceof Response) return user;
 
   const includeArchived = c.req.query("includeArchived") === "true";
-
-  const rows = await prisma.workspace.findMany({
-    where: {
-      ownerUserId: user.id,
-      ...(includeArchived ? {} : { status: "active" }),
-    },
-    orderBy: { updatedAt: "desc" },
-  });
+  const workspace = await ensureWorkspace(user.id, DEFAULT_WORKSPACE_TITLE);
+  const rows =
+    includeArchived || workspace.status === "active" ? [workspace] : [];
 
   return c.json({
     code: 0,
@@ -70,13 +79,7 @@ workspaceRoutes.post("/api/workspaces", async (c) => {
     );
   }
 
-  const created = await prisma.workspace.create({
-    data: {
-      id: randomUUID(),
-      ownerUserId: user.id,
-      title: title.trim(),
-    },
-  });
+  const created = await ensureWorkspace(user.id, title.trim());
 
   return c.json({ code: 0, message: "ok", data: { workspace: toDTO(created) } });
 });

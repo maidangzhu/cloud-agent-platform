@@ -5,7 +5,6 @@ import {
   FlaskConicalIcon,
   Loader2Icon,
   MessageSquareIcon,
-  PenSquareIcon,
   PlusIcon,
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -32,10 +31,8 @@ import type { CurrentUser, LoadState, Thread, Workspace } from "./types";
 type ResearchSidebarProps = {
   activeWorkspaceId: string | null;
   activeThreadId: string | null;
-  isCreatingWorkspace: boolean;
   isCreatingThread: boolean;
   loadState: LoadState;
-  onCreateWorkspace: () => void;
   onCreateThread: () => void;
   onSelectWorkspace: (workspaceId: string) => void;
   onSelectThread: (threadId: string) => void;
@@ -48,10 +45,8 @@ type ResearchSidebarProps = {
 export function ResearchSidebar({
   activeWorkspaceId,
   activeThreadId,
-  isCreatingWorkspace,
   isCreatingThread,
   loadState,
-  onCreateWorkspace,
   onCreateThread,
   onSelectWorkspace,
   onSelectThread,
@@ -88,31 +83,6 @@ export function ResearchSidebar({
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup className="px-2 pt-3">
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  className="h-9 rounded-md bg-sidebar-accent px-2.5 text-[13px] font-medium text-sidebar-accent-foreground hover:bg-sidebar-accent/80"
-                  disabled={isCreatingWorkspace}
-                  onClick={() => {
-                    setOpenMobile(false);
-                    onCreateWorkspace();
-                  }}
-                  tooltip="New Workspace"
-                >
-                  {isCreatingWorkspace ? (
-                    <Loader2Icon className="size-4 animate-spin" />
-                  ) : (
-                    <PenSquareIcon className="size-4" />
-                  )}
-                  <span className="font-medium">New workspace</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
         <WorkspaceThreadNav
           activeThreadId={activeThreadId}
           activeWorkspaceId={activeWorkspaceId}

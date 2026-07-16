@@ -11,6 +11,17 @@
 - **WHEN** 用户 A 请求用户 B 拥有的 workspace 详情
 - **THEN** 系统返回 FORBIDDEN 或 NOT_FOUND，不泄露该 workspace 存在的信息
 
+### Requirement: 每个用户只有一个默认 Workspace
+系统 SHALL 通过 `ownerUserId` 唯一约束保证每个用户最多只有一个 workspace。用户首次请求 workspace 列表时，系统 MUST 原子初始化默认 workspace。重复或并发初始化 MUST 返回同一条记录，MUST NOT 创建第二个 workspace。浏览器 UI MUST NOT 提供新增 workspace 的入口。
+
+#### Scenario: 首次读取自动初始化
+- **WHEN** 尚无 workspace 的已登录用户请求 workspace 列表
+- **THEN** 系统创建并返回一个标题为 `Research workspace` 的默认 workspace
+
+#### Scenario: 并发初始化保持唯一
+- **WHEN** 同一用户并发发起多个 workspace 初始化或兼容创建请求
+- **THEN** 所有成功响应指向同一个 workspace，数据库中该用户只有一条 workspace 记录
+
 ### Requirement: Workspace 归档策略
 Workspace SHALL 支持 `active`/`archived` 两态；归档 MUST 优先于硬删除。归档后的 workspace MUST 拒绝创建新 thread 或 run，但仍可读。
 

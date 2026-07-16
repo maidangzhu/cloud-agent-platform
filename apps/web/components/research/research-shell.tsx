@@ -36,7 +36,6 @@ export function ResearchShell({
   onCancelRun,
   onAuthenticate,
   onCreateThread,
-  onCreateWorkspace,
   onStartRun,
   run,
   runArtifacts,
@@ -58,7 +57,6 @@ export function ResearchShell({
   loadState: LoadState;
   onCancelRun: () => void;
   onAuthenticate: (request: AuthRequest) => Promise<boolean>;
-  onCreateWorkspace: () => void;
   onCreateThread: () => void;
   onStartRun: (prompt: string) => Promise<boolean>;
   run: AgentRun | null;
@@ -85,7 +83,6 @@ export function ResearchShell({
         onCancelRun={onCancelRun}
         onAuthenticate={onAuthenticate}
         onCreateThread={onCreateThread}
-        onCreateWorkspace={onCreateWorkspace}
         onStartRun={onStartRun}
         run={run}
         runArtifacts={runArtifacts}
@@ -113,7 +110,6 @@ function ResearchShellContent({
   onCancelRun,
   onAuthenticate,
   onCreateThread,
-  onCreateWorkspace,
   onStartRun,
   run,
   runArtifacts,
@@ -135,7 +131,6 @@ function ResearchShellContent({
   loadState: LoadState;
   onCancelRun: () => void;
   onAuthenticate: (request: AuthRequest) => Promise<boolean>;
-  onCreateWorkspace: () => void;
   onCreateThread: () => void;
   onStartRun: (prompt: string) => Promise<boolean>;
   run: AgentRun | null;
@@ -201,7 +196,6 @@ function ResearchShellContent({
                   loadState={loadState}
                   onCancelRun={onCancelRun}
                   onCreateThread={onCreateThread}
-                  onCreateWorkspace={onCreateWorkspace}
                   onStartRun={onStartRun}
                   run={run}
                 />

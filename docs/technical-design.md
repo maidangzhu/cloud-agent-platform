@@ -48,7 +48,7 @@ Postgres
 
 职责：
 
-- 创建 workspace
+- 为每个用户初始化唯一的默认 workspace
 - 创建 run
 - 管理 run 状态机
 - 调度 sandbox
@@ -121,7 +121,7 @@ P0 页面结构：
 
 关键能力：
 
-- 创建 workspace
+- 使用自动初始化的个人 workspace
 - 提交 task
 - 查看 run 状态
 - 查看 event timeline
@@ -447,6 +447,8 @@ P0 可以把 markdown content 存 DB，也可以同时写入 sandbox 文件。
 ## 6. API Contract
 
 ### 6.1 Workspace
+
+用户首次读取时自动初始化唯一的默认 workspace；UI 不提供新增入口。
 
 ```text
 POST /api/workspaces

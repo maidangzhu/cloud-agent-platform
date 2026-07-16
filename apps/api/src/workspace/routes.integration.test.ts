@@ -32,26 +32,77 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
     const app = createApp();
     const userAEmail = `it-ws-a-${Date.now()}@example.com`;
     const userBEmail = `it-ws-b-${Date.now()}@example.com`;
+    const userCEmail = `it-ws-c-${Date.now()}@example.com`;
     let cookieA = "";
     let cookieB = "";
+    let cookieC = "";
     let workspaceIdOwnedByA = "";
 
     afterAll(async () => {
-      // 级联清理：删用户前先清所有测试期间创建的 workspace，再删用户。
+      const testEmails = [userAEmail, userBEmail, userCEmail];
+      const testUsers = await prisma.user.findMany({
+        where: { email: { in: testEmails } },
+        select: { id: true },
+      });
       await prisma.workspace.deleteMany({
-        where: { title: { startsWith: "IT-Workspace-" } },
+        where: { ownerUserId: { in: testUsers.map((user) => user.id) } },
       });
       await prisma.user.deleteMany({
-        where: { email: { in: [userAEmail, userBEmail] } },
+        where: { email: { in: testEmails } },
       });
       await prisma.$disconnect();
     });
 
-    it("准备：注册用户 A 和用户 B", async () => {
+    it("准备：注册用户 A、B 和 C", async () => {
       cookieA = await signUpAndGetCookie(app, userAEmail);
       cookieB = await signUpAndGetCookie(app, userBEmail);
+      cookieC = await signUpAndGetCookie(app, userCEmail);
       expect(cookieA).toBeTruthy();
       expect(cookieB).toBeTruthy();
+      expect(cookieC).toBeTruthy();
+    });
+
+    it("first list creates exactly one default workspace", async () => {
+      const first = await app.request("/api/workspaces", {
+        headers: { cookie: cookieC },
+      });
+      const second = await app.request("/api/workspaces", {
+        headers: { cookie: cookieC },
+      });
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      const firstBody = await first.json();
+      const secondBody = await second.json();
+      expect(firstBody.data.workspaces).toHaveLength(1);
+      expect(firstBody.data.workspaces[0].title).toBe("Research workspace");
+      expect(secondBody.data.workspaces[0].id).toBe(
+        firstBody.data.workspaces[0].id,
+      );
+    });
+
+    it("concurrent create requests still resolve to one workspace", async () => {
+      const responses = await Promise.all(
+        Array.from({ length: 4 }, (_, index) =>
+          app.request("/api/workspaces", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", cookie: cookieC },
+            body: JSON.stringify({ title: `Concurrent ${index}` }),
+          }),
+        ),
+      );
+      const bodies = await Promise.all(responses.map((response) => response.json()));
+      const ids = new Set(bodies.map((body) => body.data.workspace.id));
+      const userC = await prisma.user.findUniqueOrThrow({
+        where: { email: userCEmail },
+      });
+      const rows = await prisma.workspace.findMany({
+        where: { ownerUserId: userC.id },
+      });
+
+      expect(responses.every((response) => response.status === 200)).toBe(true);
+      expect(ids.size).toBe(1);
+      expect(rows).toHaveLength(1);
     });
 
     it("create workspace success", async () => {

@@ -43,7 +43,7 @@ SandboxRunner
 
 User 拥有：
 
-- `ownerUserId = user.id` 的 workspaces
+- `ownerUserId = user.id` 的唯一 workspace
 - 自己 workspace 下的 threads
 - 自己 workspace 下的 runs
 - 自己 workspace 下的 files
@@ -98,7 +98,7 @@ Children：
 
 允许操作：
 
-- create workspace
+- ensure default workspace
 - update title
 - archive workspace
 - list threads
@@ -108,6 +108,7 @@ Children：
 
 不变量：
 
+- 每个用户最多只有一个 workspace；首次列表请求会初始化默认 workspace。
 - archived workspace 不能启动新 run。
 - 用户不能访问其他用户的 workspace。
 - 删除/归档 workspace 前必须先定义 child behavior。

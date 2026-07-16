@@ -440,16 +440,17 @@ Unit：
 
 Route：
 
-6. create workspace success
-7. create workspace rejects empty title -> VALIDATION_FAILED
-8. list only current user's workspaces
-9. list excludes archived by default
-10. list includes archived when query flag set
-11. read workspace detail
-12. update workspace title
-13. archive workspace (soft delete)
-14. user A cannot read user B's workspace -> FORBIDDEN or 404
-15. user A cannot archive user B's workspace
+6. first list initializes exactly one default workspace
+7. repeated/concurrent create requests resolve to the same workspace
+8. create workspace rejects empty title -> VALIDATION_FAILED
+9. list only current user's workspace
+10. list excludes archived by default
+11. list includes archived when query flag set
+12. read workspace detail
+13. update workspace title
+14. archive workspace (soft delete)
+15. user A cannot read user B's workspace -> FORBIDDEN or 404
+16. user A cannot archive user B's workspace
 
 Integration（[ADR-0018](./decisions/0018-atomic-state-transitions.md)）：
 

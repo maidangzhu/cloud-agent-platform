@@ -181,7 +181,7 @@ model Workspace {
   updatedAt    DateTime        @updatedAt
   archivedAt   DateTime?
 
-  @@index([ownerUserId, updatedAt])
+  @@unique([ownerUserId])
   @@index([status, updatedAt])
 }
 

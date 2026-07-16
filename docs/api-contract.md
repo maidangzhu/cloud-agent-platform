@@ -355,6 +355,9 @@ type MeData = {
 
 ### 5.2 Workspaces
 
+每个用户只有一个默认 workspace。首次请求列表时，Control Plane 会原子初始化
+`Research workspace`；前端不提供新增入口。
+
 ```text
 GET /api/workspaces
 POST /api/workspaces
@@ -363,7 +366,7 @@ PATCH /api/workspaces/:workspaceId
 DELETE /api/workspaces/:workspaceId
 ```
 
-Create request：
+兼容 ensure request：
 
 ```ts
 type CreateWorkspaceRequest = {
@@ -382,12 +385,15 @@ type WorkspaceListData = {
 规则：
 
 - 用户只能看到自己的 workspaces。
+- `ownerUserId` 唯一；重复或并发调用 `POST /api/workspaces` 只能返回已有 workspace，不能创建第二个。
+- `GET /api/workspaces` 在用户尚无 workspace 时自动创建默认 workspace。
 - P0 中 delete 表示 archive。
 - 空 title 拒绝。
 
 测试：
 
-- create success
+- first list initializes the default workspace
+- repeated/concurrent create resolves to the same workspace
 - list own workspaces
 - cannot read another user's workspace
 - archive workspace
