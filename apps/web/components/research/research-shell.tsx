@@ -5,18 +5,8 @@ import { Composer } from "./composer";
 import { ConversationMessages } from "./conversation-messages";
 import { ArtifactPanel } from "./artifact-panel";
 import { AuthPanel, type AuthRequest } from "./auth-panel";
-import type {
-  AgentRun,
-  CurrentUser,
-  LoadState,
-  RunArtifact,
-  RunSource,
-  RunUsageRecord,
-  Thread,
-  ThreadMessage,
-  Workspace,
-} from "./types";
-import type { RunEventDTO, StreamChunkDTO } from "./run-events";
+import type { LoadState, Thread, Workspace } from "./types";
+import type { ChatState } from "@/lib/chat-runtime";
 import { WorkspaceThreadHeader } from "./workspace-thread-header";
 import {
   ArtifactProvider,
@@ -25,76 +15,22 @@ import {
   useArtifactSelector,
 } from "@/hooks/use-artifact";
 
-export function ResearchShell({
-  activeThread,
-  activeWorkspace,
-  error,
-  isCancellingRun,
-  isStartingRun,
-  isThreadLoading,
-  loadState,
-  onCancelRun,
-  onAuthenticate,
-  onCreateThread,
-  onStartRun,
-  run,
-  runArtifacts,
-  runError,
-  runEvents,
-  runSources,
-  runUsage,
-  runs,
-  streamChunks,
-  threadMessages,
-  user,
-}: {
+type ResearchShellProps = {
   activeWorkspace: Workspace | null;
   activeThread: Thread | null;
+  chat: ChatState;
   error: string;
-  isCancellingRun: boolean;
-  isStartingRun: boolean;
-  isThreadLoading: boolean;
   loadState: LoadState;
   onCancelRun: () => void;
   onAuthenticate: (request: AuthRequest) => Promise<boolean>;
   onCreateThread: () => void;
   onStartRun: (prompt: string) => Promise<boolean>;
-  run: AgentRun | null;
-  runArtifacts: RunArtifact[];
-  runError: string;
-  runEvents: RunEventDTO[];
-  runSources: RunSource[];
-  runUsage: RunUsageRecord[];
-  runs: Array<AgentRun & { events: RunEventDTO[] }>;
-  streamChunks: StreamChunkDTO[];
-  threadMessages: ThreadMessage[];
-  user: CurrentUser | null;
-}) {
+};
+
+export function ResearchShell(props: ResearchShellProps) {
   return (
     <ArtifactProvider>
-      <ResearchShellContent
-        activeThread={activeThread}
-        activeWorkspace={activeWorkspace}
-        error={error}
-        isCancellingRun={isCancellingRun}
-        isStartingRun={isStartingRun}
-        isThreadLoading={isThreadLoading}
-        loadState={loadState}
-        onCancelRun={onCancelRun}
-        onAuthenticate={onAuthenticate}
-        onCreateThread={onCreateThread}
-        onStartRun={onStartRun}
-        run={run}
-        runArtifacts={runArtifacts}
-        runError={runError}
-        runEvents={runEvents}
-        runSources={runSources}
-        runUsage={runUsage}
-        runs={runs}
-        streamChunks={streamChunks}
-        threadMessages={threadMessages}
-        user={user}
-      />
+      <ResearchShellContent {...props} />
     </ArtifactProvider>
   );
 }
@@ -102,48 +38,14 @@ export function ResearchShell({
 function ResearchShellContent({
   activeThread,
   activeWorkspace,
+  chat,
   error,
-  isCancellingRun,
-  isStartingRun,
-  isThreadLoading,
   loadState,
   onCancelRun,
   onAuthenticate,
   onCreateThread,
   onStartRun,
-  run,
-  runArtifacts,
-  runError,
-  runEvents,
-  runSources,
-  runUsage,
-  runs,
-  streamChunks,
-  threadMessages,
-  user,
-}: {
-  activeWorkspace: Workspace | null;
-  activeThread: Thread | null;
-  error: string;
-  isCancellingRun: boolean;
-  isStartingRun: boolean;
-  isThreadLoading: boolean;
-  loadState: LoadState;
-  onCancelRun: () => void;
-  onAuthenticate: (request: AuthRequest) => Promise<boolean>;
-  onCreateThread: () => void;
-  onStartRun: (prompt: string) => Promise<boolean>;
-  run: AgentRun | null;
-  runArtifacts: RunArtifact[];
-  runError: string;
-  runEvents: RunEventDTO[];
-  runSources: RunSource[];
-  runUsage: RunUsageRecord[];
-  runs: Array<AgentRun & { events: RunEventDTO[] }>;
-  streamChunks: StreamChunkDTO[];
-  threadMessages: ThreadMessage[];
-  user: CurrentUser | null;
-}) {
+}: ResearchShellProps) {
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
   const { setArtifact } = useArtifact();
 
@@ -171,41 +73,27 @@ function ResearchShellContent({
             <>
               <ConversationMessages
                 activeThread={activeThread}
+                chat={chat}
                 error={error}
                 loadState={loadState}
-                isThreadLoading={isThreadLoading}
-                run={run}
-                runArtifacts={runArtifacts}
-                runSources={runSources}
-                runUsage={runUsage}
-                runs={runs}
-                runError={runError}
-                runEvents={runEvents}
-                streamChunks={streamChunks}
-                threadMessages={threadMessages}
-                user={user}
               />
               <div className="sticky bottom-0 z-10 w-full bg-background/95 px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-2 backdrop-blur md:px-6 md:pb-5">
                 <div className="mx-auto w-full max-w-3xl">
-                <Composer
-                  activeThread={activeThread}
-                  activeWorkspace={activeWorkspace}
-                  isCancellingRun={isCancellingRun}
-                  isStartingRun={isStartingRun}
-                  isThreadLoading={isThreadLoading}
-                  loadState={loadState}
-                  onCancelRun={onCancelRun}
-                  onCreateThread={onCreateThread}
-                  onStartRun={onStartRun}
-                  run={run}
-                />
+                  <Composer
+                    activeThread={activeThread}
+                    activeWorkspace={activeWorkspace}
+                    chat={chat}
+                    loadState={loadState}
+                    onCancelRun={onCancelRun}
+                    onCreateThread={onCreateThread}
+                    onStartRun={onStartRun}
+                  />
                 </div>
               </div>
             </>
           )}
         </div>
       </div>
-
       <ArtifactPanel />
     </div>
   );

@@ -174,7 +174,7 @@ function ArtifactSubheading({
   }
   return (
     <div className="truncate text-xs text-muted-foreground">
-      {hasContent ? "Latest snapshot" : "No artifact content yet"}
+      {hasContent ? "Latest version" : "No artifact content yet"}
     </div>
   );
 }
@@ -211,7 +211,7 @@ function ArtifactContent({
         {mode === "diff" && (
           <p className="mt-2 text-xs text-muted-foreground">
             Diff mode is ready for version history once the API supplies prior
-            snapshots.
+            versions.
           </p>
         )}
       </div>

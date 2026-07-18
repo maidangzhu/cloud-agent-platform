@@ -1,61 +1,44 @@
 "use client";
 
-import {
-  ExternalLinkIcon,
-  GaugeIcon,
-  Loader2Icon,
-  SparklesIcon,
-} from "lucide-react";
-import { useEffect, useRef } from "react";
+import { ExternalLinkIcon, GaugeIcon } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
 import { ArtifactPreview } from "./artifact-preview";
 import { Greeting } from "./greeting";
-import { RunEventList, type RunEventDTO, type StreamChunkDTO } from "./run-events";
+import { RunEventList } from "./run-events";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { ChatRunState, ChatState } from "@/lib/chat-runtime";
 import type {
-  AgentRun,
-  CurrentUser,
   LoadState,
-  RunArtifact,
   RunSource,
   RunUsageRecord,
   Thread,
-  ThreadMessage,
 } from "./types";
 
 export function ConversationMessages({
   activeThread,
+  chat,
   error,
-  isThreadLoading,
   loadState,
-  run,
-  runArtifacts = [],
-  runError,
-  runEvents = [],
-  runSources = [],
-  runUsage = [],
-  runs = [],
-  streamChunks = [],
-  threadMessages = [],
-  user,
 }: {
   activeThread: Thread | null;
+  chat: ChatState;
   error: string;
-  isThreadLoading: boolean;
   loadState: LoadState;
-  run: AgentRun | null;
-  runArtifacts?: RunArtifact[];
-  runError: string;
-  runEvents?: RunEventDTO[];
-  runSources?: RunSource[];
-  runUsage?: RunUsageRecord[];
-  runs?: Array<AgentRun & { events: RunEventDTO[] }>;
-  streamChunks?: StreamChunkDTO[];
-  threadMessages?: ThreadMessage[];
-  user: CurrentUser | null;
 }) {
-  const showGreeting = !activeThread && loadState !== "loading";
+  const showGreeting = !activeThread && loadState === "ready";
+  const isLoading = loadState === "loading" || chat.phase === "loading";
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolled = useRef(false);
+  const contentVersion = useMemo(
+    () =>
+      chat.runOrder
+        .map((runId) => {
+          const view = chat.runs[runId];
+          return `${runId}:${view?.events.length ?? 0}:${view?.chunks.length ?? 0}:${view?.artifacts.length ?? 0}`;
+        })
+        .join("|"),
+    [chat.runOrder, chat.runs]
+  );
 
   useEffect(() => {
     userScrolled.current = false;
@@ -66,7 +49,7 @@ export function ConversationMessages({
     if (!userScrolled.current) {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
     }
-  }, [runEvents.length, streamChunks.length, runArtifacts.length, runs.length]);
+  }, [contentVersion]);
 
   return (
     <div className="relative flex-1 bg-background">
@@ -89,22 +72,13 @@ export function ConversationMessages({
         ref={scrollRef}
       >
         <div className="mx-auto flex min-h-full min-w-0 max-w-3xl flex-col gap-6 px-4 py-6 md:px-6 md:py-8">
-          <SystemBanner error={error} loadState={loadState} user={user} />
-          {isThreadLoading ? (
+          {loadState === "error" && <ErrorBanner title="Could not load workspace" error={error} />}
+          {isLoading ? (
             <ThreadLoadingSkeleton />
+          ) : chat.phase === "error" ? (
+            <ErrorBanner title="Could not load conversation" error={chat.error} />
           ) : activeThread ? (
-            <ThreadReadyState
-              events={runEvents}
-              run={run}
-              runArtifacts={runArtifacts}
-              runError={runError}
-              runSources={runSources}
-              runUsage={runUsage}
-              runs={runs}
-              streamChunks={streamChunks}
-              thread={activeThread}
-              threadMessages={threadMessages}
-            />
+            <ThreadConversation chat={chat} />
           ) : null}
           <div className="min-h-28 min-w-6 shrink-0 md:min-h-32" />
         </div>
@@ -128,120 +102,49 @@ function ThreadLoadingSkeleton() {
       <div className="flex items-start gap-3">
         <Skeleton className="size-7 shrink-0 rounded-md" />
         <div className="min-w-0 flex-1 space-y-3 pt-1">
-          <Skeleton className="h-4 w-[32%] rounded-md" />
-          <div className="space-y-2">
-            <Skeleton className="h-3.5 w-[92%] rounded-md" />
-            <Skeleton className="h-3.5 w-[84%] rounded-md" />
-            <Skeleton className="h-3.5 w-[68%] rounded-md" />
-          </div>
-          <Skeleton className="h-8 w-36 rounded-md" />
+          <Skeleton className="h-4 w-32 rounded-md" />
+          <Skeleton className="h-3.5 w-[92%] rounded-md" />
+          <Skeleton className="h-3.5 w-[84%] rounded-md" />
+          <Skeleton className="h-3.5 w-[68%] rounded-md" />
         </div>
       </div>
     </div>
   );
 }
 
-function SystemBanner({
-  error,
-  loadState,
-}: {
-  error: string;
-  loadState: LoadState;
-  user: CurrentUser | null;
-}) {
-  if (loadState === "unauthorized") {
-    return (
-      <div className="message-fade-in border-l-2 border-border px-3 py-1 text-[13px] leading-6">
-        <div className="font-medium">Not signed in</div>
-        <p className="mt-1 text-muted-foreground">
-          Sign in through the API auth flow, then this workspace will load your
-          real workspaces and threads.
-        </p>
-      </div>
-    );
-  }
-  if (loadState === "error") {
-    return (
-      <div className="message-fade-in border-l-2 border-destructive px-3 py-1 text-[13px] leading-6">
-        <div className="font-medium text-destructive">API snapshot failed</div>
-        <p className="mt-1 text-muted-foreground">{error}</p>
-      </div>
-    );
-  }
-  if (loadState === "loading") {
-    return (
-      <div className="message-fade-in flex items-center gap-2 py-2 text-[13px] text-muted-foreground">
-        <Loader2Icon className="size-4 animate-spin" />
-        Loading workspace snapshot
-      </div>
-    );
-  }
-  return null;
+function ErrorBanner({ title, error }: { title: string; error: string }) {
+  return (
+    <div className="message-fade-in border-l-2 border-destructive px-3 py-1 text-[13px] leading-6">
+      <div className="font-medium text-destructive">{title}</div>
+      <p className="mt-1 text-muted-foreground">{error}</p>
+    </div>
+  );
 }
 
-function ThreadReadyState({
-  events,
-  run,
-  runArtifacts,
-  runError,
-  runSources,
-  runUsage,
-  runs,
-  streamChunks,
-  thread,
-  threadMessages,
-}: {
-  events: RunEventDTO[];
-  run: AgentRun | null;
-  runArtifacts: RunArtifact[];
-  runError: string;
-  runSources: RunSource[];
-  runUsage: RunUsageRecord[];
-  runs: Array<AgentRun & { events: RunEventDTO[] }>;
-  streamChunks: StreamChunkDTO[];
-  thread: Thread;
-  threadMessages: ThreadMessage[];
-}) {
-  const visibleRuns = run
-    ? [...runs.filter((item) => item.id !== run.id), { ...run, events }].sort(
-        (left, right) => left.createdAt.localeCompare(right.createdAt)
-      )
-    : runs;
-
+function ThreadConversation({ chat }: { chat: ChatState }) {
   return (
     <>
-      {runError && (
-        <div className="message-fade-in ml-10 border-l-2 border-destructive px-3 py-1 text-[13px] leading-6">
-          <div className="font-medium text-destructive">Run snapshot failed</div>
-          <p className="mt-1 text-muted-foreground">{runError}</p>
-        </div>
-      )}
-
-      {visibleRuns.map((turnRun) => {
-        const isCurrent = turnRun.id === run?.id;
-        const turnMessages = threadMessages.filter(
-          (message) => message.runId === turnRun.id
-        );
+      {chat.runOrder.map((runId) => {
+        const view = chat.runs[runId];
+        if (!view) return null;
+        const turnMessages = chat.messages.filter((message) => message.runId === runId);
         const userPrompt =
           turnMessages.find((message) => message.role === "user")?.content ??
-          turnRun.prompt;
+          view.run.prompt;
         const assistantContent = turnMessages
           .filter((message) => message.role === "assistant")
           .map((message) => message.content)
           .join("\n\n");
+        const isCurrent = runId === chat.activeRunId;
 
         return (
           <RunTurn
             assistantContent={assistantContent}
-            events={isCurrent ? events : turnRun.events}
+            chat={chat}
             isCurrent={isCurrent}
-            key={turnRun.id}
-            run={turnRun}
-            runArtifacts={isCurrent ? runArtifacts : []}
-            runSources={isCurrent ? runSources : []}
-            runUsage={isCurrent ? runUsage : []}
-            streamChunks={isCurrent ? streamChunks : []}
+            key={runId}
             userPrompt={userPrompt}
+            view={view}
           />
         );
       })}
@@ -251,58 +154,34 @@ function ThreadReadyState({
 
 function RunTurn({
   assistantContent,
-  events,
+  chat,
   isCurrent,
-  run,
-  runArtifacts,
-  runSources,
-  runUsage,
-  streamChunks,
   userPrompt,
+  view,
 }: {
   assistantContent: string;
-  events: RunEventDTO[];
+  chat: ChatState;
   isCurrent: boolean;
-  run: AgentRun;
-  runArtifacts: RunArtifact[];
-  runSources: RunSource[];
-  runUsage: RunUsageRecord[];
-  streamChunks: StreamChunkDTO[];
   userPrompt: string;
+  view: ChatRunState;
 }) {
-  const primaryArtifact = runArtifacts[0];
-  const hasEventOutput = events.length > 0 || streamChunks.length > 0;
-  const hasAssistantEvent = events.some((event) => event.type === "agent_message");
+  const primaryArtifact = view.artifacts[0];
 
   return (
-    <div className="contents" data-run-id={run.id}>
+    <div className="contents" data-run-id={view.run.id}>
       <div className="message-fade-in flex justify-end">
         <div className="w-fit max-w-[min(88%,60ch)] overflow-hidden break-words rounded-xl bg-secondary px-3.5 py-2.5 text-[14px] leading-6 text-secondary-foreground">
           {userPrompt}
         </div>
       </div>
 
-      {!hasEventOutput && isCurrent && !isTerminalRunStatus(run.status) && (
-        <div className="message-fade-in flex items-start gap-3">
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <SparklesIcon size={13} />
-          </div>
-          <div className="flex items-center gap-2 py-1 text-[13px] leading-6 text-muted-foreground">
-            <Loader2Icon className="size-3.5 animate-spin" />
-            Starting research...
-          </div>
-        </div>
-      )}
-
-      {hasEventOutput && (
-        <RunEventList events={events} streamChunks={streamChunks} />
-      )}
-
-      {!hasAssistantEvent && assistantContent && (
-        <div className="message-fade-in ml-10 whitespace-pre-wrap break-words text-[14px] leading-6">
-          {assistantContent}
-        </div>
-      )}
+      <RunEventList
+        connection={isCurrent ? chat.connection : "closed"}
+        error={isCurrent ? chat.error : ""}
+        fallbackContent={assistantContent}
+        isCurrent={isCurrent}
+        view={view}
+      />
 
       {primaryArtifact && (
         <div className="message-fade-in ml-10">
@@ -318,22 +197,11 @@ function RunTurn({
         </div>
       )}
 
-      {(runSources.length > 0 || runUsage.length > 0) && (
-        <RunFacts sources={runSources} usage={runUsage} />
+      {(view.sources.length > 0 || view.usage.length > 0) && (
+        <RunFacts sources={view.sources} usage={view.usage} />
       )}
     </div>
   );
-}
-
-function isTerminalRunStatus(status: AgentRun["status"]) {
-  return [
-    "completed",
-    "failed",
-    "timeout",
-    "cancelled",
-    "interrupted",
-    "waiting_for_input",
-  ].includes(status);
 }
 
 function RunFacts({

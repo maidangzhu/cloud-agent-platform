@@ -71,7 +71,7 @@ export const WorkspaceThreadHeader = memo(PureWorkspaceThreadHeader);
 
 function headerSubtitle(state: LoadState) {
   if (state === "loading") {
-    return "Loading workspace snapshot";
+    return "Loading workspace";
   }
   if (state === "unauthorized") {
     return "Not signed in";

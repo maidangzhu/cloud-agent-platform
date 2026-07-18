@@ -15,7 +15,12 @@ import {
   useState,
 } from "react";
 import { cn } from "@/lib/utils";
-import type { AgentRun, LoadState, Thread, Workspace } from "./types";
+import {
+  selectActiveRun,
+  selectIsRunActive,
+  type ChatState,
+} from "@/lib/chat-runtime";
+import type { LoadState, Thread, Workspace } from "./types";
 
 type SlashCommand = {
   name: string;
@@ -28,25 +33,19 @@ type SlashCommand = {
 export function Composer({
   activeThread,
   activeWorkspace,
-  isCancellingRun,
-  isStartingRun,
-  isThreadLoading,
+  chat,
   loadState,
   onCancelRun,
   onCreateThread,
   onStartRun,
-  run,
 }: {
   activeThread: Thread | null;
   activeWorkspace: Workspace | null;
-  isCancellingRun: boolean;
-  isStartingRun: boolean;
-  isThreadLoading: boolean;
+  chat: ChatState;
   loadState: LoadState;
   onCancelRun: () => void;
   onCreateThread: () => void;
   onStartRun: (prompt: string) => Promise<boolean>;
-  run: AgentRun | null;
 }) {
   const { setTheme, resolvedTheme } = useTheme();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -84,12 +83,15 @@ export function Composer({
   const filteredCommands = commands.filter((command) =>
     command.name.startsWith(slashQuery.toLowerCase())
   );
+  const activeRun = selectActiveRun(chat)?.run ?? null;
+  const isRunActive = selectIsRunActive(activeRun);
+  const isThreadLoading = chat.phase === "loading";
   const canSubmit =
     Boolean(activeThread || activeWorkspace) &&
     loadState === "ready" &&
-    !isStartingRun &&
+    !chat.isStarting &&
     !isThreadLoading &&
-    !isRunActive(run) &&
+    !isRunActive &&
     input.trim().length > 0;
 
   function runCommand(command: SlashCommand) {
@@ -142,7 +144,7 @@ export function Composer({
     if (!canSubmit) {
       setNotice(
         activeThread || activeWorkspace
-          ? isRunActive(run)
+          ? isRunActive
             ? "A run is already active for this thread."
             : "Enter a prompt before starting a run."
           : "The default workspace is unavailable."
@@ -184,7 +186,7 @@ export function Composer({
         <div className="flex min-h-[58px] items-end overflow-hidden px-3 py-2">
           <textarea
             className="field-sizing-content max-h-36 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[14px] leading-5 outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={loadState === "loading" || isStartingRun || isThreadLoading}
+            disabled={loadState === "loading" || chat.isStarting || isThreadLoading}
             onChange={(event) => {
               const value = event.target.value;
               setInput(value);
@@ -206,14 +208,14 @@ export function Composer({
             value={input}
           />
           <div className="ml-2 flex shrink-0 items-center gap-1.5 pb-0.5">
-            {isRunActive(run) ? (
+            {isRunActive ? (
               <button
                 aria-label="Cancel run"
                 className={cn(
                   "flex size-8 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed",
                   "bg-foreground text-background hover:opacity-85 active:scale-95"
                 )}
-                disabled={!isRunActive(run) || isCancellingRun}
+                disabled={!isRunActive || chat.isCancelling}
                 onClick={onCancelRun}
                 type="button"
               >
@@ -238,16 +240,6 @@ export function Composer({
         </div>
       </form>
     </div>
-  );
-}
-
-function isRunActive(run: AgentRun | null) {
-  return Boolean(
-    run &&
-      (run.status === "created" ||
-        run.status === "provisioning_sandbox" ||
-        run.status === "running" ||
-        run.status === "cancel_requested")
   );
 }
 

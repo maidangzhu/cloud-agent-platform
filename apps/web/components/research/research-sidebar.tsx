@@ -142,7 +142,7 @@ function WorkspaceThreadNav({
               <SidebarEmptyText>Sign in to load your workspaces.</SidebarEmptyText>
             )}
             {loadState === "error" && (
-              <SidebarEmptyText>Workspace snapshot failed.</SidebarEmptyText>
+              <SidebarEmptyText>Could not load workspace.</SidebarEmptyText>
             )}
             {loadState === "ready" && workspaces.length === 0 && (
               <SidebarEmptyText>No workspaces yet.</SidebarEmptyText>
