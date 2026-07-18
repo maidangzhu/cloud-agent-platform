@@ -15,19 +15,36 @@ export interface GetOrCreateResult {
   created: boolean;
 }
 
-export function createSandboxCreationTracker() {
-  let created = false;
-  return {
-    onCreate: async () => {
-      created = true;
-    },
-    wasCreated: () => created,
-  };
-}
-
 export function isSandboxNotFoundError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /status code 404|not[_ -]?found/i.test(message);
+}
+
+export function resolveWorkspaceSandboxSource(
+  env: Record<string, string | undefined> = process.env,
+):
+  | { runtime: "node24" }
+  | { source: { type: "snapshot"; snapshotId: string } } {
+  const snapshotId = env.VERCEL_BASE_SNAPSHOT_ID?.trim();
+  return snapshotId
+    ? { source: { type: "snapshot", snapshotId } }
+    : { runtime: "node24" };
+}
+
+export function canReuseEphemeralSandbox(status: string): boolean {
+  return status === "pending" || status === "running";
+}
+
+export async function disableWorkspaceSandboxPersistence(sandbox: {
+  update(params: {
+    persistent: boolean;
+    keepLastSnapshots: null;
+  }): Promise<void>;
+}): Promise<void> {
+  await sandbox.update({
+    persistent: false,
+    keepLastSnapshots: null,
+  });
 }
 
 /** 由 sessionId 生成 project 内唯一、字符受限的命名沙箱名。 */
@@ -36,8 +53,9 @@ export function sandboxNameFor(sessionId: string): string {
 }
 
 /**
- * 按 sessionId getOrCreate 命名沙箱：活着则复用、回收则重建。
- * 沙箱初始化为空目录，用户可自由使用。
+ * 按 sessionId 获取仍在运行的临时沙箱，否则从 golden snapshot（如配置）
+ * 或 node24 runtime 新建。session 停止后文件系统直接丢弃，持久文件由
+ * Control Plane 在下次 Run 启动前重新水合。
  */
 export async function getOrCreateSandbox(
   opts: GetOrCreateOptions,
@@ -50,26 +68,37 @@ export async function getOrCreateSandbox(
   }
 
   const name = sandboxNameFor(opts.sessionId);
-  const creation = createSandboxCreationTracker();
-  const createParams = {
+  const source = resolveWorkspaceSandboxSource();
+  const commonCreateParams = {
     name,
-    runtime: "node24",
-    persistent: true,
+    persistent: false,
     timeout: opts.timeoutMs ?? DEFAULT_SANDBOX_TIMEOUT_MS,
     ...creds,
   } as const;
-  let sdk;
+  let existing: VercelSdkSandbox | null = null;
   try {
-    sdk = await VercelSdkSandbox.getOrCreate({
-      ...createParams,
-      onCreate: creation.onCreate,
-    });
+    existing = await VercelSdkSandbox.get({ name, resume: false, ...creds });
   } catch (error) {
     if (!isSandboxNotFoundError(error)) throw error;
-    sdk = await VercelSdkSandbox.create(createParams);
-    await creation.onCreate();
   }
 
+  const reusable = existing && canReuseEphemeralSandbox(existing.status);
+  if (existing && !reusable) {
+    await existing.delete();
+  }
+  let sdk: VercelSdkSandbox;
+  let created: boolean;
+  if (reusable && existing) {
+    sdk = existing;
+    created = false;
+  } else {
+    sdk = await VercelSdkSandbox.create({
+      ...commonCreateParams,
+      ...source,
+    });
+    created = true;
+  }
+  await disableWorkspaceSandboxPersistence(sdk);
   const sandbox = new VercelSandbox(sdk, { provider: "vercel", sandboxName: name });
-  return { sandbox, created: creation.wasCreated() };
+  return { sandbox, created };
 }

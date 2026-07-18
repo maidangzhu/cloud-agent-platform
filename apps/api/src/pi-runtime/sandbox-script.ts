@@ -753,10 +753,29 @@ function toLlmMessages(context) {
       messages.push({ role: "user", content: stringifyContent(message.content) });
     }
     if (message.role === "assistant") {
-      messages.push({ role: "assistant", content: stringifyContent(message.content) });
+      const toolCalls = message.content
+        .filter((part) => part.type === "toolCall")
+        .map((part) => ({
+          id: part.id,
+          name: part.name,
+          arguments: JSON.stringify(part.arguments || {}),
+        }));
+      messages.push({
+        role: "assistant",
+        content: message.content
+          .filter((part) => part.type === "text" || part.type === "thinking")
+          .map((part) => part.type === "text" ? part.text : part.thinking)
+          .join("\\n"),
+        ...(toolCalls.length > 0 ? { toolCalls } : {}),
+      });
     }
     if (message.role === "toolResult") {
-      messages.push({ role: "tool", content: stringifyContent(message.content) });
+      messages.push({
+        role: "tool",
+        content: stringifyContent(message.content),
+        toolCallId: message.toolCallId,
+        toolName: message.toolName,
+      });
     }
   }
   return messages;
@@ -1012,6 +1031,26 @@ async function waitForPendingLlmStreams() {
   }
 }
 
+function throwIfAgentFailed(agent) {
+  const assistant = [...agent.state.messages].reverse().find(
+    (message) => message.role === "assistant",
+  );
+  if (assistant?.stopReason === "error" || assistant?.stopReason === "aborted") {
+    throw new Error(
+      "AGENT_LLM_FAILED:" + (assistant.errorMessage || assistant.stopReason),
+    );
+  }
+}
+
+function assistantTextContent(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\\n");
+}
+
 function getMissingRequiredTools() {
   const requiredTools = Array.isArray(config.requiredTools)
     ? config.requiredTools
@@ -1092,6 +1131,7 @@ try {
   });
   await agent.prompt(config.prompt);
   await waitForPendingLlmStreams();
+  throwIfAgentFailed(agent);
   const missingAfterFirstTurn = getMissingRequiredTools();
   if (missingAfterFirstTurn.length > 0) {
     await agent.prompt(
@@ -1100,6 +1140,7 @@ try {
         ". Execute them now before giving a final answer.",
     );
     await waitForPendingLlmStreams();
+    throwIfAgentFailed(agent);
   }
   const missingAfterRetry = getMissingRequiredTools();
   if (missingAfterRetry.length > 0) {
@@ -1111,10 +1152,10 @@ try {
   await postHeartbeat("finalize");
 
   const assistant = [...agent.state.messages].reverse().find(
-    (message) => message.role === "assistant" && stringifyContent(message.content),
+    (message) => message.role === "assistant" && assistantTextContent(message.content),
   );
   const assistantText =
-    latestAssistantContent || (assistant ? stringifyContent(assistant.content) : "");
+    latestAssistantContent || (assistant ? assistantTextContent(assistant.content) : "");
   if (latestAssistantReasoning) {
     await postRunEvent("agent_thinking", latestAssistantModel ? { model: latestAssistantModel } : {}, {
       content: latestAssistantReasoning,

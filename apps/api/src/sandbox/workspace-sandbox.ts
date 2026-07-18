@@ -320,7 +320,7 @@ export async function runPiRuntimeInSandbox(params: {
 }): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   await installPiRuntimeInSandbox(params);
   const install = await params.sandbox.exec(
-    "test -d node_modules/@earendil-works/pi-agent-core || npm install --omit=dev --no-audit --no-fund",
+    "npm ls --omit=dev --depth=0 --silent >/dev/null 2>&1 || npm install --omit=dev --no-audit --no-fund",
     { timeoutMs: params.installTimeoutMs ?? 180_000 },
   );
   if (install.exitCode !== 0) return install;

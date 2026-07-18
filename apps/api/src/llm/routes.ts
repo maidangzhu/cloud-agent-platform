@@ -10,6 +10,7 @@ import {
   type LlmMessage,
   type LlmProviderResult,
   type LlmStreamDelta,
+  type LlmToolCall,
   type LlmToolChoice,
 } from "./provider.js";
 import { recordLLMUsage } from "../usage/store.js";
@@ -163,7 +164,46 @@ function parseLlmProxyBody(
     if (typeof record.content !== "string") {
       return { ok: false, message: "message content must be a string" };
     }
-    messages.push({ role: record.role, content: record.content });
+    const parsedMessage: LlmMessage = {
+      role: record.role,
+      content: record.content,
+    };
+    if (
+      record.role === "tool" &&
+      (typeof record.toolCallId !== "string" ||
+        record.toolCallId.length === 0 ||
+        typeof record.toolName !== "string" ||
+        record.toolName.length === 0)
+    ) {
+      return { ok: false, message: "tool result linkage is required" };
+    }
+    if (record.toolCalls !== undefined) {
+      if (record.role !== "assistant" || !Array.isArray(record.toolCalls)) {
+        return {
+          ok: false,
+          message: "toolCalls are only valid on assistant messages",
+        };
+      }
+      const toolCalls = record.toolCalls.map(parseProxyToolCall);
+      if (toolCalls.some((toolCall) => toolCall === null)) {
+        return { ok: false, message: "assistant toolCalls are invalid" };
+      }
+      parsedMessage.toolCalls = toolCalls as LlmToolCall[];
+    }
+    if (record.toolCallId !== undefined || record.toolName !== undefined) {
+      if (
+        record.role !== "tool" ||
+        typeof record.toolCallId !== "string" ||
+        record.toolCallId.length === 0 ||
+        typeof record.toolName !== "string" ||
+        record.toolName.length === 0
+      ) {
+        return { ok: false, message: "tool result linkage is invalid" };
+      }
+      parsedMessage.toolCallId = record.toolCallId;
+      parsedMessage.toolName = record.toolName;
+    }
+    messages.push(parsedMessage);
   }
 
   return {
@@ -184,6 +224,27 @@ function parseLlmProxyBody(
     ...(parseToolChoice(body.toolChoice)
       ? { toolChoice: parseToolChoice(body.toolChoice) }
       : {}),
+  };
+}
+
+function parseProxyToolCall(value: unknown): LlmToolCall | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.id !== "string" ||
+    record.id.length === 0 ||
+    typeof record.name !== "string" ||
+    record.name.length === 0 ||
+    typeof record.arguments !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: record.id,
+    name: record.name,
+    arguments: record.arguments,
   };
 }
 

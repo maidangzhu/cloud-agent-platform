@@ -75,7 +75,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | WM-W-001 | workflow | Workspace Mapping | Pi boot hydrates/overwrites/deletes files in real Vercel Sandbox | done |
 | WM-W-002 | workflow | Workspace Mapping | `run_command` temporary file is not promoted to WorkspaceFile | done |
 | WM-W-003 | workflow | Workspace Mapping | auto-start orchestrator hydrates before Pi and advances watermark on completion | done |
-| WM-L-001 | live | Workspace Mapping | deleted persistent sandbox fresh-creates and rehydrates from Control Plane | done（2026-07-12 production deployment `dpl_JAYkqzC6jNEpbPfj6jVhTeRWMKgZ`） |
+| WM-L-001 | live | Workspace Mapping | unavailable provider sandbox fresh-creates and rehydrates from Control Plane | done（2026-07-12 production deployment `dpl_JAYkqzC6jNEpbPfj6jVhTeRWMKgZ`） |
 | ART-I-001 | integration | Artifacts | create/update/version/detail/download | done |
 | SRC-I-001 | integration | Sources | URL/search_result source ingest and artifact references | done |
 | SEARCH-I-001 | integration | Search | fake/http provider, retry, 4xx no retry, usage | done |
@@ -142,7 +142,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | SBX-I-101 | integration | deterministic workspace-scoped name | none | done |
 | SBX-I-102 | integration | provider status conversion | none | done |
 | SBX-I-103 | integration | create real Vercel sandbox | Vercel | done |
-| SBX-I-104 | integration | resume stopped sandbox | Vercel/DB/Auth | done |
+| SBX-I-104 | integration | stopped ephemeral sandbox fresh-creates from base and rehydrates | Vercel/DB/Auth | done |
 | SBX-I-105 | integration | reuse warm/ready sandbox | Vercel/DB/Auth | done |
 | SBX-I-106 | integration | concurrent claim only one winner | Vercel/DB/Auth | done |
 | SBX-I-107 | integration | no DB/Auth/LLM/Search secrets inside sandbox | Vercel | done |
@@ -154,11 +154,11 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | SBX-W-102 | workflow | sandbox consumes deployed LLM Proxy SSE while Control Plane fans out chunks to Redis | Deployed API/Vercel/Redis | done（2026-07-12 production fake/real provider gates 均通过；Sandbox 增量消费、Redis 低延迟 fan-out、最终语义一致性已验证） |
 | SBX-W-103 | workflow | sandbox script calls deployed search proxy | Deployed API/Vercel/Exa or fake | done（2026-07-12 production browser E2E 使用真实 Exa：`web_search:completed`，OpenAI 官方 URL Source 在 UI 可见） |
 | SBX-W-104 | workflow | cancel request stops sandbox runner | Deployed API/Vercel | done |
-| SBX-W-105 | workflow | waiting_for_input releases sandbox warm and Stage2 reuses it | Deployed API/Vercel | done |
+| SBX-W-105 | workflow | waiting_for_input reuses a live warm session or fresh-creates after stop | Deployed API/Vercel | done |
 | SBX-W-106 | workflow | Pi runtime tool calls emit user-visible timeline/SSE start/completed/failed events | Deployed API/Vercel | done（production Playwright 验证 `web_search`/`write_file` completed timeline 与 `run_command` failed timeline） |
 | SBX-W-107 | workflow | Pi runtime `run_command` failure/timeout/rejection maps to visible tool events and terminal policy | Deployed API/Vercel | partial（production Playwright 已验证 policy rejection -> failed tool event -> `run_failed`；真实 Vercel non-zero/timeout gate 仍待补） |
 | SBX-L-101 | live | cold start duration and ready latency telemetry | Deployed API/Vercel | planned |
-| SBX-L-102 | live | snapshot/write-file stability before future snapshot migration | Vercel | planned |
+| SBX-L-102 | live | non-persistent workspace sandbox stops without creating an automatic snapshot | Vercel | done（2026-07-18 real Vercel smoke，停止前后 active snapshot 数量不变） |
 | SBX-L-103 | live | dangerous command/path/network attempts are contained | Vercel | planned |
 
 ## 6. Workflow Case Matrix

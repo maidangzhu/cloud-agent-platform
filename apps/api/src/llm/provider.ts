@@ -10,6 +10,9 @@ export type LlmStreamDelta = {
 export type LlmMessage = {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  toolCalls?: LlmToolCall[];
+  toolCallId?: string;
+  toolName?: string;
 };
 
 export type LlmToolCall = {
@@ -534,7 +537,7 @@ async function postOpenAiChatCompletion(params: {
         signal,
         body: JSON.stringify({
           model: params.entry.model,
-          messages: params.messages,
+          messages: toOpenAiMessages(params.messages),
           ...(tools.length > 0 ? { tools } : {}),
           ...(tools.length > 0 && params.toolChoice
             ? { tool_choice: params.toolChoice }
@@ -576,7 +579,7 @@ async function postOpenAiChatCompletionStream(params: {
       signal,
       body: JSON.stringify({
         model: params.entry.model,
-        messages: params.messages,
+        messages: toOpenAiMessages(params.messages),
         ...(tools.length > 0 ? { tools } : {}),
         ...(tools.length > 0 && params.toolChoice
           ? { tool_choice: params.toolChoice }
@@ -595,6 +598,34 @@ async function postOpenAiChatCompletionStream(params: {
       throw new Error("LLM provider returned an empty stream");
     }
     return consumeOpenAiCompletionStream(response.body, params.entry, params.onDelta);
+  });
+}
+
+function toOpenAiMessages(messages: LlmMessage[]): unknown[] {
+  return messages.map((message) => {
+    if (message.role === "assistant" && message.toolCalls?.length) {
+      return {
+        role: "assistant",
+        content: message.content || null,
+        tool_calls: message.toolCalls.map((toolCall) => ({
+          id: toolCall.id,
+          type: "function",
+          function: {
+            name: toolCall.name,
+            arguments: toolCall.arguments,
+          },
+        })),
+      };
+    }
+    if (message.role === "tool") {
+      return {
+        role: "tool",
+        content: message.content,
+        ...(message.toolCallId ? { tool_call_id: message.toolCallId } : {}),
+        ...(message.toolName ? { name: message.toolName } : {}),
+      };
+    }
+    return { role: message.role, content: message.content };
   });
 }
 

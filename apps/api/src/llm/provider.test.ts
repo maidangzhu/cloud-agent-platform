@@ -441,6 +441,68 @@ describe("real provider retry/fallback/timeout shell", () => {
     ]);
   });
 
+  it("preserves assistant tool calls and matching tool results", async () => {
+    let requestBody: Record<string, unknown> = {};
+    const transport: LlmHttpTransport = async (_url, init) => {
+      requestBody = JSON.parse(String(init.body));
+      return response({
+        model: "m1",
+        choices: [{ finish_reason: "stop", message: { content: "continued" } }],
+      });
+    };
+
+    const result = await completeWithRealProvider({
+      messages: [
+        { role: "user", content: "run it" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "tool_1",
+              name: "run_command",
+              arguments: JSON.stringify({ command: "npx maidang" }),
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: "MAIDANG.ME",
+          toolCallId: "tool_1",
+          toolName: "run_command",
+        },
+      ],
+      env,
+      transport,
+      maxRetries: 0,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(requestBody.messages).toEqual([
+      { role: "user", content: "run it" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "tool_1",
+            type: "function",
+            function: {
+              name: "run_command",
+              arguments: JSON.stringify({ command: "npx maidang" }),
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: "MAIDANG.ME",
+        tool_call_id: "tool_1",
+        name: "run_command",
+      },
+    ]);
+  });
+
   it("preserves already normalized OpenAI function tools", async () => {
     let requestBody: Record<string, unknown> = {};
     const transport: LlmHttpTransport = async (_url, init) => {

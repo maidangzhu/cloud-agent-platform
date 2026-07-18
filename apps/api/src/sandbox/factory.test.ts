@@ -1,17 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  createSandboxCreationTracker,
+  canReuseEphemeralSandbox,
+  disableWorkspaceSandboxPersistence,
   isSandboxNotFoundError,
+  resolveWorkspaceSandboxSource,
 } from "./factory.js";
 
 describe("Vercel sandbox acquisition", () => {
-  it("distinguishes a fresh provider sandbox from a resumed one", async () => {
-    const resumed = createSandboxCreationTracker();
-    expect(resumed.wasCreated()).toBe(false);
-
-    const fresh = createSandboxCreationTracker();
-    await fresh.onCreate();
-    expect(fresh.wasCreated()).toBe(true);
+  it("only reuses an ephemeral sandbox while its session is alive", () => {
+    expect(canReuseEphemeralSandbox("pending")).toBe(true);
+    expect(canReuseEphemeralSandbox("running")).toBe(true);
+    expect(canReuseEphemeralSandbox("stopped")).toBe(false);
+    expect(canReuseEphemeralSandbox("snapshotting")).toBe(false);
+    expect(canReuseEphemeralSandbox("failed")).toBe(false);
   });
 
   it("only treats provider not-found responses as fresh-create fallback", () => {
@@ -22,5 +23,25 @@ describe("Vercel sandbox acquisition", () => {
     expect(isSandboxNotFoundError(new Error("Status code 500 is not ok"))).toBe(
       false,
     );
+  });
+
+  it("starts fresh workspaces from the configured golden snapshot", () => {
+    expect(
+      resolveWorkspaceSandboxSource({ VERCEL_BASE_SNAPSHOT_ID: " snap_base " }),
+    ).toEqual({
+      source: { type: "snapshot", snapshotId: "snap_base" },
+    });
+    expect(resolveWorkspaceSandboxSource({})).toEqual({ runtime: "node24" });
+  });
+
+  it("disables persistence when acquiring existing sandboxes", async () => {
+    const update = vi.fn(async () => undefined);
+
+    await disableWorkspaceSandboxPersistence({ update });
+
+    expect(update).toHaveBeenCalledWith({
+      persistent: false,
+      keepLastSnapshots: null,
+    });
   });
 });

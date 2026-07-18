@@ -121,7 +121,7 @@ ingestRoutes.post("/api/ingest/events", async (c) => {
   }
 
   await persistAssistantMessage(run, event.input, result.eventId);
-  await applyRunEventSideEffects(run.id, event.input.type);
+  await applyRunEventSideEffects(run.id, event.input);
 
   return c.json({
     code: 0,
@@ -839,9 +839,9 @@ function isLegalToolCallTransition(
 
 async function applyRunEventSideEffects(
   runId: string,
-  type: RunEventInput["type"],
+  event: RunEventInput,
 ): Promise<void> {
-  switch (type) {
+  switch (event.type) {
     case "run_waiting_for_input":
       await transitionRun(runId, "waiting_for_input", ["running"]);
       await releaseWorkspaceSandboxForRun(runId, "warm");
@@ -852,12 +852,16 @@ async function applyRunEventSideEffects(
       await releaseWorkspaceSandboxForRun(runId, "warm");
       return;
     case "run_failed":
-      await transitionRun(runId, "failed", [
-        "created",
-        "provisioning_sandbox",
-        "running",
-        "cancel_requested",
-      ]);
+      const errorCode = (event.payload as { errorCode?: unknown }).errorCode;
+      await transitionRun(
+        runId,
+        "failed",
+        ["created", "provisioning_sandbox", "running", "cancel_requested"],
+        {
+          error:
+            typeof errorCode === "string" ? errorCode : "Agent run failed",
+        },
+      );
       await releaseWorkspaceSandboxForRun(runId, "warm");
       return;
     case "run_timeout":

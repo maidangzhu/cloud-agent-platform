@@ -129,6 +129,91 @@ describe("Pi runtime Control Plane adapters", () => {
     expect(calls.filter((call) => call.url.endsWith("/api/ingest/stream-chunk"))).toHaveLength(0);
   });
 
+  it("preserves tool call linkage for the next LLM turn", async () => {
+    const { calls, transport } = recordingTransport((url) => {
+      if (url.endsWith("/api/llm-proxy")) {
+        return sse([
+          { event: "chunk", data: { part: "content", text: "continued" } },
+          { event: "done", data: { finishReason: "stop", usage: {} } },
+        ]);
+      }
+      return error(404, "unexpected path");
+    });
+    const client = new PiRuntimeControlPlaneClient({ config, transport });
+    const streamFn = createLlmProxyStreamFn(client, "fake");
+    const timestamp = Date.now();
+
+    const stream = await streamFn(
+      model,
+      {
+        systemPrompt: "system",
+        messages: [
+          { role: "user", content: "run it", timestamp },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "toolCall",
+                id: "tool_1",
+                name: "run_command",
+                arguments: { command: "npx maidang" },
+              },
+            ],
+            api: model.api,
+            provider: model.provider,
+            model: model.id,
+            usage: {
+              input: 1,
+              output: 1,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 2,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
+            stopReason: "toolUse",
+            timestamp,
+          },
+          {
+            role: "toolResult",
+            toolCallId: "tool_1",
+            toolName: "run_command",
+            content: [{ type: "text", text: "MAIDANG.ME" }],
+            details: { exitCode: 0 },
+            isError: false,
+            timestamp,
+          },
+        ],
+        tools: [],
+      },
+      { reasoning: "medium" },
+    );
+    for await (const _event of stream) {
+      // Drain the stream so the recorded request is complete.
+    }
+
+    expect(calls[0]?.body.messages).toEqual([
+      { role: "system", content: "system" },
+      { role: "user", content: "run it" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "tool_1",
+            name: "run_command",
+            arguments: JSON.stringify({ command: "npx maidang" }),
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: "MAIDANG.ME",
+        toolCallId: "tool_1",
+        toolName: "run_command",
+      },
+    ]);
+  });
+
   it("accepts a content-only stream with no thinking events", async () => {
     const { transport } = recordingTransport((url) => {
       if (url.endsWith("/api/llm-proxy")) {

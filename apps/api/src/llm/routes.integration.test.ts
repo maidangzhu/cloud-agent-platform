@@ -239,6 +239,67 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(body.data.usage.totalTokens).toBeGreaterThan(0);
     });
 
+    it("accepts structured assistant tool calls followed by linked tool results", async () => {
+      const run = await createRun("llm linked tool result", "running");
+
+      const res = await app.request("/api/llm-proxy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${tokenFor(run)}`,
+        },
+        body: JSON.stringify({
+          messages: [
+            { role: "user", content: "run maidang" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [
+                {
+                  id: "tool_1",
+                  name: "run_command",
+                  arguments: JSON.stringify({ command: "npx maidang" }),
+                },
+              ],
+            },
+            {
+              role: "tool",
+              content: "command completed",
+              toolCallId: "tool_1",
+              toolName: "run_command",
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.data.output.content).toBe("fake response for: run maidang");
+    });
+
+    it.each([
+      { role: "tool", content: "missing both" },
+      { role: "tool", content: "missing name", toolCallId: "tool_1" },
+      { role: "tool", content: "missing id", toolName: "run_command" },
+    ])("rejects tool messages without complete linkage: $content", async (message) => {
+      const run = await createRun("llm invalid tool linkage", "running");
+
+      const res = await app.request("/api/llm-proxy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${tokenFor(run)}`,
+        },
+        body: JSON.stringify({ messages: [message] }),
+      });
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({
+        code: 1006,
+        message: expect.stringMatching(/tool result linkage/),
+      });
+    });
+
     it("records usage as LLMUsageRecord without changing run status", async () => {
       const run = await createRun("llm usage record", "running");
 

@@ -537,7 +537,7 @@ updatedAt           DateTime
 
 `currentRunId`（[ADR-0018](./decisions/0018-atomic-state-transitions.md) 新增）：当前占用该沙箱的 run id，`NULL` 表示空闲可复用。认领动作必须走条件原子 UPDATE（`WHERE status IN ('warm','ready') AND current_run_id IS NULL`），防止两个并发的 getOrCreate 请求抢到同一个沙箱。Run 进入终态或 `waiting_for_input` 时必须原子清空该字段。同时是排障用的可观测性字段——可以直接看到某个沙箱当前被哪个 run 占用。
 
-`syncedUpToRevision` 为 `NULL` 表示 provider sandbox 从未完成文件同步或刚被 fresh recreate；非空值表示 persistent working copy 已确认同步到的 WorkspaceFile revision。`pendingSyncRevision` 由 Control Plane 在 runner 启动前写入，只有 `run_completed` side effect 能在释放 sandbox 前把它推进为 `syncedUpToRevision`；失败、取消、timeout 不推进。
+`syncedUpToRevision` 为 `NULL` 表示 provider sandbox 从未完成文件同步或刚被 fresh recreate；非空值表示当前仍存活的 ephemeral working copy 已确认同步到的 WorkspaceFile revision。session 停止并 fresh create 后必须清空该水位线并全量水合。`pendingSyncRevision` 由 Control Plane 在 runner 启动前写入，只有 `run_completed` side effect 能在释放 sandbox 前把它推进为 `syncedUpToRevision`；失败、取消、timeout 不推进。
 
 索引：
 

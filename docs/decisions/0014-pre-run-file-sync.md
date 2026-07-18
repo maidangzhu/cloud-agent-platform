@@ -24,7 +24,7 @@ UI/API 对 WorkspaceFile 的修改（在没有活跃 run 时发生）如何让�
 
 冷启动 / 从未同步过：`syncedUpToRevision=NULL`，diff 查询返回全部 WorkspaceFile（包括 legacy revision 0 行），完成后可以推进到 workspace 当前 revision。
 
-Vercel named sandbox 的 `onCreate` 是快照是否真正恢复的判据。若 persistent sandbox 被删除、快照过期或 provider 以同名 fresh create，Control Plane 必须清空 watermark。当前 SDK 对已删除 named sandbox 可能直接返回 404，因此 factory 显式 fallback 到 named `Sandbox.create`，并同样标记 fresh。
+Vercel workspace sandbox 使用 `persistent: false`。同一个 session 仍在运行时可以按 name 复用；session 一旦停止，文件系统直接丢弃，下一次 Run 从 golden snapshot（若配置）或 node24 runtime fresh create。Provider fresh create 时 Control Plane 必须清空 watermark 并全量水合 WorkspaceFile。这样 snapshot 只承担基础运行环境缓存，不承担用户 workspace 的持久化职责。
 
 P0 只水合 inline text、directory 和 delete tombstone。只有 `storageKey`、没有 inline content 的文件会让 provisioning 明确失败；在对象存储下载链路落地前，不允许静默跳过后启动不完整 workspace。
 
@@ -50,6 +50,7 @@ P0 只水合 inline text、directory 和 delete tombstone。只有 `storageKey`�
 
 - **活跃 run 执行期间，UI 编辑文件是否生效：** 本 ADR 只解决"run 启动前"的水合，不解决"run 正在跑的几十分钟内"外部编辑如何让沙箱感知——这个场景倾向于不做实时同步，UI 层面在 active run 期间锁定文件编辑入口（与 [design-system.md](../design-system.md) 9.3 "active run 时 composer 禁用" 同一思路），但尚未正式拍板落盘。
 - **Agent 通过非 `write_file` 手段产生的文件（如 `run_command` 跑脚本/`git clone` 生成的中间产物）不会被自动 ingest：** 该边界已按 ADR-0003 固定为临时 working-copy 文件，不做 finalize 全盘扫描。需要持久化的产出必须显式走 `write_file`；workflow gate 已验证 `run_command` 产生的文件不会变成 WorkspaceFile。
+- **2026-07-18 生命周期修订：** workspace sandbox 关闭 Vercel persistence，避免每次 session stop 自动生成约 278 MiB snapshot。Sandbox creation 只负责执行隔离；Neon/对象存储负责持久化，唯一 golden snapshot 负责基础依赖冷启动。
 
 ## 连锁影响
 

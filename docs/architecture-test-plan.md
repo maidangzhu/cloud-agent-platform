@@ -408,7 +408,7 @@ Part 4 已关闭，可以进入 Part 5 Workspace Mapping。
 | 文件 API | `files/routes.integration.test.ts` | ingest 原子分配 revision，soft-deleted 文件不出现在 list/content |
 | Pi boot working copy | `pi-runtime/pi-runtime.workflow.test.ts` | 真实 Vercel Sandbox 中完成 hydrate、overwrite、delete；`run_command` 临时文件不进入 DB |
 | 产品 auto-start | `agent-loop/agent-loop.workflow.test.ts` | 正常 POST run 前水合，Pi `read_file` 读到 DB 内容，watermark 推进到 workspace revision |
-| fresh recovery live | `live/deployed-api.live.test.ts` + production deployment `dpl_JAYkqzC6jNEpbPfj6jVhTeRWMKgZ` | 删除 persistent sandbox 后 deployed API fresh create，重新从 Neon 物化 `/workspace` 并读回 marker |
+| fresh recovery live | `live/deployed-api.live.test.ts` + production deployment `dpl_JAYkqzC6jNEpbPfj6jVhTeRWMKgZ` | ephemeral session 不可用后 deployed API fresh create，重新从 Neon 物化 `/workspace` 并读回 marker |
 | 非 inline failure | `workspace-mapping/sync.integration.test.ts` | storage-only/binary 在对象存储下载未实现时明确拒绝 provisioning，不静默漏文件 |
 
 Part 5 已关闭，可以进入 Part 6 Full Product Path。

@@ -128,7 +128,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL)(
   () => {
     afterAll(cleanup);
 
-    it("creates sandbox when no warm/ready instance exists, then resumes stopped and warm states", async () => {
+    it("fresh-creates after an ephemeral session stops, then reuses a live warm session", async () => {
       const graph = await createGraph("create-resume");
 
       const first = await track(
@@ -144,6 +144,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL)(
       expect(first.instance.status).toBe("ready");
       expect(first.instance.sandboxName).toBe(sandboxNameForWorkspace(graph.workspaceId));
 
+      await first.sandbox.stop();
       await prisma.workspaceSandboxInstance.update({
         where: { id: first.instance.id },
         data: { status: "stopped", currentRunId: null },
@@ -161,6 +162,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL)(
       expect(resumedFromStopped.instance.sandboxName).toBe(first.instance.sandboxName);
       expect(resumedFromStopped.instance.currentRunId).toBe(stoppedRun.id);
       expect(resumedFromStopped.instance.status).toBe("ready");
+      expect(resumedFromStopped.fresh).toBe(true);
 
       await prisma.workspaceSandboxInstance.update({
         where: { id: first.instance.id },
@@ -179,6 +181,7 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_VERCEL)(
       expect(resumedFromWarm.instance.sandboxName).toBe(first.instance.sandboxName);
       expect(resumedFromWarm.instance.currentRunId).toBe(warmRun.id);
       expect(resumedFromWarm.instance.status).toBe("ready");
+      expect(resumedFromWarm.fresh).toBe(false);
     });
 
     it("concurrent getOrCreate only lets one run claim the warm instance", async () => {

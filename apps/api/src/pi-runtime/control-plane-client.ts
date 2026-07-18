@@ -11,6 +11,14 @@ export type PiRuntimeTransport = (
 
 export type ControlPlaneJson = Record<string, unknown>;
 
+export type PiRuntimeLlmMessage = {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  toolCalls?: Array<{ id: string; name: string; arguments: string }>;
+  toolCallId?: string;
+  toolName?: string;
+};
+
 export class PiRuntimeControlPlaneError extends Error {
   constructor(
     message: string,
@@ -108,7 +116,7 @@ export class PiRuntimeControlPlaneClient {
   }
 
   async callLlmProxy(input: {
-    messages: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
+    messages: PiRuntimeLlmMessage[];
     tools?: unknown[];
     modelHint?: string;
     provider?: "fake" | "real";
@@ -126,7 +134,7 @@ export class PiRuntimeControlPlaneClient {
   }
 
   async callLlmProxyStream(input: {
-    messages: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }>;
+    messages: PiRuntimeLlmMessage[];
     tools?: unknown[];
     modelHint?: string;
     provider?: "fake" | "real";

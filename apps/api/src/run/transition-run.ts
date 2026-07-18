@@ -10,7 +10,7 @@
 // 正常 no-op 结果——调用方不需要重试，也不需要抛错。
 
 import { prisma } from "@cap/db";
-import type { RunStatus } from "./transitions.js";
+import { isTerminalStatus, type RunStatus } from "./transitions.js";
 
 export type TransitionRunResult = { applied: boolean };
 
@@ -18,10 +18,17 @@ export async function transitionRun(
   runId: string,
   toStatus: RunStatus,
   fromStatuses: readonly RunStatus[],
+  patch: { error?: string | null } = {},
 ): Promise<TransitionRunResult> {
+  const now = new Date();
   const result = await prisma.agentRun.updateMany({
     where: { id: runId, status: { in: fromStatuses as RunStatus[] } },
-    data: { status: toStatus, updatedAt: new Date() },
+    data: {
+      status: toStatus,
+      updatedAt: now,
+      ...patch,
+      ...(isTerminalStatus(toStatus) ? { completedAt: now } : {}),
+    },
   });
 
   return { applied: result.count > 0 };

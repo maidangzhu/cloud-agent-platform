@@ -55,6 +55,20 @@ describe.skipIf(!HAS_DB)(
         where: { id: run.id },
       });
       expect(updated?.status).toBe("provisioning_sandbox");
+      expect(updated?.completedAt).toBeNull();
+    });
+
+    it("sets completedAt when applying a terminal transition", async () => {
+      const run = await createTestRun("running");
+
+      const result = await transitionRun(run.id, "completed", ["running"]);
+
+      expect(result.applied).toBe(true);
+      const updated = await prisma.agentRun.findUniqueOrThrow({
+        where: { id: run.id },
+      });
+      expect(updated.status).toBe("completed");
+      expect(updated.completedAt).toBeTruthy();
     });
 
     it("finalizes pre-run cancellation with a durable terminal event", async () => {

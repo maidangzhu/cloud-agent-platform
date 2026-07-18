@@ -298,6 +298,36 @@ describe.skipIf(!HAS_DB || !HAS_SECRET)(
       expect(updated?.status).toBe("waiting_for_input");
     });
 
+    it("persists the run_failed error on the AgentRun", async () => {
+      const run = await createRun("failed transition error check");
+      await prisma.agentRun.update({
+        where: { id: run.id },
+        data: { status: "running" },
+      });
+
+      const res = await app.request("/api/ingest/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${tokenFor(run)}`,
+        },
+        body: JSON.stringify({
+          seq: 1,
+          type: "run_failed",
+          payload: { errorCode: "AGENT_LLM_FAILED:provider rejected tool result" },
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      await expect(
+        prisma.agentRun.findUniqueOrThrow({ where: { id: run.id } }),
+      ).resolves.toMatchObject({
+        status: "failed",
+        error: "AGENT_LLM_FAILED:provider rejected tool result",
+        completedAt: expect.any(Date),
+      });
+    });
+
     it("ingest artifact_updated event requires existing artifactId", async () => {
       const run = await createRun("artifact updated check");
       const token = tokenFor(run);

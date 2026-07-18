@@ -19,6 +19,7 @@ import {
   PiRuntimeControlPlaneClient,
   stringField,
   type ControlPlaneJson,
+  type PiRuntimeLlmMessage,
   type PiRuntimeTransport,
 } from "./control-plane-client.js";
 
@@ -802,7 +803,7 @@ function normalizeUsage(value: unknown): AssistantMessage["usage"] {
 }
 
 function toLlmProxyMessages(context: Context) {
-  const messages: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string }> = [];
+  const messages: PiRuntimeLlmMessage[] = [];
   if (context.systemPrompt) {
     messages.push({ role: "system", content: context.systemPrompt });
   }
@@ -811,10 +812,29 @@ function toLlmProxyMessages(context: Context) {
       messages.push({ role: "user", content: stringifyMessageContent(message.content) });
     }
     if (message.role === "assistant") {
-      messages.push({ role: "assistant", content: stringifyMessageContent(message.content) });
+      const toolCalls = message.content
+        .filter((part) => part.type === "toolCall")
+        .map((part) => ({
+          id: part.id,
+          name: part.name,
+          arguments: JSON.stringify(part.arguments),
+        }));
+      messages.push({
+        role: "assistant",
+        content: message.content
+          .filter((part) => part.type === "text" || part.type === "thinking")
+          .map((part) => (part.type === "text" ? part.text : part.thinking))
+          .join("\n"),
+        ...(toolCalls.length > 0 ? { toolCalls } : {}),
+      });
     }
     if (message.role === "toolResult") {
-      messages.push({ role: "tool", content: stringifyMessageContent(message.content) });
+      messages.push({
+        role: "tool",
+        content: stringifyMessageContent(message.content),
+        toolCallId: message.toolCallId,
+        toolName: message.toolName,
+      });
     }
   }
   return messages;

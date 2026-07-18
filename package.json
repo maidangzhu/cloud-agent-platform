@@ -13,6 +13,8 @@
     "test:workflow": "pnpm --dir apps/api test:workflow",
     "test:live": "pnpm --dir apps/api test:live",
     "test:e2e": "pnpm --dir apps/web test:e2e",
+    "sandbox:snapshots:cleanup": "pnpm --dir apps/api exec tsx scripts/cleanup-vercel-snapshots.ts",
+    "sandbox:snapshot:create-base": "pnpm --dir apps/api exec tsx scripts/create-vercel-base-snapshot.ts",
     "db:generate": "pnpm --filter @cap/db generate",
     "db:push": "pnpm --filter @cap/db db:push"
   },
