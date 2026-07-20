@@ -299,6 +299,35 @@ export function AppShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRun?.id, shouldStream]);
 
+  useEffect(() => {
+    if (!activeRun || !shouldStream) return;
+
+    let inFlight = false;
+    const reconcile = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const result = await apiGet<RunSnapshot>(`/api/runs/${activeRun.id}`);
+        if (!result.ok) return;
+        dispatchChat({
+          type: "run/detail_loaded",
+          threadId: activeRun.threadId,
+          run: result.data.run,
+          events: result.data.events,
+          artifacts: result.data.artifacts,
+          sources: result.data.sources,
+        });
+      } catch {
+        // SSE remains the primary path; the next interval retries reconciliation.
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(() => void reconcile(), 5_000);
+
+    return () => window.clearInterval(timer);
+  }, [activeRun?.id, activeRun?.threadId, shouldStream]);
+
   const activeWorkspace = useMemo(
     () => workspaces.find((item) => item.id === activeWorkspaceId) ?? null,
     [activeWorkspaceId, workspaces]

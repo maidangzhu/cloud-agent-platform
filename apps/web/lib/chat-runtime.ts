@@ -112,7 +112,7 @@ export type ChatAction =
       events: RunEventDTO[];
       artifacts: RunArtifact[];
       sources: RunSource[];
-      usage: RunUsageRecord[];
+      usage?: RunUsageRecord[];
     }
   | { type: "run/detail_failed"; threadId: string; error: string }
   | { type: "sse/connecting"; runId: string }
@@ -191,7 +191,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         chunks: current?.chunks ?? [],
         artifacts: action.artifacts,
         sources: action.sources,
-        usage: action.usage,
+        usage: action.usage ?? current?.usage ?? [],
       };
       const runs = { ...state.runs, [action.run.id]: nextRun };
       return {
@@ -298,6 +298,13 @@ export function selectRunPhase(view: ChatRunState): VisibleRunPhase {
   const runningTool = findRunningTool(view.events);
   if (runningTool) {
     return phase("tool", `Running ${runningTool}`, true, "default");
+  }
+  const latestEventType = view.events.at(-1)?.type;
+  if (
+    latestEventType === "tool_call_completed" ||
+    latestEventType === "tool_call_failed"
+  ) {
+    return phase("thinking", "Thinking", true, "default");
   }
   if (
     view.chunks.some((chunk) => chunk.streamType === "content") ||

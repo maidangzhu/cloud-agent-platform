@@ -97,6 +97,22 @@ describe("chat runtime", () => {
     expect(selectRunPhase(tool).label).toBe("Running web_search");
   });
 
+  it("returns to thinking after a tool completes", () => {
+    const view = makeView({
+      events: [
+        event(1, "agent_started"),
+        event(2, "tool_call_started", { name: "run_command", toolCallId: "a" }),
+        event(3, "tool_call_completed", { name: "run_command", toolCallId: "a" }),
+      ],
+    });
+
+    expect(selectRunPhase(view)).toMatchObject({
+      key: "thinking",
+      label: "Thinking",
+      active: true,
+    });
+  });
+
   it("does not let a stale thread response replace the selected thread", () => {
     const state = chatReducer(
       { ...initialChatState, threadId: "new", phase: "loading" },

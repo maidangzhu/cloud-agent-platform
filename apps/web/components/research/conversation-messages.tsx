@@ -223,30 +223,32 @@ function RunFacts({
 
   return (
     <div className="message-fade-in ml-10 flex flex-wrap items-start gap-x-5 gap-y-2 border-t border-border pt-3 text-[12px] text-muted-foreground">
-      <details className="group min-w-0" data-testid="run-sources">
-        <summary className="flex cursor-pointer list-none items-center gap-1.5 hover:text-foreground">
-          Sources <span className="tabular-nums">{sources.length}</span>
-        </summary>
-        <div className="mt-2 grid max-w-md gap-1.5 rounded-md border border-border bg-card p-3">
-          {sources.map((source) => {
-            const label = source.title || source.uri || source.kind;
-            return source.uri ? (
-              <a
-                className="flex min-w-0 items-center gap-2 hover:text-foreground"
-                href={source.uri}
-                key={source.id}
-                rel="noreferrer"
-                target="_blank"
-              >
-                <span className="truncate">{label}</span>
-                <ExternalLinkIcon className="size-3 shrink-0" />
-              </a>
-            ) : (
-              <div className="truncate" key={source.id}>{label}</div>
-            );
-          })}
-        </div>
-      </details>
+      {sources.length > 0 && (
+        <details className="group min-w-0" data-testid="run-sources">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 hover:text-foreground">
+            Sources <span className="tabular-nums">{sources.length}</span>
+          </summary>
+          <div className="mt-2 grid max-w-md gap-1.5 rounded-md border border-border bg-card p-3">
+            {sources.map((source) => {
+              const label = source.title || source.uri || source.kind;
+              return source.uri ? (
+                <a
+                  className="flex min-w-0 items-center gap-2 hover:text-foreground"
+                  href={source.uri}
+                  key={source.id}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <span className="truncate">{label}</span>
+                  <ExternalLinkIcon className="size-3 shrink-0" />
+                </a>
+              ) : (
+                <div className="truncate" key={source.id}>{label}</div>
+              );
+            })}
+          </div>
+        </details>
+      )}
 
       <div className="flex items-center gap-1.5" data-testid="run-usage">
         <GaugeIcon className="size-3.5" />
