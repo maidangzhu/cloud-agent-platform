@@ -4,6 +4,7 @@ import { createApp } from "../app.js";
 import { issueRunToken } from "../run/run-token.js";
 import {
   addRunStreamChunk,
+  createRunStreamReader,
   deleteRunStream,
   disconnectRedis,
   readRunStream,
@@ -199,6 +200,35 @@ describe.skipIf(!HAS_DB || !HAS_SECRET || !HAS_REDIS)(
         blockMs: 100,
       });
       expect(entries).toEqual([]);
+    });
+
+    it("publishes immediately while an isolated stream reader is blocked", async () => {
+      const run = await createRun("isolated blocking reader", "running");
+      const reader = createRunStreamReader(5_000);
+      try {
+        const pendingRead = readRunStream({
+          runId: run.id,
+          cursor: "0",
+          blockMs: 5_000,
+          reader,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        const writeStartedAt = Date.now();
+        const entryId = await addRunStreamChunk({
+          runId: run.id,
+          chunk: "not blocked",
+          streamType: "content",
+        });
+        const writeDurationMs = Date.now() - writeStartedAt;
+
+        expect(writeDurationMs).toBeLessThan(1_000);
+        await expect(pendingRead).resolves.toEqual([
+          expect.objectContaining({ id: entryId, chunk: "not blocked" }),
+        ]);
+      } finally {
+        reader.disconnect();
+      }
     });
 
     it("retains more than 1000 fine-grained deltas for full replay", async () => {

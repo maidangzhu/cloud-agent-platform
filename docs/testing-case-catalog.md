@@ -60,6 +60,7 @@ blocked    缺外部环境/产品能力，暂不能完整自动化
 | REDIS-I-001 | integration | Redis | stream-chunk writes Redis and does not create RunEvent | done |
 | REDIS-I-002 | integration | Redis | stream cleanup deletes old streams only | done |
 | REDIS-I-003 | integration | Redis | more than 1000 fine-grained deltas retain full cursor-0 replay | done（1500 entries，分页回放保留首尾） |
+| REDIS-I-004 | integration | Redis | blocked SSE reader uses an isolated connection and does not delay stream writes | done（5s blocking reader 下 writer <1s） |
 | SWEEP-I-001 | integration | Sweep | orphan resource cleanup paths: sandbox instance and Redis streams | done |
 | SWEEP-U-001 | unit/route | Sweep | cron endpoint auth and sweep orchestration | done |
 | SSE-I-001 | integration | SSE | snapshot, live events, done for terminal/waiting | done |

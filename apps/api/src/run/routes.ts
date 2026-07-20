@@ -11,7 +11,11 @@ import { deriveUiState } from "./derive-ui-state.js";
 import { isTerminalStatus, type RunStatus } from "./transitions.js";
 import { toArtifactDTO } from "../artifacts/store.js";
 import { toSourceDTO } from "../sources/store.js";
-import { readRunStream, type RunStreamEntry } from "../redis/streams.js";
+import {
+  createRunStreamReader,
+  readRunStream,
+  type RunStreamEntry,
+} from "../redis/streams.js";
 import { extractBearerRunToken, verifyRunToken } from "./run-token.js";
 import {
   dispatchRunOrchestration,
@@ -320,85 +324,60 @@ async function handleRunEvents(c: Context) {
   );
 
   return streamSSE(c, async (stream) => {
-    const [snapshotEvents, waitingForInput] = await Promise.all([
-      prisma.runEvent.findMany({ where: { runId }, orderBy: { seq: "asc" } }),
-      getWaitingForInput(runId),
-    ]);
-    let lastSeq = snapshotEvents.at(-1)?.seq ?? 0;
-    let streamCursor = initialStreamCursor;
-    let currentRun = run;
-    let currentStatus = currentRun.status as RunStatus;
-
-    const forwardStreamEntries = async (entries: RunStreamEntry[]) => {
-      for (const entry of entries) {
-        streamCursor = entry.id;
-        await stream.writeSSE({
-          id: entry.id,
-          event: "stream_chunk",
-          data: JSON.stringify(toStreamChunkDTO(runId, entry)),
-        });
-      }
+    const reader = createRunStreamReader(SSE_POLL_INTERVAL_MS);
+    const requestSignal = c.req.raw.signal;
+    let readerClosed = false;
+    const closeReader = () => {
+      if (readerClosed) return;
+      readerClosed = true;
+      reader.disconnect();
     };
+    requestSignal.addEventListener("abort", closeReader, { once: true });
 
-    const drainAvailableStreamEntries = async () => {
-      for (let i = 0; i < SSE_STREAM_DRAIN_MAX_BATCHES; i += 1) {
-        const entries = await readRunStream({
-          runId,
-          cursor: streamCursor,
-          blockMs: 1,
-          count: SSE_STREAM_READ_COUNT,
-        });
-        await forwardStreamEntries(entries);
-        if (entries.length < SSE_STREAM_READ_COUNT) return;
-      }
-    };
-
-    await stream.writeSSE({
-      event: "snapshot",
-      data: JSON.stringify({
-        run: toDTO(currentRun, waitingForInput),
-        events: snapshotEvents.map(toEventDTO),
-      }),
-    });
-
-    await drainAvailableStreamEntries();
-
-    if (shouldCloseSse(currentStatus)) {
-      await stream.writeSSE({
-        event: "done",
-        data: JSON.stringify({ runId, status: currentStatus }),
-      });
-      return;
-    }
-
-    let lastPingAt = Date.now();
-    while (!stream.aborted && !c.req.raw.signal.aborted) {
-      const [freshRun, newEvents, streamEntries] = await Promise.all([
-        prisma.agentRun.findUnique({ where: { id: runId } }),
-        prisma.runEvent.findMany({
-          where: { runId, seq: { gt: lastSeq } },
-          orderBy: { seq: "asc" },
-        }),
-        readRunStream({
-          runId,
-          cursor: streamCursor,
-          blockMs: SSE_POLL_INTERVAL_MS,
-          count: SSE_STREAM_READ_COUNT,
-        }),
+    try {
+      const [snapshotEvents, waitingForInput] = await Promise.all([
+        prisma.runEvent.findMany({ where: { runId }, orderBy: { seq: "asc" } }),
+        getWaitingForInput(runId),
       ]);
-      if (!freshRun) return;
-      currentRun = freshRun;
-      currentStatus = currentRun.status as RunStatus;
+      let lastSeq = snapshotEvents.at(-1)?.seq ?? 0;
+      let streamCursor = initialStreamCursor;
+      let currentRun = run;
+      let currentStatus = currentRun.status as RunStatus;
 
-      await forwardStreamEntries(streamEntries);
+      const forwardStreamEntries = async (entries: RunStreamEntry[]) => {
+        for (const entry of entries) {
+          streamCursor = entry.id;
+          await stream.writeSSE({
+            id: entry.id,
+            event: "stream_chunk",
+            data: JSON.stringify(toStreamChunkDTO(runId, entry)),
+          });
+        }
+      };
 
-      for (const event of newEvents) {
-        lastSeq = event.seq;
-        await stream.writeSSE({
-          event: event.type,
-          data: JSON.stringify(toEventDTO(event)),
-        });
-      }
+      const drainAvailableStreamEntries = async () => {
+        for (let i = 0; i < SSE_STREAM_DRAIN_MAX_BATCHES; i += 1) {
+          const entries = await readRunStream({
+            runId,
+            cursor: streamCursor,
+            blockMs: 1,
+            count: SSE_STREAM_READ_COUNT,
+            reader,
+          });
+          await forwardStreamEntries(entries);
+          if (entries.length < SSE_STREAM_READ_COUNT) return;
+        }
+      };
+
+      await stream.writeSSE({
+        event: "snapshot",
+        data: JSON.stringify({
+          run: toDTO(currentRun, waitingForInput),
+          events: snapshotEvents.map(toEventDTO),
+        }),
+      });
+
+      await drainAvailableStreamEntries();
 
       if (shouldCloseSse(currentStatus)) {
         await stream.writeSSE({
@@ -408,14 +387,58 @@ async function handleRunEvents(c: Context) {
         return;
       }
 
-      const now = Date.now();
-      if (now - lastPingAt >= SSE_PING_INTERVAL_MS) {
-        await stream.writeSSE({
-          event: "ping",
-          data: JSON.stringify({ now: new Date(now).toISOString() }),
-        });
-        lastPingAt = now;
+      let lastPingAt = Date.now();
+      while (!stream.aborted && !requestSignal.aborted) {
+        const [freshRun, newEvents, streamEntries] = await Promise.all([
+          prisma.agentRun.findUnique({ where: { id: runId } }),
+          prisma.runEvent.findMany({
+            where: { runId, seq: { gt: lastSeq } },
+            orderBy: { seq: "asc" },
+          }),
+          readRunStream({
+            runId,
+            cursor: streamCursor,
+            blockMs: SSE_POLL_INTERVAL_MS,
+            count: SSE_STREAM_READ_COUNT,
+            reader,
+          }),
+        ]);
+        if (!freshRun) return;
+        currentRun = freshRun;
+        currentStatus = currentRun.status as RunStatus;
+
+        await forwardStreamEntries(streamEntries);
+
+        for (const event of newEvents) {
+          lastSeq = event.seq;
+          await stream.writeSSE({
+            event: event.type,
+            data: JSON.stringify(toEventDTO(event)),
+          });
+        }
+
+        if (shouldCloseSse(currentStatus)) {
+          await stream.writeSSE({
+            event: "done",
+            data: JSON.stringify({ runId, status: currentStatus }),
+          });
+          return;
+        }
+
+        const now = Date.now();
+        if (now - lastPingAt >= SSE_PING_INTERVAL_MS) {
+          await stream.writeSSE({
+            event: "ping",
+            data: JSON.stringify({ now: new Date(now).toISOString() }),
+          });
+          lastPingAt = now;
+        }
       }
+    } catch (error) {
+      if (!stream.aborted && !requestSignal.aborted) throw error;
+    } finally {
+      requestSignal.removeEventListener("abort", closeReader);
+      closeReader();
     }
   });
 }

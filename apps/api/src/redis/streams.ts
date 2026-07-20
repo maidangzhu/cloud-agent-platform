@@ -30,7 +30,18 @@ export function getRedisClient(): Redis {
   redis = new Redis(url, {
     maxRetriesPerRequest: 3,
   });
+  redis.on("error", () => undefined);
   return redis;
+}
+
+export function createRunStreamReader(blockMs: number): Redis {
+  const reader = getRedisClient().duplicate({
+    autoResendUnfulfilledCommands: false,
+    blockingTimeout: Math.max(blockMs + 1_000, 10_000),
+    maxRetriesPerRequest: 1,
+  });
+  reader.on("error", () => undefined);
+  return reader;
 }
 
 export async function disconnectRedis(): Promise<void> {
@@ -70,22 +81,28 @@ export async function readRunStream(params: {
   cursor?: string;
   blockMs?: number;
   count?: number;
+  reader?: Redis;
 }): Promise<RunStreamEntry[]> {
-  const client = getRedisClient();
+  const blockMs = params.blockMs ?? 0;
+  const client = params.reader ?? createRunStreamReader(blockMs);
   const key = runStreamKey(params.runId);
-  const reply = await client.xread(
-    "COUNT",
-    params.count ?? 100,
-    "BLOCK",
-    params.blockMs ?? 0,
-    "STREAMS",
-    key,
-    params.cursor ?? "0",
-  );
-  if (!reply) return [];
-  return reply.flatMap(([, entries]) =>
-    entries.map(([id, fields]) => parseRunStreamEntry(id, fields)),
-  );
+  try {
+    const reply = await client.xread(
+      "COUNT",
+      params.count ?? 100,
+      "BLOCK",
+      blockMs,
+      "STREAMS",
+      key,
+      params.cursor ?? "0",
+    );
+    if (!reply) return [];
+    return reply.flatMap(([, entries]) =>
+      entries.map(([id, fields]) => parseRunStreamEntry(id, fields)),
+    );
+  } finally {
+    if (!params.reader) client.disconnect();
+  }
 }
 
 export async function deleteRunStream(runId: string): Promise<void> {
