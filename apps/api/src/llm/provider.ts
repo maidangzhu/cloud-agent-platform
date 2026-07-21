@@ -597,7 +597,12 @@ async function postOpenAiChatCompletionStream(params: {
     if (!response.body) {
       throw new Error("LLM provider returned an empty stream");
     }
-    return consumeOpenAiCompletionStream(response.body, params.entry, params.onDelta);
+    return consumeOpenAiCompletionStream(
+      response.body,
+      params.entry,
+      params.onDelta,
+      signal,
+    );
   });
 }
 
@@ -633,8 +638,13 @@ async function consumeOpenAiCompletionStream(
   body: ReadableStream<Uint8Array>,
   entry: Pick<LlmModelConfig, "model">,
   onDelta: (delta: LlmStreamDelta) => Promise<void>,
+  signal: AbortSignal,
 ): Promise<Omit<LlmProviderResult, "durationMs" | "attempts">> {
   const reader = body.getReader();
+  const cancelReader = () => {
+    void reader.cancel(signal.reason).catch(() => undefined);
+  };
+  signal.addEventListener("abort", cancelReader, { once: true });
   const decoder = new TextDecoder();
   let buffer = "";
   let model = entry.model;
@@ -698,30 +708,34 @@ async function consumeOpenAiCompletionStream(
     }
   };
 
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-    const events = buffer.split(/\r?\n\r?\n/);
-    buffer = events.pop() ?? "";
-    for (const event of events) await processEvent(event);
-    if (done) break;
-  }
-  if (buffer.trim()) await processEvent(buffer);
-  if (!terminalSeen) {
-    throw new Error("LLM provider stream ended before a terminal event");
-  }
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() ?? "";
+      for (const event of events) await processEvent(event);
+      if (done) break;
+    }
+    if (buffer.trim()) await processEvent(buffer);
+    if (!terminalSeen) {
+      throw new Error("LLM provider stream ended before a terminal event");
+    }
 
-  return {
-    provider: "openai-compatible",
-    model,
-    reasoning,
-    content,
-    toolCalls: [...toolCalls.entries()]
-      .sort(([left], [right]) => left - right)
-      .map(([, toolCall]) => toolCall),
-    finishReason,
-    usage,
-  };
+    return {
+      provider: "openai-compatible",
+      model,
+      reasoning,
+      content,
+      toolCalls: [...toolCalls.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([, toolCall]) => toolCall),
+      finishReason,
+      usage,
+    };
+  } finally {
+    signal.removeEventListener("abort", cancelReader);
+  }
 }
 
 function accumulateStreamingToolCalls(
@@ -792,18 +806,23 @@ async function withTimeout<T>(
   fn: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort(new Error(`LLM provider timeout after ${timeoutMs}ms`));
-  }, timeoutMs);
+  const timeoutError = new Error(`LLM provider timeout after ${timeoutMs}ms`);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort(timeoutError);
+      reject(timeoutError);
+    }, timeoutMs);
+  });
   try {
-    return await fn(controller.signal);
+    return await Promise.race([fn(controller.signal), timeout]);
   } catch (err) {
     if (controller.signal.aborted) {
-      throw new Error(`LLM provider timeout after ${timeoutMs}ms`);
+      throw timeoutError;
     }
     throw err;
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
   }
 }
 

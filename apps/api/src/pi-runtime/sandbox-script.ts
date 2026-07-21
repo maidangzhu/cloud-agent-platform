@@ -35,6 +35,7 @@ const MAX_FILE_READ_BYTES = 120000;
 const MAX_LIST_ENTRIES = 200;
 const MAX_COMMAND_OUTPUT_CHARS = 20000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 120000;
+const LLM_PROXY_TIMEOUT_MS = 60000;
 const FETCH_URL_TIMEOUT_MS = 15000;
 const FETCH_URL_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -43,6 +44,23 @@ function jsonHeaders() {
     "Content-Type": "application/json",
     Authorization: "Bearer " + config.runToken,
   };
+}
+
+async function withHardTimeout(timeoutMs, label, run) {
+  const controller = new AbortController();
+  const timeoutError = new Error(label + " timeout after " + timeoutMs + "ms");
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort(timeoutError);
+      reject(timeoutError);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([run(controller.signal), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function postJson(url, body) {
@@ -653,7 +671,7 @@ const tools = [
   {
     name: "run_command",
     label: "Run command",
-    description: "Run a bash command inside the sandbox workspace with timeout, denylist, and output truncation.",
+    description: "Run a non-interactive bash command inside the sandbox workspace with timeout, denylist, and output truncation. Prefer machine-readable output such as --json when supported.",
     parameters: Type.Object({
       command: Type.String(),
       timeoutMs: Type.Optional(Type.Number()),
@@ -870,6 +888,7 @@ function createStreamFn() {
     const task = (async () => {
       const requestStartedAt = Date.now();
       try {
+        await withHardTimeout(LLM_PROXY_TIMEOUT_MS, "LLM proxy", async (llmProxySignal) => {
         const lastMessage = context.messages[context.messages.length - 1];
         const missingRequiredTools = getMissingRequiredTools();
         const forceableRequiredTools = missingRequiredTools.filter(
@@ -893,6 +912,7 @@ function createStreamFn() {
             : toLlmMessages(context);
         const response = await fetch(config.llmProxyUrl, {
           method: "POST",
+          signal: llmProxySignal,
           headers: {
             ...jsonHeaders(),
             Accept: "text/event-stream",
@@ -1003,6 +1023,7 @@ function createStreamFn() {
         }
         stream.push({ type: "done", reason: stopReason, message });
         stream.end(message);
+        });
       } catch (error) {
         const message = {
           role: "assistant",
@@ -1115,6 +1136,7 @@ try {
 	        "Use fetch_url to retrieve public URLs directly with SSRF protection.",
 	        "Use read_file, write_file, list_directory, list_files, and run_command for workspace filesystem and bash tasks.",
 	        "When the user asks to run a command, execute it with run_command and report the stdout, stderr, and exit code.",
+	        "Prefer machine-readable output such as --json when a CLI supports it. Avoid interactive commands that wait for terminal input.",
 	        "Use tools to write durable workspace files and create artifacts.",
 	        "When the user explicitly names a tool, call it before giving a final answer.",
 	        "Never claim that you will start a tool action and then stop without executing it.",

@@ -25,4 +25,15 @@ describe("Pi runtime sandbox script protocol", () => {
       "latestAssistantContent || (assistant ? stringifyContent(assistant.content) : \"\")",
     );
   });
+
+  it("keeps LLM proxy calls bounded and asks tools for machine-readable output", () => {
+    expect(PI_RUNTIME_SANDBOX_SCRIPT).toContain("LLM_PROXY_TIMEOUT_MS");
+    expect(PI_RUNTIME_SANDBOX_SCRIPT).toContain("signal: llmProxySignal");
+    expect(PI_RUNTIME_SANDBOX_SCRIPT).toContain(
+      "Prefer machine-readable output such as --json",
+    );
+    expect(PI_RUNTIME_SANDBOX_SCRIPT).toContain(
+      "Avoid interactive commands that wait for terminal input",
+    );
+  });
 });

@@ -741,4 +741,31 @@ describe("real provider streaming", () => {
       message: "LLM provider stream ended before a terminal event",
     });
   });
+
+  it("enforces a hard timeout when the response stream ignores abort", async () => {
+    const transport: LlmHttpTransport = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull: () => new Promise(() => undefined),
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      );
+    const startedAt = Date.now();
+
+    const result = await streamWithRealProvider({
+      messages: [{ role: "user", content: "hello" }],
+      env,
+      transport,
+      timeoutMs: 20,
+      maxRetries: 0,
+      onDelta: () => undefined,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 502,
+      message: "LLM provider timeout after 20ms",
+    });
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
 });
