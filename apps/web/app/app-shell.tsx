@@ -1,6 +1,5 @@
 "use client";
 
-import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ResearchShell } from "@/components/research/research-shell";
 import { ResearchSidebar } from "@/components/research/research-sidebar";
@@ -12,7 +11,6 @@ import type {
   RunArtifact,
   RunSource,
   RunUsageRecord,
-  RunStatus,
   Thread,
   ThreadMessage,
   Workspace,
@@ -20,11 +18,10 @@ import type {
 import {
   chatReducer,
   initialChatState,
+  runPollDelayMs,
   selectActiveRun,
   selectIsRunActive,
   type RunEventDTO,
-  type RunEventType,
-  type StreamChunkDTO,
   type ThreadRun,
 } from "@/lib/chat-runtime";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -52,31 +49,6 @@ type RunSnapshot = {
 type UsageSnapshot = {
   records: RunUsageRecord[];
 };
-
-const RUN_EVENT_TYPES: RunEventType[] = [
-  "run_created",
-  "sandbox_provisioning",
-  "sandbox_ready",
-  "runner_started",
-  "agent_started",
-  "agent_thinking",
-  "agent_message",
-  "tool_call_started",
-  "tool_call_completed",
-  "tool_call_failed",
-  "file_written",
-  "source_recorded",
-  "artifact_started",
-  "artifact_delta",
-  "artifact_created",
-  "artifact_updated",
-  "artifact_failed",
-  "run_completed",
-  "run_failed",
-  "run_timeout",
-  "run_cancelled",
-  "run_waiting_for_input",
-];
 
 export function AppShell() {
   const [loadState, setLoadState] = useState<LoadState>("idle");
@@ -186,147 +158,72 @@ export function AppShell() {
 
   const activeRunView = selectActiveRun(chat);
   const activeRun = activeRunView?.run ?? null;
-  const shouldStream = selectIsRunActive(activeRun);
+  const shouldPoll = selectIsRunActive(activeRun);
 
   useEffect(() => {
-    if (!activeRun || !shouldStream) return;
+    if (!activeRun || !shouldPoll) return;
 
-    const controller = new AbortController();
+    let cancelled = false;
+    let timer: number | undefined;
     const runId = activeRun.id;
+    const threadId = activeRun.threadId;
+    const startedAt = Date.now();
     dispatchChat({ type: "sse/connecting", runId });
 
-    const connectionTimer = window.setTimeout(() => {
-      void fetchEventSource(`/api/runs/${runId}/events`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          Accept: "text/event-stream",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({}),
-        openWhenHidden: true,
-        signal: controller.signal,
-        async onopen(response) {
-          if (!response.ok) {
-            throw new Error(`Live updates failed with HTTP ${response.status}.`);
-          }
-          const contentType = response.headers.get("content-type") ?? "";
-          if (!contentType.includes("text/event-stream")) {
-            throw new Error("Live updates returned an invalid response.");
-          }
-          dispatchChat({ type: "sse/open", runId });
-        },
-        onmessage(message) {
-          if (message.event === "snapshot") {
-            const snapshot = parseSseData<{
-              run: AgentRun;
-              events: RunEventDTO[];
-            }>(message.data);
-            if (snapshot) {
-              dispatchChat({
-                type: "sse/snapshot",
-                runId,
-                run: snapshot.run,
-                events: snapshot.events,
-              });
-            }
-            return;
-          }
-
-          if (message.event === "stream_chunk") {
-            const chunk = parseSseData<StreamChunkDTO>(message.data);
-            if (chunk) {
-              dispatchChat({
-                type: "sse/chunk",
-                runId,
-                chunk: {
-                  ...chunk,
-                  id: message.id || `${runId}:${chunk.streamType}:${message.data}`,
-                },
-              });
-            }
-            return;
-          }
-
-          if (message.event === "done") {
-            const done = parseSseData<{ runId: string; status: RunStatus }>(message.data);
-            if (done?.runId === runId) {
-              dispatchChat({ type: "sse/done", runId, status: done.status });
-              void loadRunDetail(runId, activeRun.threadId);
-              void refreshThreadHistory(activeRun.threadId, threadLoadRequestId.current);
-            }
-            controller.abort();
-            return;
-          }
-
-          if (message.event === "ping") return;
-          if (RUN_EVENT_TYPES.includes(message.event as RunEventType)) {
-            const event = parseSseData<RunEventDTO>(message.data);
-            if (event) dispatchChat({ type: "sse/event", runId, event });
-          }
-        },
-        onclose() {
-          if (!controller.signal.aborted) {
-            dispatchChat({
-              type: "sse/error",
-              runId,
-              error: "Live updates disconnected. Reconnecting...",
-            });
-          }
-        },
-        onerror(err) {
-          if (!controller.signal.aborted) {
-            dispatchChat({
-              type: "sse/error",
-              runId,
-              error: `${toErrorMessage(err)} Reconnecting...`,
-            });
-          }
-          return 2_000;
-        },
-      }).catch((err) => {
-        if (!controller.signal.aborted) {
-          dispatchChat({ type: "sse/error", runId, error: toErrorMessage(err) });
-        }
-      });
-    }, 0);
-
-    return () => {
-      window.clearTimeout(connectionTimer);
-      controller.abort();
+    const scheduleNext = () => {
+      if (cancelled) return;
+      const delay =
+        document.visibilityState === "hidden"
+          ? 20_000
+          : runPollDelayMs(Date.now() - startedAt);
+      timer = window.setTimeout(() => void reconcile(), delay);
     };
-    // Status changes only matter when they cross the active/terminal boundary.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRun?.id, shouldStream]);
 
-  useEffect(() => {
-    if (!activeRun || !shouldStream) return;
-
-    let inFlight = false;
     const reconcile = async () => {
-      if (inFlight) return;
-      inFlight = true;
       try {
-        const result = await apiGet<RunSnapshot>(`/api/runs/${activeRun.id}`);
-        if (!result.ok) return;
+        const result = await apiGet<RunSnapshot>(`/api/runs/${runId}`);
+        if (!result.ok) throw new Error(result.message);
+        if (cancelled) return;
         dispatchChat({
           type: "run/detail_loaded",
-          threadId: activeRun.threadId,
+          threadId,
           run: result.data.run,
           events: result.data.events,
           artifacts: result.data.artifacts,
           sources: result.data.sources,
         });
-      } catch {
-        // SSE remains the primary path; the next interval retries reconciliation.
-      } finally {
-        inFlight = false;
-      }
-    };
-    const timer = window.setInterval(() => void reconcile(), 5_000);
+        dispatchChat({ type: "sse/open", runId });
 
-    return () => window.clearInterval(timer);
-  }, [activeRun?.id, activeRun?.threadId, shouldStream]);
+        if (!selectIsRunActive(result.data.run)) {
+          dispatchChat({
+            type: "sse/done",
+            runId,
+            status: result.data.run.status,
+          });
+          void loadRunDetail(runId, threadId);
+          void refreshThreadHistory(threadId, threadLoadRequestId.current);
+          return;
+        }
+      } catch (err) {
+        if (!cancelled) {
+          dispatchChat({
+            type: "sse/error",
+            runId,
+            error: `${toErrorMessage(err)} Retrying...`,
+          });
+        }
+      }
+      scheduleNext();
+    };
+
+    void reconcile();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+    // Status changes only matter when they cross the active/terminal boundary.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRun?.id, shouldPoll]);
 
   const activeWorkspace = useMemo(
     () => workspaces.find((item) => item.id === activeWorkspaceId) ?? null,
@@ -557,14 +454,6 @@ export function AppShell() {
       </SidebarInset>
     </SidebarProvider>
   );
-}
-
-function parseSseData<T>(data: string): T | null {
-  try {
-    return JSON.parse(data) as T;
-  } catch {
-    return null;
-  }
 }
 
 function threadStorageKey(workspaceId: string) {

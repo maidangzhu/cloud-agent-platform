@@ -129,6 +129,20 @@ export class VercelSandbox implements Sandbox {
     }
   }
 
+  async execDetached(
+    command: string,
+    opts?: Pick<ExecOptions, "timeoutMs">,
+  ): Promise<{ commandId: string }> {
+    const process = await this.sdk.runCommand({
+      cmd: "sh",
+      args: ["-c", command],
+      cwd: this.workingDir,
+      detached: true,
+      timeoutMs: opts?.timeoutMs,
+    });
+    return { commandId: process.cmdId };
+  }
+
   async snapshot(): Promise<{ snapshotId: string }> {
     const snap = await this.sdk.snapshot();
     this.state.snapshotId = snap.snapshotId;

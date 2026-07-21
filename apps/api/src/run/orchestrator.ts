@@ -3,7 +3,7 @@ import { buildPiRuntimeStartConfig } from "../pi-runtime/config.js";
 import {
   getOrCreateWorkspaceSandbox,
   releaseWorkspaceSandboxForRun,
-  runPiRuntimeInSandbox,
+  startPiRuntimeInSandbox,
 } from "../sandbox/workspace-sandbox.js";
 import { issueRunToken } from "./run-token.js";
 import { insertRunEvent } from "./event-store.js";
@@ -179,7 +179,7 @@ export async function runCreatedRunOrchestration(params: {
       data: { startedAt: new Date() },
     });
 
-    const result = await runPiRuntimeInSandbox({
+    await startPiRuntimeInSandbox({
       sandbox: claim.sandbox,
       config: buildPiRuntimeStartConfig({
         apiBaseUrl: params.apiBaseUrl,
@@ -197,15 +197,7 @@ export async function runCreatedRunOrchestration(params: {
         searchProvider: resolvePiRuntimeSearchProvider(),
         workspaceSyncPlan,
       }),
-      execTimeoutMs: Math.max(30_000, run.maxDurationSec * 1000),
     });
-
-    if (result.exitCode !== 0) {
-      await failRunBestEffort(
-        run.id,
-        trimRunError(result.stderr || result.stdout || "runner exited non-zero"),
-      );
-    }
 
     const latest = await prisma.agentRun.findUnique({ where: { id: run.id } });
     return {

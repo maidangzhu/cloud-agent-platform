@@ -346,6 +346,12 @@ export function selectIsRunActive(run: AgentRun | null | undefined) {
   );
 }
 
+export function runPollDelayMs(elapsedMs: number) {
+  if (elapsedMs < 60_000) return 5_000;
+  if (elapsedMs < 5 * 60_000) return 10_000;
+  return 20_000;
+}
+
 export function mergeRunEvents(current: RunEventDTO[], incoming: RunEventDTO[]) {
   const bySeq = new Map<number, RunEventDTO>();
   for (const event of current) bySeq.set(event.seq, event);

@@ -3,6 +3,7 @@ import { buildPiRuntimeStartConfig } from "./config.js";
 import {
   installPiRuntimeInSandbox,
   runPiRuntimeInSandbox,
+  startPiRuntimeInSandbox,
 } from "../sandbox/workspace-sandbox.js";
 
 describe("Pi runtime sandbox install", () => {
@@ -139,5 +140,46 @@ describe("Pi runtime sandbox install", () => {
       stdout: "{\"completed\":true}\n",
       stderr: "",
     });
+  });
+
+  it("starts the runtime detached without waiting for the agent to finish", async () => {
+    const writes: Record<string, string> = {};
+    const commands: string[] = [];
+    const config = buildPiRuntimeStartConfig({
+      apiBaseUrl: "https://api.sandbox.maidang.me",
+      runToken: "scoped-run-token",
+      run: {
+        id: "run_1",
+        workspaceId: "workspace_1",
+        threadId: "thread_1",
+        userId: "user_1",
+        prompt: "smoke",
+        maxDurationSec: 120,
+      },
+    });
+    const sandbox = {
+      workingDir: "/vercel/sandbox",
+      readFile: async (path: string) => writes[path] ?? "",
+      writeFile: async (path: string, content: string) => {
+        writes[path] = content;
+      },
+      exec: async (command: string) => {
+        commands.push(command);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+      execDetached: async (command: string) => {
+        commands.push(command);
+        return { commandId: "cmd_1" };
+      },
+      stop: async () => undefined,
+      getState: () => ({ provider: "fake" }),
+    };
+
+    const result = await startPiRuntimeInSandbox({ sandbox, config });
+
+    expect(result).toEqual({ started: true, commandId: "cmd_1" });
+    expect(commands).toHaveLength(2);
+    expect(commands[0]).toContain("npm install");
+    expect(commands[1]).toBe("node pi-runtime.mjs");
   });
 });

@@ -96,7 +96,8 @@ type StreamChunkDTO = {
   chunk: string;
 };
 
-const SSE_POLL_INTERVAL_MS = 100;
+const SSE_STREAM_POLL_INTERVAL_MS = 1_000;
+const SSE_DB_POLL_INTERVAL_MS = 5_000;
 const SSE_PING_INTERVAL_MS = 15_000;
 const SSE_STREAM_READ_COUNT = 100;
 const SSE_STREAM_DRAIN_MAX_BATCHES = 20;
@@ -324,7 +325,7 @@ async function handleRunEvents(c: Context) {
   );
 
   return streamSSE(c, async (stream) => {
-    const reader = createRunStreamReader(SSE_POLL_INTERVAL_MS);
+    const reader = createRunStreamReader(SSE_STREAM_POLL_INTERVAL_MS);
     const requestSignal = c.req.raw.signal;
     let readerClosed = false;
     const closeReader = () => {
@@ -343,6 +344,7 @@ async function handleRunEvents(c: Context) {
       let streamCursor = initialStreamCursor;
       let currentRun = run;
       let currentStatus = currentRun.status as RunStatus;
+      let lastDbPollAt = Date.now();
 
       const forwardStreamEntries = async (entries: RunStreamEntry[]) => {
         for (const entry of entries) {
@@ -389,43 +391,46 @@ async function handleRunEvents(c: Context) {
 
       let lastPingAt = Date.now();
       while (!stream.aborted && !requestSignal.aborted) {
-        const [freshRun, newEvents, streamEntries] = await Promise.all([
-          prisma.agentRun.findUnique({ where: { id: runId } }),
-          prisma.runEvent.findMany({
-            where: { runId, seq: { gt: lastSeq } },
-            orderBy: { seq: "asc" },
-          }),
-          readRunStream({
-            runId,
-            cursor: streamCursor,
-            blockMs: SSE_POLL_INTERVAL_MS,
-            count: SSE_STREAM_READ_COUNT,
-            reader,
-          }),
-        ]);
-        if (!freshRun) return;
-        currentRun = freshRun;
-        currentStatus = currentRun.status as RunStatus;
-
+        const streamEntries = await readRunStream({
+          runId,
+          cursor: streamCursor,
+          blockMs: SSE_STREAM_POLL_INTERVAL_MS,
+          count: SSE_STREAM_READ_COUNT,
+          reader,
+        });
         await forwardStreamEntries(streamEntries);
 
-        for (const event of newEvents) {
-          lastSeq = event.seq;
-          await stream.writeSSE({
-            event: event.type,
-            data: JSON.stringify(toEventDTO(event)),
-          });
-        }
-
-        if (shouldCloseSse(currentStatus)) {
-          await stream.writeSSE({
-            event: "done",
-            data: JSON.stringify({ runId, status: currentStatus }),
-          });
-          return;
-        }
-
         const now = Date.now();
+        if (now - lastDbPollAt >= SSE_DB_POLL_INTERVAL_MS) {
+          const [freshRun, newEvents] = await Promise.all([
+            prisma.agentRun.findUnique({ where: { id: runId } }),
+            prisma.runEvent.findMany({
+              where: { runId, seq: { gt: lastSeq } },
+              orderBy: { seq: "asc" },
+            }),
+          ]);
+          if (!freshRun) return;
+          currentRun = freshRun;
+          currentStatus = currentRun.status as RunStatus;
+          lastDbPollAt = now;
+
+          for (const event of newEvents) {
+            lastSeq = event.seq;
+            await stream.writeSSE({
+              event: event.type,
+              data: JSON.stringify(toEventDTO(event)),
+            });
+          }
+
+          if (shouldCloseSse(currentStatus)) {
+            await stream.writeSSE({
+              event: "done",
+              data: JSON.stringify({ runId, status: currentStatus }),
+            });
+            return;
+          }
+        }
+
         if (now - lastPingAt >= SSE_PING_INTERVAL_MS) {
           await stream.writeSSE({
             event: "ping",

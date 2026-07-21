@@ -20,6 +20,10 @@ export interface ExecOptions {
   signal?: AbortSignal;
 }
 
+export interface DetachedExecResult {
+  commandId: string;
+}
+
 /** 落库用的沙箱状态引用（不含文件系统本身）。对应 Workspace 表字段。 */
 export interface SandboxState {
   provider: string;
@@ -42,6 +46,12 @@ export interface Sandbox {
 
   /** 执行命令（已由调用方过 policy）；带超时与输出截断。 */
   exec(command: string, opts?: ExecOptions): Promise<ExecResult>;
+
+  /** 启动长任务并立即返回；任务继续在 sandbox 内运行。 */
+  execDetached?(
+    command: string,
+    opts?: Pick<ExecOptions, "timeoutMs">,
+  ): Promise<DetachedExecResult>;
 
   /** 文件系统快照（② 快照恢复）；会停止沙箱。 */
   snapshot(): Promise<{ snapshotId: string }>;

@@ -5,7 +5,7 @@
   "regions": ["sin1"],
   "functions": {
     "api/index.ts": {
-      "maxDuration": 1800
+      "maxDuration": 300
     }
   },
   "rewrites": [
@@ -17,7 +17,7 @@
   "crons": [
     {
       "path": "/api/sweep",
-      "schedule": "* * * * *"
+      "schedule": "*/10 * * * *"
     }
   ],
   "headers": [

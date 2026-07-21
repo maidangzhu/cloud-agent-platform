@@ -3,6 +3,7 @@ import type { AgentRun } from "@/components/research/types";
 import {
   chatReducer,
   initialChatState,
+  runPollDelayMs,
   selectRunContent,
   selectRunPhase,
   type ChatState,
@@ -144,6 +145,13 @@ describe("chat runtime", () => {
 
     expect(state.runOrder).toEqual(["run-1", "run-2"]);
     expect(state.activeRunId).toBe("run-2");
+  });
+
+  it("backs off run polling while keeping early updates responsive", () => {
+    expect(runPollDelayMs(0)).toBe(5_000);
+    expect(runPollDelayMs(59_999)).toBe(5_000);
+    expect(runPollDelayMs(60_000)).toBe(10_000);
+    expect(runPollDelayMs(5 * 60_000)).toBe(20_000);
   });
 });
 

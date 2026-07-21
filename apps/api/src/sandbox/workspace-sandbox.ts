@@ -17,6 +17,10 @@ type VercelSandboxHandle = {
     command: string,
     opts?: { timeoutMs?: number; signal?: AbortSignal },
   ): Promise<{ exitCode: number; stdout: string; stderr: string }>;
+  execDetached?(
+    command: string,
+    opts?: { timeoutMs?: number },
+  ): Promise<{ commandId: string }>;
   stop(): Promise<void>;
   getState(): { provider: string; sandboxName?: string; snapshotId?: string };
 };
@@ -327,6 +331,41 @@ export async function runPiRuntimeInSandbox(params: {
   return runCapturedPiRuntimeCommand(params.sandbox, "node pi-runtime.mjs", {
     timeoutMs: params.execTimeoutMs ?? 120_000,
   });
+}
+
+export async function startPiRuntimeInSandbox(params: {
+  sandbox: VercelSandboxHandle;
+  config: PiRuntimeStartConfig;
+  installTimeoutMs?: number;
+}): Promise<{ started: true; commandId: string }> {
+  await installPiRuntimeInSandbox(params);
+  const install = await params.sandbox.exec(
+    "npm ls --omit=dev --depth=0 --silent >/dev/null 2>&1 || npm install --omit=dev --no-audit --no-fund",
+    { timeoutMs: params.installTimeoutMs ?? 180_000 },
+  );
+  if (install.exitCode !== 0) {
+    throw new Error(
+      truncateCapturedSandboxOutput(
+        install.stderr || install.stdout || "Pi runtime dependency install failed",
+      ).text,
+    );
+  }
+
+  if (params.sandbox.execDetached) {
+    const process = await params.sandbox.execDetached("node pi-runtime.mjs", {
+      timeoutMs: Math.max(1_000, params.config.maxDurationSec * 1_000),
+    });
+    return { started: true, commandId: process.commandId };
+  }
+
+  const fallback = await params.sandbox.exec(
+    "nohup node pi-runtime.mjs > pi-runtime.stdout.log 2> pi-runtime.stderr.log < /dev/null & printf \"%s\" \"$!\"",
+    { timeoutMs: 10_000 },
+  );
+  if (fallback.exitCode !== 0) {
+    throw new Error(fallback.stderr || "Pi runtime detached start failed");
+  }
+  return { started: true, commandId: fallback.stdout.trim() || "detached" };
 }
 
 async function runCapturedPiRuntimeCommand(
